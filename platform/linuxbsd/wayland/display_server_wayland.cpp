@@ -41,7 +41,7 @@
 
 #include "servers/rendering/dummy/rasterizer_dummy.h"
 
-#ifdef VULKAN_ENABLED
+#ifdef RD_ENABLED
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #endif
 
