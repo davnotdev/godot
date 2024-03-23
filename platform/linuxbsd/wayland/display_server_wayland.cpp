@@ -39,7 +39,7 @@
 #define DEBUG_LOG_WAYLAND(...)
 #endif
 
-#ifdef VULKAN_ENABLED
+#ifdef RD_ENABLED
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #endif
 

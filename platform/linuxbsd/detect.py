@@ -472,6 +472,9 @@ def configure(env: "SConsEnvironment"):
         env.Append(CPPDEFINES=["WAYLAND_ENABLED"])
         env.Append(LIBS=["rt"])  # Needed by glibc, used by _allocate_shm_file
 
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED", "RD_ENABLED"])
         if not env["use_volk"]:
