@@ -536,6 +536,9 @@ def configure(env: "SConsEnvironment"):
             )
             env["accesskit"] = False
 
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED", "RD_ENABLED"])
         if not env["use_volk"]:

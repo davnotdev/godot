@@ -53,6 +53,9 @@
 #ifdef VULKAN_ENABLED
 #include "wayland/rendering_context_driver_vulkan_wayland.h"
 #endif
+#ifdef WEBGPU_ENABLED
+// TODO(davnotdev): webgpu wayland
+#endif
 
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #endif
