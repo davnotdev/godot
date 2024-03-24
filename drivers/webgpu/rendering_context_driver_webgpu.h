@@ -30,8 +30,6 @@ public:
 	RenderingContextDriverWebGpu();
 	virtual ~RenderingContextDriverWebGpu() override;
 
-	void adapter_set(WGPUAdapter new_adapter);
-
 	struct Surface {
 		WGPUSurface surface;
 		uint32_t width = 0;
@@ -40,6 +38,7 @@ public:
 		bool needs_resize = false;
 	};
 
+	void adapter_set(WGPUAdapter new_adapter);
 	WGPUInstance instance_get() const;
 };
 
