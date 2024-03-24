@@ -8,7 +8,9 @@
 class RenderingContextDriverWebGpu : public RenderingContextDriver {
 private:
 	WGPUInstance instance = nullptr;
-	WGPUAdapter adapter = nullptr;
+	TightLocalVector<WGPUAdapter> adapters;
+	TightLocalVector<Device> driver_devices;
+
 public:
 	virtual Error initialize() override;
 	virtual const RenderingContextDriver::Device &device_get(uint32_t p_device_index) const override;
@@ -38,8 +40,8 @@ public:
 		bool needs_resize = false;
 	};
 
-	void adapter_set(WGPUAdapter new_adapter);
 	WGPUInstance instance_get() const;
+	void adapter_push_back(WGPUAdapter p_adapter, Device p_device);
 };
 
 #endif // RENDERING_CONTEXT_DRIVER_WGPU_H
