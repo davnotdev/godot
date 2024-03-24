@@ -1,5 +1,8 @@
+#ifdef WEBGPU_ENABLED
+
 #include "rendering_context_driver_webgpu.h"
 #include "core/error/error_macros.h"
+#include "rendering_device_driver_webgpu.h"
 #include <webgpu.h>
 
 static void handleRequestAdapter(WGPURequestAdapterStatus status,
@@ -45,13 +48,11 @@ bool RenderingContextDriverWebGpu::device_supports_present(uint32_t p_device_ind
 }
 
 RenderingDeviceDriver *RenderingContextDriverWebGpu::driver_create() {
-	DEV_ASSERT(false)
-	//  TODO
+	return memnew(RenderingDeviceDriverWebGpu(this));
 }
 
-void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver){
-	DEV_ASSERT(false)
-	//  TODO
+void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver) {
+	memdelete(p_driver);
 }
 
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(const void *p_platform_data) {
@@ -66,7 +67,7 @@ void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_
 	surface->needs_resize = true;
 }
 
-void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServer::VSyncMode p_vsync_mode){
+void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServer::VSyncMode p_vsync_mode) {
 	Surface *surface = (Surface *)(p_surface);
 	surface->vsync_mode = p_vsync_mode;
 	surface->needs_resize = true;
@@ -105,7 +106,7 @@ void RenderingContextDriverWebGpu::surface_destroy(SurfaceID p_surface) {
 bool RenderingContextDriverWebGpu::is_debug_utils_enabled() const {
 	DEV_ASSERT(false)
 	//  TODO
-	return false;
+	return true;
 }
 
 void RenderingContextDriverWebGpu::adapter_set(WGPUAdapter new_adapter) {
@@ -115,3 +116,5 @@ void RenderingContextDriverWebGpu::adapter_set(WGPUAdapter new_adapter) {
 WGPUInstance RenderingContextDriverWebGpu::instance_get() const {
 	return instance;
 }
+
+#endif // WEBGPU_ENABLED
