@@ -28,6 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
+#ifdef VULKAN_ENABLED
+
 #include "rendering_device_driver_vulkan.h"
 
 #include "core/config/project_settings.h"
@@ -4960,3 +4962,6 @@ RenderingDeviceDriverVulkan::~RenderingDeviceDriverVulkan() {
 		vkDestroyDevice(vk_device, nullptr);
 	}
 }
+
+#endif //  VULKAN_ENABLED
+
