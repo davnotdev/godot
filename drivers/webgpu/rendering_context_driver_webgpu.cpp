@@ -49,7 +49,7 @@ RenderingDeviceDriver *RenderingContextDriverWebGpu::driver_create() {
 	//  TODO
 }
 
-void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver) {
+void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver){
 	DEV_ASSERT(false)
 	//  TODO
 }
@@ -60,47 +60,47 @@ RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(c
 }
 
 void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_t p_width, uint32_t p_height) {
-	DEV_ASSERT(false)
-	//  TODO
+	Surface *surface = (Surface *)(p_surface);
+	surface->width = p_width;
+	surface->width = p_height;
+	surface->needs_resize = true;
 }
 
-void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServer::VSyncMode p_vsync_mode) {
-	DEV_ASSERT(false)
-	//  TODO
+void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServer::VSyncMode p_vsync_mode){
+	Surface *surface = (Surface *)(p_surface);
+	surface->vsync_mode = p_vsync_mode;
+	surface->needs_resize = true;
 }
 
 DisplayServer::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mode(SurfaceID p_surface) const {
-	DEV_ASSERT(false)
-	//  TODO
-	return DisplayServer::VSyncMode::VSYNC_DISABLED;
+	Surface *surface = (Surface *)(p_surface);
+	return surface->vsync_mode;
 }
 
 uint32_t RenderingContextDriverWebGpu::surface_get_width(SurfaceID p_surface) const {
-	DEV_ASSERT(false)
-	//  TODO
-	return 0;
+	Surface *surface = (Surface *)(p_surface);
+	return surface->width;
 }
 
 uint32_t RenderingContextDriverWebGpu::surface_get_height(SurfaceID p_surface) const {
-	DEV_ASSERT(false)
-	//  TODO
-	return 0;
+	Surface *surface = (Surface *)(p_surface);
+	return surface->height;
 }
 
 void RenderingContextDriverWebGpu::surface_set_needs_resize(SurfaceID p_surface, bool p_needs_resize) {
-	DEV_ASSERT(false)
-	//  TODO
+	Surface *surface = (Surface *)(p_surface);
+	surface->needs_resize = p_needs_resize;
 }
 
 bool RenderingContextDriverWebGpu::surface_get_needs_resize(SurfaceID p_surface) const {
-	DEV_ASSERT(false)
-	//  TODO
-	return false;
+	Surface *surface = (Surface *)(p_surface);
+	return surface->needs_resize;
 }
 
 void RenderingContextDriverWebGpu::surface_destroy(SurfaceID p_surface) {
-	DEV_ASSERT(false)
-	//  TODO
+	Surface *surface = (Surface *)(p_surface);
+	wgpuSurfaceRelease(surface->surface);
+	memdelete(surface);
 }
 bool RenderingContextDriverWebGpu::is_debug_utils_enabled() const {
 	DEV_ASSERT(false)
