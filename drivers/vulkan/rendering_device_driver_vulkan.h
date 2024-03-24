@@ -30,6 +30,8 @@
 
 #pragma once
 
+#ifdef VULKAN_ENABLED
+
 #include "core/templates/hash_map.h"
 #include "core/templates/paged_allocator.h"
 #include "drivers/vulkan/rendering_context_driver_vulkan.h"
@@ -737,3 +739,4 @@ public:
 };
 
 using VKC = RenderingContextDriverVulkan;
+#endif // VULKAN_ENABLED
