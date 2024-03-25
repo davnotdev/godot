@@ -145,6 +145,12 @@ WGPUInstance RenderingContextDriverWebGpu::instance_get() const {
 	return instance;
 }
 
+WGPUAdapter RenderingContextDriverWebGpu::adapter_get(uint32_t p_adapter_index) const {
+	DEV_ASSERT(p_adapter_index < adapters.size());
+	WGPUAdapter adapter = adapters[p_adapter_index];
+	return adapter;
+}
+
 void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Device p_device) {
 	adapters.push_back(p_adapter);
 	driver_devices.push_back(p_device);
