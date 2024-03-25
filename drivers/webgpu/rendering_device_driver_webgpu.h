@@ -2,10 +2,16 @@
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
+
+#include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
 
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
+	WGPUDevice device = nullptr;
+	WGPUQueue queue = nullptr;
 	RenderingContextDriverWebGpu *context_driver = nullptr;
+	RenderingContextDriver::Device context_device;
+
 public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
 
