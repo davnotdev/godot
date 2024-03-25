@@ -1,6 +1,24 @@
 #include "rendering_device_driver_webgpu.h"
 
+#include "core/error/error_macros.h"
+
+static void handle_request_device(WGPURequestDeviceStatus status,
+		WGPUDevice device, char const *message,
+		void *userdata) {
+	*(WGPUDevice *)userdata = device;
+}
+
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
+	WGPUAdapter adapter = context_driver->adapter_get(p_device_index);
+	this->context_device = context_driver->device_get(p_device_index);
+
+	wgpuAdapterRequestDevice(adapter, nullptr, handle_request_device, &this->device);
+	ERR_FAIL_COND_V(!this->device, FAILED);
+
+	this->queue = wgpuDeviceGetQueue(device);
+	ERR_FAIL_COND_V(!this->queue, FAILED);
+
+	return OK;
 }
 
 /*****************/
@@ -9,13 +27,18 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
 }
+
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
 }
+
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 }
+
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buffer) {
 }
+
 uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {}
+
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {}
 
 /*****************/
@@ -294,4 +317,12 @@ RenderingDeviceDriverWebGpu::RenderingDeviceDriverWebGpu(RenderingContextDriverW
 
 	context_driver = p_context_driver;
 }
-RenderingDeviceDriverWebGpu::~RenderingDeviceDriverWebGpu() {}
+RenderingDeviceDriverWebGpu::~RenderingDeviceDriverWebGpu() {
+	if (queue != nullptr) {
+		wgpuQueueRelease(queue);
+	}
+
+	if (device != nullptr) {
+		wgpuDeviceRelease(device);
+	}
+}

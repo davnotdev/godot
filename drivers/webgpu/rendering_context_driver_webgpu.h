@@ -41,6 +41,7 @@ public:
 	};
 
 	WGPUInstance instance_get() const;
+	WGPUAdapter adapter_get(uint32_t p_adapter_index) const;
 	void adapter_push_back(WGPUAdapter p_adapter, Device p_device);
 };
 
