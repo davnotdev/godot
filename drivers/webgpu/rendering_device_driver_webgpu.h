@@ -1,6 +1,7 @@
 #ifndef RENDERING_DEVICE_DRIVER_WEBGPU_H
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
+#include "core/templates/local_vector.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 
 #include "servers/rendering/rendering_context_driver.h"
@@ -11,6 +12,9 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	WGPUQueue queue = nullptr;
 	RenderingContextDriverWebGpu *context_driver = nullptr;
 	RenderingContextDriver::Device context_device;
+
+	// Note: Indexed by CommandBufferID with offset of 1, so that index 0 => 1.
+	TightLocalVector<WGPUCommandEncoder> command_encoders;
 
 public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
