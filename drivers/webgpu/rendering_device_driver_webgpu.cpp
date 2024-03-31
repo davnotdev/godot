@@ -87,16 +87,31 @@ void RenderingDeviceDriverWebGpu::command_pipeline_barrier(
 /**** FENCES ****/
 /****************/
 
-RenderingDeviceDriver::FenceID RenderingDeviceDriverWebGpu::fence_create() {}
-Error RenderingDeviceDriverWebGpu::fence_wait(FenceID p_fence) {}
-void RenderingDeviceDriverWebGpu::fence_free(FenceID p_fence) {}
+RenderingDeviceDriver::FenceID RenderingDeviceDriverWebGpu::fence_create() {
+	// The usage of fences in godot to sync frames is already handled by WebGpu.
+	return FenceID(1);
+}
+
+Error RenderingDeviceDriverWebGpu::fence_wait(FenceID _p_fence) {
+	return OK;
+}
+
+void RenderingDeviceDriverWebGpu::fence_free(FenceID p_fence) {
+	// Empty.
+}
 
 /********************/
 /**** SEMAPHORES ****/
 /********************/
 
-RenderingDeviceDriver::SemaphoreID RenderingDeviceDriverWebGpu::semaphore_create() {}
-void RenderingDeviceDriverWebGpu::semaphore_free(SemaphoreID p_semaphore) {}
+RenderingDeviceDriver::SemaphoreID RenderingDeviceDriverWebGpu::semaphore_create() {
+	// The usage of fences in godot to sync frames is already handled by WebGpu.
+	return SemaphoreID(1);
+}
+
+void RenderingDeviceDriverWebGpu::semaphore_free(SemaphoreID _p_semaphore) {
+	// Empty.
+}
 
 /******************/
 /**** COMMANDS ****/
@@ -104,25 +119,69 @@ void RenderingDeviceDriverWebGpu::semaphore_free(SemaphoreID p_semaphore) {}
 
 // ----- QUEUE FAMILY -----
 
-RenderingDeviceDriver::CommandQueueFamilyID RenderingDeviceDriverWebGpu::command_queue_family_get(BitField<CommandQueueFamilyBits> p_cmd_queue_family_bits, RenderingContextDriver::SurfaceID p_surface) {}
+RenderingDeviceDriver::CommandQueueFamilyID RenderingDeviceDriverWebGpu::command_queue_family_get(BitField<CommandQueueFamilyBits> _p_cmd_queue_family_bits, RenderingContextDriver::SurfaceID _p_surface) {
+	// WebGpu has no concept of queue families, so this value is unused.
+	return CommandQueueFamilyID(1);
+}
 
 // ----- QUEUE -----
 
-RenderingDeviceDriver::CommandQueueID RenderingDeviceDriverWebGpu::command_queue_create(CommandQueueFamilyID p_cmd_queue_family, bool p_identify_as_main_queue) {}
+RenderingDeviceDriver::CommandQueueID RenderingDeviceDriverWebGpu::command_queue_create(CommandQueueFamilyID _p_cmd_queue_family, bool _p_identify_as_main_queue) {
+	// WebGpu has only one queue, so this value is unused.
+	return CommandQueueID(1);
+}
+
 Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {}
-void RenderingDeviceDriverWebGpu::command_queue_free(CommandQueueID p_cmd_queue) {}
+
+void RenderingDeviceDriverWebGpu::command_queue_free(CommandQueueID _p_cmd_queue) {
+	// Empty.
+}
 
 // ----- POOL -----
 
-RenderingDeviceDriver::CommandPoolID RenderingDeviceDriverWebGpu::command_pool_create(CommandQueueFamilyID p_cmd_queue_family, CommandBufferType p_cmd_buffer_type) {}
-void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {}
+RenderingDeviceDriver::CommandPoolID RenderingDeviceDriverWebGpu::command_pool_create(CommandQueueFamilyID _p_cmd_queue_family, CommandBufferType _p_cmd_buffer_type) {
+	// WebGpu has no concept of command pools.
+	// However, we will free command encoders with command_pool_free because command buffers are tied to the lifetime of command pools.
+	return CommandPoolID(1);
+}
+
+void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID _p_cmd_pool) {
+	// Empty.
+}
 
 // ----- BUFFER -----
 
-RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buffer_create(CommandPoolID p_cmd_pool) {}
-bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buffer) {}
-bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) {}
-void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {}
+RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buffer_create(CommandPoolID _p_cmd_pool) {
+	command_encoders.push_back(nullptr);
+	return CommandBufferID(command_encoders.size() - 1 + 1);
+}
+
+bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buffer) {
+	DEV_ASSERT(p_cmd_buffer - 1 < command_encoders.size());
+
+	WGPUCommandEncoder& encoder_spot = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder_spot == nullptr);
+
+	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
+	WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
+
+	encoder_spot = encoder;
+
+	return false;
+}
+
+bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) {
+}
+
+void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {
+	DEV_ASSERT(p_cmd_buffer - 1 < command_encoders.size());
+
+	WGPUCommandEncoder& encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
+
+	wgpuCommandEncoderRelease(encoder);
+}
+
 void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {}
 
 /********************/
@@ -273,10 +332,23 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 // ----- TIMESTAMP -----
 
 // Basic.
-RenderingDeviceDriver::QueryPoolID RenderingDeviceDriverWebGpu::timestamp_query_pool_create(uint32_t p_query_count) {}
-void RenderingDeviceDriverWebGpu::timestamp_query_pool_free(QueryPoolID p_pool_id) {}
-void RenderingDeviceDriverWebGpu::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {}
-uint64_t RenderingDeviceDriverWebGpu::timestamp_query_result_to_time(uint64_t p_result) {}
+RenderingDeviceDriver::QueryPoolID RenderingDeviceDriverWebGpu::timestamp_query_pool_create(uint32_t p_query_count) {
+	// TODO
+	return QueryPoolID(1);
+}
+
+void RenderingDeviceDriverWebGpu::timestamp_query_pool_free(QueryPoolID p_pool_id) {
+	// TODO
+}
+
+void RenderingDeviceDriverWebGpu::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
+	// TODO
+}
+
+uint64_t RenderingDeviceDriverWebGpu::timestamp_query_result_to_time(uint64_t p_result) {
+	// TODO
+	return 1;
+}
 
 // Commands.
 void RenderingDeviceDriverWebGpu::command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) {}
@@ -304,11 +376,25 @@ void RenderingDeviceDriverWebGpu::set_object_name(ObjectType p_type, ID p_driver
 uint64_t RenderingDeviceDriverWebGpu::get_resource_native_handle(DriverResource p_type, ID p_driver_id) {}
 uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {}
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {}
-uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {}
+
+uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
+	// TODO
+	return RenderingDeviceDriver::api_trait_get(p_trait);
+}
+
 bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {}
+
 const RenderingDeviceDriver::MultiviewCapabilities &RenderingDeviceDriverWebGpu::get_multiview_capabilities() {}
-String RenderingDeviceDriverWebGpu::get_api_name() const {}
-String RenderingDeviceDriverWebGpu::get_api_version() const {}
+
+String RenderingDeviceDriverWebGpu::get_api_name() const {
+	return "WebGpu";
+}
+
+String RenderingDeviceDriverWebGpu::get_api_version() const {
+	// We should compile this in based on the wgpu / dawn version
+	return "v0.19.3.1 (wgpu)";
+}
+
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {}
 const RenderingDeviceDriver::Capabilities &RenderingDeviceDriverWebGpu::get_capabilities() const {}
 
