@@ -1,5 +1,5 @@
-#ifndef RENDERING_CONTEXT_DRIVER_WGPU_H
-#define RENDERING_CONTEXT_DRIVER_WGPU_H
+#ifndef RENDERING_CONTEXT_DRIVER_WEBGPU_H
+#define RENDERING_CONTEXT_DRIVER_WEBGPU_H
 
 #include "servers/rendering/rendering_context_driver.h"
 
@@ -45,4 +45,4 @@ public:
 	void adapter_push_back(WGPUAdapter p_adapter, Device p_device);
 };
 
-#endif // RENDERING_CONTEXT_DRIVER_WGPU_H
+#endif // RENDERING_CONTEXT_DRIVER_WEBGPU_H
