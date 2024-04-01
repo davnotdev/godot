@@ -1,6 +1,7 @@
 #include "rendering_device_driver_webgpu.h"
+#include "webgpu_conv.h"
 
-#include "core/error/error_macros.h"
+#include <wgpu.h>
 
 static void handle_request_device(WGPURequestDeviceStatus status,
 		WGPUDevice device, char const *message,
@@ -25,21 +26,59 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /**** BUFFERS ****/
 /*****************/
 
-RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
+RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType _p_allocation_type) {
+	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
+		.usage = rd_to_webgpu_buffer_usage(p_usage),
+		.size = p_size,
+		.mappedAtCreation = false,
+	};
+	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
+
+	BufferInfo *buffer_info = memnew(BufferInfo);
+	buffer_info->size = p_size;
+	buffer_info->buffer = buffer;
+
+	return BufferID(buffer_info);
 }
 
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
 }
 
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	wgpuBufferRelease(buffer_info->buffer);
+	memdelete(buffer_info);
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buffer) {
+	// TODO
+	return 0;
 }
 
-uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {}
+static void handle_buffer_map(WGPUBufferMapAsyncStatus status, void *userdata) {
+	ERR_FAIL_COND_V_MSG(
+			status != WGPUBufferMapAsyncStatus_Success, (void)0,
+			vformat("Failed to map buffer"));
+}
 
-void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {}
+uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+
+	uint64_t offset = 0;
+	uint64_t size = buffer_info->size;
+
+	wgpuBufferMapAsync(
+			buffer_info->buffer, WGPUMapMode::WGPUMapMode_Write, offset, size, handle_buffer_map, nullptr);
+	wgpuDevicePoll(device, true, nullptr);
+	const void *data = wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
+	return (uint8_t *)data;
+}
+
+void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
+	WGPUBuffer buffer = (WGPUBuffer)p_buffer.id;
+
+	wgpuBufferUnmap(buffer);
+}
 
 /*****************/
 /**** TEXTURE ****/
@@ -159,7 +198,7 @@ RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buff
 bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buffer) {
 	DEV_ASSERT(p_cmd_buffer - 1 < command_encoders.size());
 
-	WGPUCommandEncoder& encoder_spot = command_encoders[p_cmd_buffer - 1];
+	WGPUCommandEncoder &encoder_spot = command_encoders[p_cmd_buffer - 1];
 	DEV_ASSERT(encoder_spot == nullptr);
 
 	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
@@ -176,7 +215,7 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID
 void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {
 	DEV_ASSERT(p_cmd_buffer - 1 < command_encoders.size());
 
-	WGPUCommandEncoder& encoder = command_encoders[p_cmd_buffer - 1];
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
 	DEV_ASSERT(encoder == nullptr);
 
 	wgpuCommandEncoderRelease(encoder);
@@ -188,12 +227,22 @@ void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBuffer
 /**** SWAP CHAIN ****/
 /********************/
 
-RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {}
-Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, uint32_t p_desired_framebuffer_count) {}
+RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID _p_surface) {
+	return SwapChainID(1);
+}
+
+Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue, SwapChainID _p_swap_chain, uint32_t _p_desired_framebuffer_count) {
+	// WebGpu's swapchain is contained within the surface.
+	return OK;
+}
+
 RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) {}
 RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_render_pass(SwapChainID p_swap_chain) {}
 RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {}
-void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {}
+
+void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID _p_swap_chain) {
+	// Empty.
+}
 
 /*********************/
 /**** FRAMEBUFFER ****/
@@ -206,7 +255,11 @@ void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) 
 /**** SHADER ****/
 /****************/
 
-String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {}
+String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
+	// TODO
+	return "";
+}
+
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {}
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name) {}
 void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {}
@@ -248,10 +301,19 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 
 // ----- CACHE -----
 
-bool RenderingDeviceDriverWebGpu::pipeline_cache_create(const Vector<uint8_t> &p_data) {}
-void RenderingDeviceDriverWebGpu::pipeline_cache_free() {}
-size_t RenderingDeviceDriverWebGpu::pipeline_cache_query_size() {}
-Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {}
+bool RenderingDeviceDriverWebGpu::pipeline_cache_create(const Vector<uint8_t> &_p_data) {
+	// WebGpu does not have pipeline caches.
+	return false;
+}
+void RenderingDeviceDriverWebGpu::pipeline_cache_free() {
+	// Empty.
+}
+size_t RenderingDeviceDriverWebGpu::pipeline_cache_query_size() {
+	return 0;
+}
+Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {
+	return Vector<uint8_t>();
+}
 
 /*******************/
 /**** RENDERING ****/
