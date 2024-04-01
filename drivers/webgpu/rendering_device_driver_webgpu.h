@@ -19,10 +19,15 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
 
-public:
+private:
 	/*****************/
 	/**** BUFFERS ****/
 	/*****************/
+
+	struct BufferInfo {
+		WGPUBuffer buffer;
+		uint64_t size;
+	};
 
 public:
 	virtual BufferID buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) override final;

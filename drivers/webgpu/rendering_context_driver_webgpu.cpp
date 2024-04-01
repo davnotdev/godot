@@ -7,7 +7,7 @@
 
 #include "rendering_device_driver_webgpu.h"
 
-static void handleRequestAdapter(WGPURequestAdapterStatus status,
+static void handle_request_adapter(WGPURequestAdapterStatus status,
 		WGPUAdapter adapter, char const *message,
 		void *userdata) {
 	ERR_FAIL_COND_V_MSG(
@@ -50,12 +50,12 @@ Error RenderingContextDriverWebGpu::initialize() {
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
 	wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
-			handleRequestAdapter, this);
+			handle_request_adapter, this);
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
 	wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
-			handleRequestAdapter, this);
+			handle_request_adapter, this);
 
 	return OK;
 }
