@@ -96,7 +96,7 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 }
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
-	BufferInfo* buffer_info = (BufferInfo*)p_buffer.id;
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
 	wgpuBufferUnmap(buffer_info->buffer);
 }
@@ -234,8 +234,31 @@ BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::t
 /**** SAMPLER ****/
 /*****************/
 
-RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(const SamplerState &p_state) {}
-void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {}
+RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(const SamplerState &p_state) {
+	// STUB: Samplers with anisotropy enabled cannot support nearest filtering.
+	// See https://gpuweb.github.io/gpuweb/#sampler-creation
+	WGPUSamplerDescriptor sampler_desc = (WGPUSamplerDescriptor){
+		.addressModeU = webgpu_address_mode_from_rd(p_state.repeat_u),
+		.addressModeV = webgpu_address_mode_from_rd(p_state.repeat_v),
+		.addressModeW = webgpu_address_mode_from_rd(p_state.repeat_w),
+		.magFilter =  p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.mag_filter),
+		.minFilter = p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.min_filter),
+		.mipmapFilter = p_state.use_anisotropy ? WGPUMipmapFilterMode_Linear : webgpu_mipmap_filter_mode_from_rd(p_state.mip_filter),
+		.lodMinClamp = p_state.min_lod,
+		.lodMaxClamp = p_state.max_lod,
+		.compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Always,
+		.maxAnisotropy = p_state.use_anisotropy ? (uint16_t)p_state.anisotropy_max : (uint16_t)1,
+	};
+
+	WGPUSampler sampler = wgpuDeviceCreateSampler(device, &sampler_desc);
+	return SamplerID(sampler);
+}
+
+void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {
+	WGPUSampler sampler = (WGPUSampler)p_sampler.id;
+	wgpuSamplerRelease(sampler);
+}
+
 bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) {}
 
 /**********************/
