@@ -26,7 +26,11 @@ private:
 
 	struct BufferInfo {
 		WGPUBuffer buffer;
+		WGPUMapMode map_mode;
 		uint64_t size;
+
+		// Transfer buffers will be mapped on creation.
+		bool is_transfer_first_map;
 	};
 
 public:
@@ -40,6 +44,15 @@ public:
 	/*****************/
 	/**** TEXTURE ****/
 	/*****************/
+
+private:
+	struct TextureInfo {
+		WGPUTexture texture;
+		WGPUTextureView view;
+		uint32_t width;
+		uint32_t height;
+		uint32_t depth_or_array;
+	};
 
 public:
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;

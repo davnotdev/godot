@@ -27,21 +27,38 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /*****************/
 
 RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType _p_allocation_type) {
+	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
+	uint32_t map_mode = 0;
+	bool is_transfer_buffer = false;
+
+	if (usage & WGPUBufferUsage_MapRead) {
+		map_mode |= WGPUMapMode_Read;
+		is_transfer_buffer = true;
+	}
+	if (usage & WGPUBufferUsage_MapWrite) {
+		map_mode |= WGPUMapMode_Write;
+		is_transfer_buffer = true;
+	}
+
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
-		.usage = rd_to_webgpu_buffer_usage(p_usage),
+		.usage = usage,
 		.size = p_size,
-		.mappedAtCreation = false,
+		.mappedAtCreation = is_transfer_buffer,
 	};
 	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
 
 	BufferInfo *buffer_info = memnew(BufferInfo);
 	buffer_info->size = p_size;
 	buffer_info->buffer = buffer;
+	buffer_info->map_mode = (WGPUMapMode)map_mode;
+	buffer_info->is_transfer_first_map = is_transfer_buffer;
 
 	return BufferID(buffer_info);
 }
 
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
+	// TODO
+	return true;
 }
 
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
@@ -67,33 +84,151 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	uint64_t offset = 0;
 	uint64_t size = buffer_info->size;
 
-	wgpuBufferMapAsync(
-			buffer_info->buffer, WGPUMapMode::WGPUMapMode_Write, offset, size, handle_buffer_map, nullptr);
-	wgpuDevicePoll(device, true, nullptr);
+	if (!buffer_info->is_transfer_first_map) {
+		wgpuBufferMapAsync(
+				buffer_info->buffer, buffer_info->map_mode, offset, size, handle_buffer_map, nullptr);
+		wgpuDevicePoll(device, true, nullptr);
+	} else {
+		buffer_info->is_transfer_first_map = false;
+	}
 	const void *data = wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
 	return (uint8_t *)data;
 }
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
-	WGPUBuffer buffer = (WGPUBuffer)p_buffer.id;
+	BufferInfo* buffer_info = (BufferInfo*)p_buffer.id;
 
-	wgpuBufferUnmap(buffer);
+	wgpuBufferUnmap(buffer_info->buffer);
 }
 
 /*****************/
 /**** TEXTURE ****/
 /*****************/
 
-RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {}
+RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
+	WGPUFlags usage_bits = WGPUTextureUsage_None;
+	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
+		usage_bits |= WGPUTextureUsage_StorageBinding;
+	}
+	if ((p_format.usage_bits & TEXTURE_USAGE_COLOR_ATTACHMENT_BIT)) {
+		usage_bits |= WGPUTextureUsage_TextureBinding;
+	}
+	if ((p_format.usage_bits & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (p_format.usage_bits & TEXTURE_USAGE_INPUT_ATTACHMENT_BIT)) {
+		usage_bits |= WGPUTextureUsage_RenderAttachment;
+	}
+	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+		usage_bits |= WGPUTextureUsage_CopyDst;
+	}
+	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
+		usage_bits |= WGPUTextureUsage_CopySrc;
+	}
+	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_TO_BIT)) {
+		usage_bits |= WGPUTextureUsage_CopyDst;
+	}
+	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
+
+	WGPUExtent3D size;
+	size.width = p_format.width;
+	size.height = p_format.height;
+	size.depthOrArrayLayers = 1;
+	WGPUTextureDimension dimension;
+	bool is_using_depth = false;
+
+	if (p_format.texture_type == TEXTURE_TYPE_1D) {
+		dimension = WGPUTextureDimension_1D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_2D) {
+		size.depthOrArrayLayers = p_format.array_layers;
+		dimension = WGPUTextureDimension_2D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_3D) {
+		size.depthOrArrayLayers = p_format.depth;
+		is_using_depth = true;
+		dimension = WGPUTextureDimension_3D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_1D_ARRAY) {
+		size.depthOrArrayLayers = p_format.array_layers;
+		dimension = WGPUTextureDimension_1D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_2D_ARRAY) {
+		size.depthOrArrayLayers = p_format.array_layers;
+		dimension = WGPUTextureDimension_2D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_CUBE) {
+		size.depthOrArrayLayers = p_format.array_layers;
+		dimension = WGPUTextureDimension_2D;
+	} else if (p_format.texture_type == TEXTURE_TYPE_CUBE_ARRAY) {
+		size.depthOrArrayLayers = p_format.array_layers;
+		dimension = WGPUTextureDimension_2D;
+	}
+
+	if (p_format.samples > TextureSamples::TEXTURE_SAMPLES_1) {
+		usage_bits |= WGPUTextureUsage_RenderAttachment;
+	}
+
+	uint32_t mip_level_count = p_format.mipmaps ? p_format.mipmaps : 1;
+
+	// TODO: Assert that p_format.samples follows this behavior.
+	uint32_t sample_count = pow(2, (uint32_t)p_format.samples);
+
+	Vector<WGPUTextureFormat> view_formats;
+
+	for (int i = 0; i < p_format.shareable_formats.size(); i++) {
+		DataFormat format = p_format.shareable_formats[i];
+		view_formats.push_back(webgpu_texture_format_from_rd(format));
+	}
+
+	WGPUTextureDescriptor texture_desc = (WGPUTextureDescriptor){
+		.usage = usage,
+		.dimension = dimension,
+		.size = size,
+		.format = webgpu_texture_format_from_rd(p_format.format),
+		.mipLevelCount = mip_level_count,
+		.sampleCount = sample_count,
+		.viewFormatCount = (size_t)view_formats.size(),
+		.viewFormats = view_formats.ptr(),
+	};
+
+	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
+
+	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.format = webgpu_texture_format_from_rd(p_view.format),
+		.mipLevelCount = texture_desc.mipLevelCount,
+		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
+	};
+
+	WGPUTextureView view = wgpuTextureCreateView(texture, &texture_view_desc);
+
+	TextureInfo *texture_info = memnew(TextureInfo);
+	texture_info->texture = texture;
+	texture_info->view = view;
+	texture_info->width = size.width;
+	texture_info->height = size.height;
+	texture_info->depth_or_array = size.depthOrArrayLayers;
+
+	return TextureID(texture_info);
+}
+
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil) {}
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {}
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {}
-void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {}
-uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_texture) {}
+
+void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
+	TextureInfo *texture_info = (TextureInfo *)p_texture.id;
+	wgpuTextureRelease(texture_info->texture);
+	wgpuTextureViewRelease(texture_info->view);
+	memdelete(texture_info);
+}
+
+uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_texture) {
+	// TODO
+	return 1;
+}
+
 void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) {}
 uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {}
 void RenderingDeviceDriverWebGpu::texture_unmap(TextureID p_texture) {}
-BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {}
+
+BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
+	// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
+	BitField<RDD::TextureUsageBits> supported = INT64_MAX;
+	return supported;
+}
 
 /*****************/
 /**** SAMPLER ****/
@@ -444,7 +579,10 @@ uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 	return RenderingDeviceDriver::api_trait_get(p_trait);
 }
 
-bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {}
+bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {
+	// TODO
+	return false;
+}
 
 const RenderingDeviceDriver::MultiviewCapabilities &RenderingDeviceDriverWebGpu::get_multiview_capabilities() {}
 
