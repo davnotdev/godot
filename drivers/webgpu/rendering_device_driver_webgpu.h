@@ -9,6 +9,7 @@
 
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	WGPUDevice device = nullptr;
+	WGPUAdapter adapter = nullptr;
 	WGPUQueue queue = nullptr;
 	RenderingContextDriverWebGpu *context_driver = nullptr;
 	RenderingContextDriver::Device context_device;
@@ -217,6 +218,11 @@ public:
 	/*******************/
 
 	// ----- SUBPASS -----
+
+	struct RenderPassInfo {
+		Vector<Attachment> attachments;
+		uint32_t view_count;
+	};
 
 	virtual RenderPassID render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count) override final;
 	virtual void render_pass_free(RenderPassID p_render_pass) override final;
