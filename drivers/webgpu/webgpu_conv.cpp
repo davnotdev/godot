@@ -156,3 +156,57 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 
 	return ret;
 }
+
+WGPUFilterMode webgpu_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
+	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUFilterMode_Nearest));
+	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUFilterMode_Linear));
+	return (WGPUFilterMode)p_sampler_filter;
+}
+
+WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
+	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUMipmapFilterMode_Nearest));
+	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUMipmapFilterMode_Linear));
+	return (WGPUMipmapFilterMode)p_sampler_filter;
+}
+
+WGPUAddressMode webgpu_address_mode_from_rd(RDD::SamplerRepeatMode p_sampler_repeat_mode) {
+	// Not all of these exist, so we'll default to clamp to edge.
+	// See https://gpuweb.github.io/gpuweb/#enumdef-gpuaddressmode
+	switch (p_sampler_repeat_mode) {
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_REPEAT:
+			return WGPUAddressMode_Repeat;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MIRRORED_REPEAT:
+			return WGPUAddressMode_MirrorRepeat;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_CLAMP_TO_BORDER:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MIRROR_CLAMP_TO_EDGE:
+			return WGPUAddressMode_ClampToEdge;
+		case RenderingDeviceCommons::SAMPLER_REPEAT_MODE_MAX:
+			return WGPUAddressMode_ClampToEdge;
+	}
+}
+
+WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_operator) {
+	switch (p_compare_operator) {
+		case RenderingDeviceCommons::COMPARE_OP_NEVER:
+			return WGPUCompareFunction_Never;
+		case RenderingDeviceCommons::COMPARE_OP_LESS:
+			return WGPUCompareFunction_Less;
+		case RenderingDeviceCommons::COMPARE_OP_EQUAL:
+			return WGPUCompareFunction_Equal;
+		case RenderingDeviceCommons::COMPARE_OP_LESS_OR_EQUAL:
+			return WGPUCompareFunction_LessEqual;
+		case RenderingDeviceCommons::COMPARE_OP_GREATER:
+			return WGPUCompareFunction_Greater;
+		case RenderingDeviceCommons::COMPARE_OP_NOT_EQUAL:
+			return WGPUCompareFunction_NotEqual;
+		case RenderingDeviceCommons::COMPARE_OP_GREATER_OR_EQUAL:
+			return WGPUCompareFunction_GreaterEqual;
+		case RenderingDeviceCommons::COMPARE_OP_ALWAYS:
+			return WGPUCompareFunction_Always;
+		case RenderingDeviceCommons::COMPARE_OP_MAX:
+			return WGPUCompareFunction_Undefined;
+	}
+}
