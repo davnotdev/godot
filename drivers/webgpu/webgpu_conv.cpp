@@ -210,3 +210,98 @@ WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_o
 			return WGPUCompareFunction_Undefined;
 	}
 }
+
+uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
+	WGPULimits limits = p_limits.limits;
+	// Note: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
+	switch (p_selected_limit) {
+		case RenderingDeviceCommons::LIMIT_MAX_BOUND_UNIFORM_SETS:
+			return limits.maxBindGroups;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS:
+			return limits.maxColorAttachments;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_BUFFERS_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_UNIFORM_SET:
+			return limits.maxUniformBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_DRAW_INDEXED_INDEX:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_HEIGHT:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_WIDTH:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_ARRAY_LAYERS:
+			return limits.maxTextureArrayLayers;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_1D:
+			return limits.maxTextureDimension1D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_2D:
+			return limits.maxTextureDimension2D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_3D:
+			return limits.maxTextureDimension3D;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_CUBE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE:
+			return limits.maxSampledTexturesPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_SHADER_STAGE:
+			return limits.maxSamplersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_BUFFERS_PER_SHADER_STAGE:
+			return limits.maxStorageBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_SHADER_STAGE:
+			return limits.maxStorageTexturesPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_SHADER_STAGE:
+			return limits.maxUniformBuffersPerShaderStage;
+		case RenderingDeviceCommons::LIMIT_MAX_PUSH_CONSTANT_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFER_SIZE:
+			return limits.maxUniformBufferBindingSize;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTE_OFFSET:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTES:
+			return limits.maxVertexAttributes;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDINGS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDING_STRIDE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+			return limits.minUniformBufferOffsetAlignment;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Y:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Z:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS:
+			return limits.maxComputeInvocationsPerWorkgroup;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X:
+			return limits.maxComputeWorkgroupSizeX;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y:
+			return limits.maxComputeWorkgroupSizeY;
+		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
+			return limits.maxComputeWorkgroupSizeZ;
+		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_Y:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_MIN_SIZE:
+			return 0;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_MAX_SIZE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_IN_SHADERS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_SUBGROUP_OPERATIONS:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_VRS_TEXEL_WIDTH:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_VRS_TEXEL_HEIGHT:
+			return UINT64_MAX;
+	}
+}

@@ -10,13 +10,13 @@ static void handle_request_device(WGPURequestDeviceStatus status,
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
-	WGPUAdapter adapter = context_driver->adapter_get(p_device_index);
-	this->context_device = context_driver->device_get(p_device_index);
+	adapter = context_driver->adapter_get(p_device_index);
+	context_device = context_driver->device_get(p_device_index);
 
 	wgpuAdapterRequestDevice(adapter, nullptr, handle_request_device, &this->device);
 	ERR_FAIL_COND_V(!this->device, FAILED);
 
-	this->queue = wgpuDeviceGetQueue(device);
+	queue = wgpuDeviceGetQueue(device);
 	ERR_FAIL_COND_V(!this->queue, FAILED);
 
 	return OK;
@@ -241,7 +241,7 @@ RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(con
 		.addressModeU = webgpu_address_mode_from_rd(p_state.repeat_u),
 		.addressModeV = webgpu_address_mode_from_rd(p_state.repeat_v),
 		.addressModeW = webgpu_address_mode_from_rd(p_state.repeat_w),
-		.magFilter =  p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.mag_filter),
+		.magFilter = p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.mag_filter),
 		.minFilter = p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.min_filter),
 		.mipmapFilter = p_state.use_anisotropy ? WGPUMipmapFilterMode_Linear : webgpu_mipmap_filter_mode_from_rd(p_state.mip_filter),
 		.lodMinClamp = p_state.min_lod,
@@ -479,8 +479,23 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {
 
 // ----- SUBPASS -----
 
-RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count) {}
-void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {}
+RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> _p_subpasses, VectorView<SubpassDependency> _p_subpass_dependencies, uint32_t p_view_count) {
+	// WebGpu does not have subpasses so we will store this info until we create a render pipeline later.
+	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
+
+	render_pass_info->attachments = Vector<Attachment>();
+	for (int i = 0; i < p_attachments.size(); i++) {
+		render_pass_info->attachments.push_back(p_attachments[i]);
+	}
+
+	render_pass_info->view_count = p_view_count;
+
+	return RenderPassID(render_pass_info);
+}
+void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {
+	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
+	memdelete(render_pass_info);
+}
 
 // ----- COMMANDS -----
 
@@ -595,7 +610,13 @@ void RenderingDeviceDriverWebGpu::end_segment() {}
 void RenderingDeviceDriverWebGpu::set_object_name(ObjectType p_type, ID p_driver_id, const String &p_name) {}
 uint64_t RenderingDeviceDriverWebGpu::get_resource_native_handle(DriverResource p_type, ID p_driver_id) {}
 uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {}
-uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {}
+uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
+	WGPUSupportedLimitsExtras extras;
+	WGPUSupportedLimits limits;
+	limits.nextInChain = (WGPUChainedStructOut *)&extras;
+	wgpuDeviceGetLimits(device, &limits);
+	return rd_limit_from_webgpu(p_limit, limits);
+}
 
 uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 	// TODO
