@@ -76,6 +76,10 @@ static Vector<uint8_t> _compile_shader_glsl(RenderingDevice::ShaderStage p_stage
 	} else if (capabilities.device_family == RDD::DEVICE_METAL) {
 		ClientVersion = glslang::EShTargetVulkan_1_1;
 		TargetVersion = glslang::EShTargetSpv_1_6;
+	} else if (capabilities.device_family == RDD::DEVICE_WEBGPU) {
+		// TODO: This information is not accurate, but we can safely assume that WebGpu == Vulkan.
+		ClientVersion = glslang::EShTargetVulkan_1_1;
+		TargetVersion = glslang::EShTargetSpv_1_3;
 	} else {
 		// once we support other backends we'll need to do something here
 		if (r_error) {

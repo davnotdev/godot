@@ -19,6 +19,13 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	queue = wgpuDeviceGetQueue(device);
 	ERR_FAIL_COND_V(!this->queue, FAILED);
 
+	capabilties = (RenderingDeviceDriver::Capabilities){
+		// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
+		.device_family = DEVICE_WEBGPU,
+		.version_major = 0,
+		.version_minor = 19,
+	};
+
 	return OK;
 }
 
@@ -496,7 +503,12 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 /**** FRAMEBUFFER ****/
 /*********************/
 
-RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {}
+RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
+	// TODO: impl
+	print_error("TODO --> framebuffer_create");
+	exit(1);
+}
+
 void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {}
 
 /****************/
@@ -508,15 +520,29 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 	return "";
 }
 
-Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {}
-RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name) {}
-void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {}
+Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
+	return Vector<uint8_t>({ 1, 1 });
+}
+
+RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name) {
+	// TODO: impl
+	print_error("TODO --> shader_create_from_bytecode");
+	exit(1);
+}
+
+void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {
+}
 
 /*********************/
 /**** UNIFORM SET ****/
 /*********************/
 
-RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index) {}
+RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index) {
+	// TODO: impl
+	print_error("TODO --> uniform_set_create");
+	exit(1);
+}
+
 void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {}
 
 // ----- COMMANDS -----
@@ -640,7 +666,11 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		BitField<PipelineDynamicStateFlags> p_dynamic_state,
 		RenderPassID p_render_pass,
 		uint32_t p_render_subpass,
-		VectorView<PipelineSpecializationConstant> p_specialization_constants) {}
+		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
+	// TODO: impl
+	print_error("TODO --> render_pipeline_create");
+	exit(1);
+}
 
 /*****************/
 /**** COMPUTE ****/
@@ -658,7 +688,11 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 
 // ----- PIPELINE -----
 
-RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {}
+RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
+	// TODO: impl
+	print_error("TODO --> compute_pipeline_create");
+	exit(1);
+}
 
 /*****************/
 /**** QUERIES ****/
@@ -735,12 +769,15 @@ String RenderingDeviceDriverWebGpu::get_api_name() const {
 }
 
 String RenderingDeviceDriverWebGpu::get_api_version() const {
-	// We should compile this in based on the wgpu / dawn version
+	// TODO: We should compile this in based on the wgpu / dawn version
 	return "v0.19.3.1 (wgpu)";
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {}
-const RenderingDeviceDriver::Capabilities &RenderingDeviceDriverWebGpu::get_capabilities() const {}
+
+const RenderingDeviceDriver::Capabilities &RenderingDeviceDriverWebGpu::get_capabilities() const {
+	return capabilties;
+}
 
 RenderingDeviceDriverWebGpu::RenderingDeviceDriverWebGpu(RenderingContextDriverWebGpu *p_context_driver) {
 	DEV_ASSERT(p_context_driver != nullptr);
