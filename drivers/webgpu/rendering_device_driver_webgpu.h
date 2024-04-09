@@ -49,10 +49,13 @@ public:
 private:
 	struct TextureInfo {
 		WGPUTexture texture;
+		bool is_original_texture;
 		WGPUTextureView view;
 		uint32_t width;
 		uint32_t height;
 		uint32_t depth_or_array;
+		bool is_using_depth;
+		uint32_t mip_level_count;
 	};
 
 public:

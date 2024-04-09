@@ -195,21 +195,45 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
+	texture_info->is_original_texture = true;
 	texture_info->view = view;
 	texture_info->width = size.width;
 	texture_info->height = size.height;
 	texture_info->depth_or_array = size.depthOrArrayLayers;
+	texture_info->is_using_depth = is_using_depth;
+	texture_info->mip_level_count = mip_level_count;
 
 	return TextureID(texture_info);
 }
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil) {}
-RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {}
+
+RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {
+	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
+
+	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.format = webgpu_texture_format_from_rd(p_view.format),
+		.mipLevelCount = texture_info->mip_level_count,
+		.arrayLayerCount = texture_info->is_using_depth ? 1 : texture_info->depth_or_array,
+	};
+
+	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
+
+	TextureInfo* new_texture_info = memnew(TextureInfo);
+	*new_texture_info = *texture_info;
+	new_texture_info->view = view;
+	new_texture_info->is_original_texture = false;
+
+	return TextureID(new_texture_info);
+}
+
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {}
 
 void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 	TextureInfo *texture_info = (TextureInfo *)p_texture.id;
-	wgpuTextureRelease(texture_info->texture);
+	if (texture_info->is_original_texture) {
+		wgpuTextureRelease(texture_info->texture);
+	}
 	wgpuTextureViewRelease(texture_info->view);
 	memdelete(texture_info);
 }
@@ -411,8 +435,8 @@ void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBuffer
 /**** SWAP CHAIN ****/
 /********************/
 
-RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID _p_surface) {
-	return SwapChainID(1);
+RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {
+	return SwapChainID(p_surface);
 }
 
 Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue, SwapChainID _p_swap_chain, uint32_t _p_desired_framebuffer_count) {
@@ -420,9 +444,25 @@ Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue
 	return OK;
 }
 
-RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) {}
+RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) {
+	return FramebufferID(1);
+}
+
 RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_render_pass(SwapChainID p_swap_chain) {}
-RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {}
+
+// NOTE: In theory, this function's result doesn't matter.
+// We take this to create a framebuffer attachment that we never end up using since WebGpu does not support framebuffers.
+RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {
+	// The surface can't present yet, so this fails anyway.
+	//
+	// RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)p_swap_chain.id;
+	//
+	// WGPUSurfaceTexture texture;
+	// wgpuSurfaceGetCurrentTexture(surface->surface, &texture);
+	// WGPUTextureFormat format = wgpuTextureGetFormat(texture.texture);
+	// TODO: I don't want to write a massive boilerplate-y function just for this one function.
+	return DATA_FORMAT_ASTC_4x4_SRGB_BLOCK;
+}
 
 void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID _p_swap_chain) {
 	// Empty.
