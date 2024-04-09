@@ -107,23 +107,22 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
 	WGPUFlags usage_bits = WGPUTextureUsage_None;
-	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
-		usage_bits |= WGPUTextureUsage_StorageBinding;
-	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_COLOR_ATTACHMENT_BIT)) {
+	if ((p_format.usage_bits & TEXTURE_USAGE_SAMPLING_BIT)) {
 		usage_bits |= WGPUTextureUsage_TextureBinding;
 	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (p_format.usage_bits & TEXTURE_USAGE_INPUT_ATTACHMENT_BIT)) {
+	if ((p_format.usage_bits & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ||
+			(p_format.usage_bits & TEXTURE_USAGE_COLOR_ATTACHMENT_BIT) ||
+			(p_format.usage_bits & TEXTURE_USAGE_INPUT_ATTACHMENT_BIT)) {
 		usage_bits |= WGPUTextureUsage_RenderAttachment;
 	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_UPDATE_BIT)) {
+	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_UPDATE_BIT) || (p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_TO_BIT)) {
 		usage_bits |= WGPUTextureUsage_CopyDst;
 	}
 	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
 		usage_bits |= WGPUTextureUsage_CopySrc;
 	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_TO_BIT)) {
-		usage_bits |= WGPUTextureUsage_CopyDst;
+	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
+		usage_bits |= WGPUTextureUsage_StorageBinding;
 	}
 	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
 
