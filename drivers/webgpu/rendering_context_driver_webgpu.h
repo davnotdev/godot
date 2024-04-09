@@ -1,6 +1,7 @@
 #ifndef RENDERING_CONTEXT_DRIVER_WEBGPU_H
 #define RENDERING_CONTEXT_DRIVER_WEBGPU_H
 
+#include "servers/rendering/rendering_device_driver.h"
 #include "servers/rendering/rendering_context_driver.h"
 
 #include <webgpu.h>
@@ -33,7 +34,7 @@ public:
 	virtual ~RenderingContextDriverWebGpu() override;
 
 	struct Surface {
-		WGPUSurface surface;
+		WGPUSurface surface = nullptr;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		DisplayServer::VSyncMode vsync_mode = DisplayServer::VSYNC_ENABLED;
