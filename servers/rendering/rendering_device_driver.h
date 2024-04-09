@@ -801,6 +801,7 @@ public:
 		DEVICE_VULKAN,
 		DEVICE_DIRECTX,
 		DEVICE_METAL,
+		DEVICE_WEBGPU,
 	};
 
 	struct Capabilities {
