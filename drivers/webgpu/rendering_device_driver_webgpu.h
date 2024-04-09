@@ -14,6 +14,8 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	RenderingContextDriverWebGpu *context_driver = nullptr;
 	RenderingContextDriver::Device context_device;
 
+	RenderingDeviceDriver::Capabilities capabilties;
+
 	// NOTE: Indexed by CommandBufferID with offset of 1, so that index 0 => 1.
 	TightLocalVector<WGPUCommandEncoder> command_encoders;
 
