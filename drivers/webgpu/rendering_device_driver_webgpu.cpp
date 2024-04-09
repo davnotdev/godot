@@ -265,8 +265,35 @@ bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFor
 /**** VERTEX ARRAY ****/
 /**********************/
 
-RenderingDeviceDriver::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(VectorView<VertexAttribute> p_vertex_attribs) {}
-void RenderingDeviceDriverWebGpu::vertex_format_free(VertexFormatID p_vertex_format) {}
+// NOTE: The attributes in `p_vertex_attribs` must be in order.
+RenderingDeviceDriver::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(VectorView<VertexAttribute> p_vertex_attribs) {
+	WGPUVertexAttribute *vertex_attributes = memnew_arr(WGPUVertexAttribute, p_vertex_attribs.size());
+	uint64_t array_stride = 0;
+	for (int i = 0; i < p_vertex_attribs.size(); i++) {
+		VertexAttribute attrib = p_vertex_attribs[i];
+		vertex_attributes[i] = (WGPUVertexAttribute){
+			.format = webgpu_vertex_format_from_rd(attrib.format),
+			.offset = attrib.offset,
+			.shaderLocation = attrib.location,
+		};
+		array_stride += attrib.stride;
+	}
+
+	WGPUVertexStepMode step_mode = p_vertex_attribs[0].frequency == VertexFrequency::VERTEX_FREQUENCY_VERTEX ? WGPUVertexStepMode_Vertex : WGPUVertexStepMode_Instance;
+
+	WGPUVertexBufferLayout *layout = memnew(WGPUVertexBufferLayout);
+	layout->attributes = vertex_attributes;
+	layout->attributeCount = p_vertex_attribs.size();
+	layout->stepMode = step_mode;
+	layout->arrayStride = array_stride;
+	return VertexFormatID(layout);
+}
+
+void RenderingDeviceDriverWebGpu::vertex_format_free(VertexFormatID p_vertex_format) {
+	WGPUVertexBufferLayout *layout = (WGPUVertexBufferLayout *)p_vertex_format.id;
+	memdelete_arr(layout->attributes);
+	memdelete(layout);
+}
 
 /******************/
 /**** BARRIERS ****/
