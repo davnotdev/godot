@@ -14,7 +14,7 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	RenderingContextDriverWebGpu *context_driver = nullptr;
 	RenderingContextDriver::Device context_device;
 
-	// Note: Indexed by CommandBufferID with offset of 1, so that index 0 => 1.
+	// NOTE: Indexed by CommandBufferID with offset of 1, so that index 0 => 1.
 	TightLocalVector<WGPUCommandEncoder> command_encoders;
 
 public:
@@ -148,6 +148,12 @@ public:
 	/**** SWAP CHAIN ****/
 	/********************/
 
+private:
+	struct SwapChainInfo {
+		RenderingContextDriver::SurfaceID surface;
+		RenderPassID render_pass;
+	};
+
 public:
 	virtual SwapChainID swap_chain_create(RenderingContextDriver::SurfaceID p_surface) override final;
 	virtual Error swap_chain_resize(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, uint32_t p_desired_framebuffer_count) override final;
@@ -222,8 +228,17 @@ public:
 
 	// ----- SUBPASS -----
 
+	struct RenderPassAttachmentInfo {
+		WGPUTextureFormat format;
+		uint32_t sample_count;
+		WGPULoadOp load_op;
+		WGPUStoreOp store_op;
+		WGPULoadOp stencil_load_op;
+		WGPUStoreOp stencil_store_op;
+	};
+
 	struct RenderPassInfo {
-		Vector<Attachment> attachments;
+		Vector<RenderPassAttachmentInfo> attachments;
 		uint32_t view_count;
 	};
 

@@ -157,15 +157,15 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 	return ret;
 }
 
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUFilterMode_Linear));
 WGPUFilterMode webgpu_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
-	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUFilterMode_Nearest));
-	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUFilterMode_Linear));
 	return (WGPUFilterMode)p_sampler_filter;
 }
 
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUMipmapFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUMipmapFilterMode_Linear));
 WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
-	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUMipmapFilterMode_Nearest));
-	static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUMipmapFilterMode_Linear));
 	return (WGPUMipmapFilterMode)p_sampler_filter;
 }
 
@@ -279,9 +279,29 @@ WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
 	return ret;
 }
 
+WGPULoadOp webgpu_load_op_from_rd(RDD::AttachmentLoadOp p_load_op) {
+	switch(p_load_op) {
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_LOAD:
+			return WGPULoadOp_Load;
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_CLEAR:
+			return WGPULoadOp_Clear;
+		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_DONT_CARE:
+			return WGPULoadOp_Undefined;
+	}
+}
+
+WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op) {
+	switch (p_store_op) {
+		case RenderingDeviceDriver::ATTACHMENT_STORE_OP_STORE:
+			return WGPUStoreOp_Store;
+		case RenderingDeviceDriver::ATTACHMENT_STORE_OP_DONT_CARE:
+			return WGPUStoreOp_Undefined;
+	}
+}
+
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
 	WGPULimits limits = p_limits.limits;
-	// Note: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
+	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
 	switch (p_selected_limit) {
 		case RenderingDeviceCommons::LIMIT_MAX_BOUND_UNIFORM_SETS:
 			return limits.maxBindGroups;
