@@ -211,6 +211,74 @@ WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_o
 	}
 }
 
+WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
+	WGPUVertexFormat ret = WGPUVertexFormat_Undefined;
+
+	switch (p_data_format) {
+		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
+			ret = WGPUVertexFormat_Uint32;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32_SINT:
+			ret = WGPUVertexFormat_Sint32;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32_SFLOAT:
+			ret = WGPUVertexFormat_Float32;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_UINT:
+			ret = WGPUVertexFormat_Uint8x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8_SINT:
+			ret = WGPUVertexFormat_Sint8x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_UINT:
+			ret = WGPUVertexFormat_Uint16x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SINT:
+			ret = WGPUVertexFormat_Sint16x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT:
+			ret = WGPUVertexFormat_Float16x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UINT:
+			ret = WGPUVertexFormat_Uint8x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SINT:
+			ret = WGPUVertexFormat_Sint8x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_UINT:
+			ret = WGPUVertexFormat_Uint32x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_SINT:
+			ret = WGPUVertexFormat_Sint32x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x2;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UINT:
+			ret = WGPUVertexFormat_Uint16x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SINT:
+			ret = WGPUVertexFormat_Sint16x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT:
+			ret = WGPUVertexFormat_Float16x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT:
+			ret = WGPUVertexFormat_Uint32x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SINT:
+			ret = WGPUVertexFormat_Sint32x4;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x4;
+			break;
+		default:
+			break;
+	}
+
+	return ret;
+}
+
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
 	WGPULimits limits = p_limits.limits;
 	// Note: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
