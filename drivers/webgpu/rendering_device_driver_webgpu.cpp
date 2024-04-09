@@ -219,7 +219,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 
 	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
 
-	TextureInfo* new_texture_info = memnew(TextureInfo);
+	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
 	new_texture_info->view = view;
 	new_texture_info->is_original_texture = false;
@@ -436,11 +436,32 @@ void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBuffer
 /********************/
 
 RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_create(RenderingContextDriver::SurfaceID p_surface) {
-	return SwapChainID(p_surface);
+	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)p_surface;
+
+	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
+
+	// NOTE: This is not the best way of getting the format of the surface.
+	WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(surface->surface, adapter);
+
+	render_pass_info->attachments = Vector<RenderPassAttachmentInfo>({ (RenderPassAttachmentInfo){
+			.format = surface_format,
+			.sample_count = 1,
+			.load_op = WGPULoadOp_Clear,
+			.store_op = WGPUStoreOp_Store,
+			.stencil_load_op = WGPULoadOp_Undefined,
+			.stencil_store_op = WGPUStoreOp_Undefined,
+	} });
+	// TODO: The multiview feature is currently disabled, so I will ignore this.
+	render_pass_info->view_count = 1;
+
+	SwapChainInfo *swapchain_info = memnew(SwapChainInfo);
+	swapchain_info->surface = p_surface;
+	swapchain_info->render_pass = RenderPassID(render_pass_info);
+
+	return SwapChainID(swapchain_info);
 }
 
 Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue, SwapChainID _p_swap_chain, uint32_t _p_desired_framebuffer_count) {
-	// WebGpu's swapchain is contained within the surface.
 	return OK;
 }
 
@@ -448,24 +469,27 @@ RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::swap_chain_acq
 	return FramebufferID(1);
 }
 
-RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_render_pass(SwapChainID p_swap_chain) {}
+RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_render_pass(SwapChainID p_swap_chain) {
+	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
+	return swapchain_info->render_pass;
+}
 
 // NOTE: In theory, this function's result doesn't matter.
 // We take this to create a framebuffer attachment that we never end up using since WebGpu does not support framebuffers.
 RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {
-	// The surface can't present yet, so this fails anyway.
-	//
-	// RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)p_swap_chain.id;
-	//
-	// WGPUSurfaceTexture texture;
-	// wgpuSurfaceGetCurrentTexture(surface->surface, &texture);
-	// WGPUTextureFormat format = wgpuTextureGetFormat(texture.texture);
-	// TODO: I don't want to write a massive boilerplate-y function just for this one function.
+	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
+	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+	// NOTE: This is not the best way of getting the format of the surface.
+	// return wgpuSurfaceGetPreferredFormat(surface->surface, adapter);
+	// TODO: I don't want to write a conversion just for this one useless function.
 	return DATA_FORMAT_ASTC_4x4_SRGB_BLOCK;
 }
 
-void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID _p_swap_chain) {
-	// Empty.
+void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
+	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
+
+	memdelete((RenderPassInfo *)swapchain_info->render_pass.id);
+	memdelete(swapchain_info);
 }
 
 /*********************/
@@ -549,9 +573,19 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 	// WebGpu does not have subpasses so we will store this info until we create a render pipeline later.
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
 
-	render_pass_info->attachments = Vector<Attachment>();
+	render_pass_info->attachments = Vector<RenderPassAttachmentInfo>();
 	for (int i = 0; i < p_attachments.size(); i++) {
-		render_pass_info->attachments.push_back(p_attachments[i]);
+		Attachment attachment = p_attachments[i];
+		RenderPassAttachmentInfo attachment_info = (RenderPassAttachmentInfo){
+			.format = webgpu_texture_format_from_rd(attachment.format),
+			// TODO: Assert that p_format.samples follows this behavior.
+			.sample_count = (uint32_t)pow(2, (uint32_t)attachment.samples),
+			.load_op = webgpu_load_op_from_rd(attachment.load_op),
+			.store_op = webgpu_store_op_from_rd(attachment.store_op),
+			.stencil_load_op = webgpu_load_op_from_rd(attachment.stencil_load_op),
+			.stencil_store_op = webgpu_store_op_from_rd(attachment.stencil_store_op),
+		};
+		render_pass_info->attachments.push_back(attachment_info);
 	}
 
 	render_pass_info->view_count = p_view_count;
@@ -716,6 +750,10 @@ RenderingDeviceDriverWebGpu::RenderingDeviceDriverWebGpu(RenderingContextDriverW
 RenderingDeviceDriverWebGpu::~RenderingDeviceDriverWebGpu() {
 	if (queue != nullptr) {
 		wgpuQueueRelease(queue);
+	}
+
+	if (queue != nullptr) {
+		wgpuAdapterRelease(adapter);
 	}
 
 	if (device != nullptr) {
