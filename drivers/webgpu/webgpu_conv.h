@@ -10,6 +10,7 @@ WGPUFilterMode webgpu_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter);
 WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter);
 WGPUAddressMode webgpu_address_mode_from_rd(RDD::SamplerRepeatMode p_sampler_repeat_mode);
 WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_operator);
+WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format);
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits);
 
