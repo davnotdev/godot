@@ -299,6 +299,27 @@ WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op) {
 	}
 }
 
+WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType p_texture_type) {
+	switch(p_texture_type) {
+		case RenderingDeviceCommons::TEXTURE_TYPE_1D:
+			return WGPUTextureViewDimension_1D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_2D:
+			return WGPUTextureViewDimension_2D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_3D:
+			return WGPUTextureViewDimension_3D;
+		case RenderingDeviceCommons::TEXTURE_TYPE_CUBE:
+			return WGPUTextureViewDimension_Cube;
+		case RenderingDeviceCommons::TEXTURE_TYPE_1D_ARRAY:
+			return WGPUTextureViewDimension_Undefined;
+		case RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY:
+			return WGPUTextureViewDimension_2DArray;
+		case RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY:
+			return WGPUTextureViewDimension_CubeArray;
+		case RenderingDeviceCommons::TEXTURE_TYPE_MAX:
+			return WGPUTextureViewDimension_Undefined;
+	}
+}
+
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
 	WGPULimits limits = p_limits.limits;
 	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
