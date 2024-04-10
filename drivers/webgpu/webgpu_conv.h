@@ -13,6 +13,7 @@ WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_o
 WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format);
 WGPULoadOp webgpu_load_op_from_rd(RDD::AttachmentLoadOp p_load_op);
 WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op);
+WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType p_texture_type);
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits);
 
