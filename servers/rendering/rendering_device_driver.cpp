@@ -86,6 +86,9 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 					bool need_array_dimensions = false;
 					bool need_block_size = false;
 					bool may_be_writable = false;
+					bool need_texture_is_multisample = false;
+					bool need_image_format = false;
+					bool need_texture_image_type = false;
 
 					switch (binding.descriptor_type) {
 						case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER: {
@@ -95,15 +98,21 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
 							uniform.type = UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
 							need_array_dimensions = true;
+							need_texture_is_multisample = true;
+							need_texture_image_type = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
 							uniform.type = UNIFORM_TYPE_TEXTURE;
 							need_array_dimensions = true;
+							need_texture_is_multisample = true;
+							need_texture_image_type = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE: {
 							uniform.type = UNIFORM_TYPE_IMAGE;
 							need_array_dimensions = true;
 							may_be_writable = true;
+							need_image_format = true;
+							need_texture_image_type = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER: {
 							uniform.type = UNIFORM_TYPE_TEXTURE_BUFFER;
@@ -134,6 +143,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						case SPV_REFLECT_DESCRIPTOR_TYPE_INPUT_ATTACHMENT: {
 							uniform.type = UNIFORM_TYPE_INPUT_ATTACHMENT;
 							need_array_dimensions = true;
+							need_texture_is_multisample = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
 							ERR_PRINT("Acceleration structure not supported.");
@@ -164,6 +174,166 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						uniform.writable = !(binding.type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE) && !(binding.block.decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE);
 					} else {
 						uniform.writable = false;
+					}
+
+					if (need_texture_is_multisample) {
+						uniform.texture_is_multisample = binding.image.ms == 1;
+					}
+
+					if (need_image_format) {
+						switch (binding.image.image_format) {
+							case SpvImageFormatRgba32f:
+								uniform.image_format = DATA_FORMAT_R32G32B32A32_SFLOAT;
+								break;
+							case SpvImageFormatRgba16f:
+								uniform.image_format = DATA_FORMAT_R16G16B16A16_SFLOAT;
+								break;
+							case SpvImageFormatR32f:
+								uniform.image_format = DATA_FORMAT_R32_SFLOAT;
+								break;
+							case SpvImageFormatRgba8:
+								uniform.image_format = DATA_FORMAT_R8G8B8A8_UNORM;
+								break;
+							case SpvImageFormatRgba8Snorm:
+								uniform.image_format = DATA_FORMAT_R8G8B8A8_SNORM;
+								break;
+							case SpvImageFormatRg32f:
+								uniform.image_format = DATA_FORMAT_R32G32_SFLOAT;
+								break;
+							case SpvImageFormatRg16f:
+								uniform.image_format = DATA_FORMAT_R16G16_SFLOAT;
+								break;
+							case SpvImageFormatR16f:
+								uniform.image_format = DATA_FORMAT_R16_SFLOAT;
+								break;
+							case SpvImageFormatRgba16:
+								uniform.image_format = DATA_FORMAT_R16G16B16A16_UNORM;
+								break;
+							case SpvImageFormatRg16:
+								uniform.image_format = DATA_FORMAT_R16G16_UNORM;
+								break;
+							case SpvImageFormatRg8:
+								uniform.image_format = DATA_FORMAT_R8G8_UNORM;
+								break;
+							case SpvImageFormatR16:
+								uniform.image_format = DATA_FORMAT_R16_UNORM;
+								break;
+							case SpvImageFormatR8:
+								uniform.image_format = DATA_FORMAT_R8_UNORM;
+								break;
+							case SpvImageFormatRgba16Snorm:
+								uniform.image_format = DATA_FORMAT_R16G16B16A16_SNORM;
+								break;
+							case SpvImageFormatRg16Snorm:
+								uniform.image_format = DATA_FORMAT_R16G16_SNORM;
+								break;
+							case SpvImageFormatRg8Snorm:
+								uniform.image_format = DATA_FORMAT_R8G8_SNORM;
+								break;
+							case SpvImageFormatR16Snorm:
+								uniform.image_format = DATA_FORMAT_R16_SNORM;
+								break;
+							case SpvImageFormatR8Snorm:
+								uniform.image_format = DATA_FORMAT_R8_SNORM;
+								break;
+							case SpvImageFormatRgba32i:
+								uniform.image_format = DATA_FORMAT_R32G32B32A32_SINT;
+								break;
+							case SpvImageFormatRgba16i:
+								uniform.image_format = DATA_FORMAT_R16G16B16A16_SINT;
+								break;
+							case SpvImageFormatRgba8i:
+								uniform.image_format = DATA_FORMAT_R8G8B8A8_SINT;
+								break;
+							case SpvImageFormatR32i:
+								uniform.image_format = DATA_FORMAT_R32_SINT;
+								break;
+							case SpvImageFormatRg32i:
+								uniform.image_format = DATA_FORMAT_R32G32_SINT;
+								break;
+							case SpvImageFormatRg16i:
+								uniform.image_format = DATA_FORMAT_R16G16_SINT;
+								break;
+							case SpvImageFormatRg8i:
+								uniform.image_format = DATA_FORMAT_R8G8_SINT;
+								break;
+							case SpvImageFormatR16i:
+								uniform.image_format = DATA_FORMAT_R16_SINT;
+								break;
+							case SpvImageFormatR8i:
+								uniform.image_format = DATA_FORMAT_R8_SINT;
+								break;
+							case SpvImageFormatRgba32ui:
+								uniform.image_format = DATA_FORMAT_R32G32B32A32_UINT;
+								break;
+							case SpvImageFormatRgba16ui:
+								uniform.image_format = DATA_FORMAT_R16G16B16A16_UINT;
+								break;
+							case SpvImageFormatRgba8ui:
+								uniform.image_format = DATA_FORMAT_R8G8B8A8_UINT;
+								break;
+							case SpvImageFormatR32ui:
+								uniform.image_format = DATA_FORMAT_R32_UINT;
+								break;
+							case SpvImageFormatRg32ui:
+								uniform.image_format = DATA_FORMAT_R32G32_UINT;
+								break;
+							case SpvImageFormatRg16ui:
+								uniform.image_format = DATA_FORMAT_R16G16_UINT;
+								break;
+							case SpvImageFormatRg8ui:
+								uniform.image_format = DATA_FORMAT_R8G8_UINT;
+								break;
+							case SpvImageFormatR16ui:
+								uniform.image_format = DATA_FORMAT_R16_UINT;
+								break;
+							case SpvImageFormatR8ui:
+								uniform.image_format = DATA_FORMAT_R8_UINT;
+								break;
+							case SpvImageFormatR64ui:
+								uniform.image_format = DATA_FORMAT_R64_UINT;
+								break;
+							case SpvImageFormatR64i:
+								uniform.image_format = DATA_FORMAT_R64_SINT;
+								break;
+							case SpvImageFormatUnknown:
+								print_error("Uniform image Format must be known");
+								break;
+							case SpvImageFormatMax:
+							case SpvImageFormatR11fG11fB10f:
+							case SpvImageFormatRgb10A2:
+							case SpvImageFormatRgb10a2ui:
+								print_error("Uniform image format not supported");
+								break;
+						}
+					}
+
+					if (need_texture_image_type) {
+						switch (binding.image.dim) {
+							case SpvDim1D:
+								uniform.texture_image_type =
+										binding.image.arrayed ? TEXTURE_TYPE_1D_ARRAY : TEXTURE_TYPE_1D;
+								break;
+							case SpvDim2D:
+								uniform.texture_image_type =
+										binding.image.arrayed ? TEXTURE_TYPE_2D_ARRAY : TEXTURE_TYPE_2D;
+								break;
+							case SpvDim3D:
+								uniform.texture_image_type =
+										TEXTURE_TYPE_3D;
+								break;
+							case SpvDimCube:
+								uniform.texture_image_type =
+										binding.image.arrayed ? TEXTURE_TYPE_CUBE_ARRAY : TEXTURE_TYPE_CUBE;
+								break;
+							case SpvDimRect:
+							case SpvDimBuffer:
+							case SpvDimSubpassData:
+							case SpvDimTileImageDataEXT:
+							case SpvDimMax:
+								print_error("Only 1D, 2D, 3D, Cube images and their array equivalents supported");
+								break;
+						}
 					}
 
 					uniform.binding = binding.binding;
