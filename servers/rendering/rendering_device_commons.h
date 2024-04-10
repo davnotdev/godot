@@ -965,6 +965,15 @@ public:
 		BitField<ShaderStage> stages = {};
 		uint32_t length = 0; // Size of arrays (in total elements), or ubos (in bytes * total elements).
 
+		// Applies for UNIFORM_TYPE_TEXTURE and UNIFORM_TYPE_SAMPLER_WITH_TEXTURE.
+		bool texture_is_multisample = false;
+
+		// Applies for UNIFORM_TYPE_IMAGE.
+		DataFormat image_format = DATA_FORMAT_MAX;
+
+		// For texture and image uniform types.
+		TextureType texture_image_type = TEXTURE_TYPE_2D;
+
 		bool operator!=(const ShaderUniform &p_other) const {
 			return binding != p_other.binding || type != p_other.type || writable != p_other.writable || stages != p_other.stages || length != p_other.length;
 		}
