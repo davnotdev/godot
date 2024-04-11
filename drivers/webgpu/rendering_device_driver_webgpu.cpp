@@ -1,7 +1,6 @@
 #include "rendering_device_driver_webgpu.h"
 #include "core/io/marshalls.h"
 #include "thirdparty/misc/smolv.h"
-#include "webgpu.h"
 #include "webgpu_conv.h"
 
 #include <wgpu.h>
@@ -698,6 +697,9 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name) {
 	r_shader_desc = {};
 
+	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
+	ShaderInfo* shader_info = memnew(ShaderInfo);
+
 	const uint8_t *binptr = p_shader_binary.ptr();
 	uint32_t binsize = p_shader_binary.size();
 
@@ -730,10 +732,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		read_offset += STEPIFY(binary_data.shader_name_len, 4);
 	}
 
-	Vector<Vector<WGPUBindGroupLayoutEntry>> webgpu_layout_entries;
+	Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
 
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
-	webgpu_layout_entries.resize(binary_data.set_count);
+	bind_group_layout_entries.resize(binary_data.set_count);
 
 	for (uint32_t i = 0; i < binary_data.set_count; i++) {
 		ERR_FAIL_COND_V(read_offset + sizeof(uint32_t) >= binsize, ShaderID());
@@ -817,7 +819,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			}
 
 			r_shader_desc.uniform_sets.write[i].push_back(info);
-			webgpu_layout_entries.write[i].push_back(layout_entry);
+			bind_group_layout_entries.write[i].push_back(layout_entry);
 		}
 
 		read_offset += binding_size;
@@ -825,9 +827,122 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	ERR_FAIL_COND_V(read_offset + binary_data.specialization_constants_count * sizeof(ShaderBinary::SpecializationConstant) >= binsize, ShaderID());
 
+	r_shader_desc.specialization_constants.resize(binary_data.specialization_constants_count);
+	for (uint32_t i = 0; i < binary_data.specialization_constants_count; i++) {
+		const ShaderBinary::SpecializationConstant &src_sc = *(reinterpret_cast<const ShaderBinary::SpecializationConstant *>(binptr + read_offset));
+		ShaderSpecializationConstant sc;
+		sc.type = PipelineSpecializationConstantType(src_sc.type);
+		sc.constant_id = src_sc.constant_id;
+		sc.int_value = src_sc.int_value;
+		sc.stages = src_sc.stage_flags;
+		r_shader_desc.specialization_constants.write[i] = sc;
+
+		read_offset += sizeof(ShaderBinary::SpecializationConstant);
+	}
+
+	Vector<Vector<uint8_t>> stages_spirv;
+	stages_spirv.resize(binary_data.stage_count);
+	r_shader_desc.stages.resize(binary_data.stage_count);
+
+	for (uint32_t i = 0; i < binary_data.stage_count; i++) {
+		ERR_FAIL_COND_V(read_offset + sizeof(uint32_t) * 3 >= binsize, ShaderID());
+
+		uint32_t stage = decode_uint32(binptr + read_offset);
+		read_offset += sizeof(uint32_t);
+		uint32_t smolv_size = decode_uint32(binptr + read_offset);
+		read_offset += sizeof(uint32_t);
+		uint32_t zstd_size = decode_uint32(binptr + read_offset);
+		read_offset += sizeof(uint32_t);
+
+		uint32_t buf_size = (zstd_size > 0) ? zstd_size : smolv_size;
+
+		Vector<uint8_t> smolv;
+		const uint8_t *src_smolv = nullptr;
+
+		if (zstd_size > 0) {
+			// Decompress to smolv.
+			smolv.resize(smolv_size);
+			int dec_smolv_size = Compression::decompress(smolv.ptrw(), smolv.size(), binptr + read_offset, zstd_size, Compression::MODE_ZSTD);
+			ERR_FAIL_COND_V(dec_smolv_size != (int32_t)smolv_size, ShaderID());
+			src_smolv = smolv.ptr();
+		} else {
+			src_smolv = binptr + read_offset;
+		}
+
+		Vector<uint8_t> &spirv = stages_spirv.ptrw()[i];
+		uint32_t spirv_size = smolv::GetDecodedBufferSize(src_smolv, smolv_size);
+		spirv.resize(spirv_size);
+		if (!smolv::Decode(src_smolv, smolv_size, spirv.ptrw(), spirv_size)) {
+			ERR_FAIL_V_MSG(ShaderID(), "Malformed smolv input uncompressing shader stage:" + String(SHADER_STAGE_NAMES[stage]));
+		}
+
+		r_shader_desc.stages.set(i, ShaderStage(stage));
+
+		buf_size = STEPIFY(buf_size, 4);
+		read_offset += buf_size;
+		ERR_FAIL_COND_V(read_offset > binsize, ShaderID());
+	}
+
+	ERR_FAIL_COND_V(read_offset != binsize, ShaderID());
+
+	for (int i = 0; i < r_shader_desc.stages.size(); i++) {
+		WGPUShaderModuleSPIRVDescriptor shader_module_spirv_desc = (WGPUShaderModuleSPIRVDescriptor){
+			.chain = (WGPUChainedStruct) {
+				.sType = WGPUSType_ShaderModuleSPIRVDescriptor,
+			},
+			.codeSize = (uint32_t)stages_spirv[i].size() / 4,
+			.code = (const uint32_t *)stages_spirv[i].ptr(),
+		};
+
+		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
+			.nextInChain = (const WGPUChainedStruct *)&shader_module_spirv_desc,
+			.hintCount = 0,
+		};
+
+		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
+
+		ERR_FAIL_COND_V(shader_module, ShaderID());
+
+		shader_info->shader_modules.push_back(shader_module);
+	}
+
+	// DEV_ASSERT((uint32_t)vk_set_bindings.size() == binary_data.set_count);
+	for (uint32_t i = 0; i < binary_data.set_count; i++) {
+		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
+			.entryCount = (size_t)bind_group_layout_entries[i].size(),
+			.entries = bind_group_layout_entries[i].ptr(),
+		};
+
+		WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
+
+		ERR_FAIL_COND_V(bind_group_layout, ShaderID());
+
+		// shader_info.vk_descriptor_set_layouts.push_back(layout);
+		shader_info->bind_group_layouts.push_back(bind_group_layout);
+	}
+
+	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor) {
+		.bindGroupLayoutCount = binary_data.set_count,
+		.bindGroupLayouts = shader_info->bind_group_layouts.ptr(),
+	};
+
+	/* if (binary_data.push_constant_size) { */
+	/* 	VkPushConstantRange *push_constant_range = ALLOCA_SINGLE(VkPushConstantRange); */
+	/* 	*push_constant_range = {}; */
+	/* 	push_constant_range->stageFlags = binary_data.vk_push_constant_stages_mask; */
+	/* 	push_constant_range->size = binary_data.push_constant_size; */
+	/* 	pipeline_layout_create_info.pushConstantRangeCount = 1; */
+	/* 	pipeline_layout_create_info.pPushConstantRanges = push_constant_range; */
+	/* } */
+
+	shader_info->pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &pipeline_layout_descriptor);
+	ERR_FAIL_COND_V(shader_info->pipeline_layout, ShaderID());
+
 	// TODO: impl
 	print_error("TODO --> shader_create_from_bytecode");
 	exit(1);
+
+	return ShaderID(shader_info);
 }
 
 void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {
