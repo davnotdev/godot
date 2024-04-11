@@ -209,6 +209,12 @@ private:
 		};
 	};
 
+	struct ShaderInfo {
+		Vector<WGPUShaderModule> shader_modules;
+		Vector<WGPUBindGroupLayout> bind_group_layouts;
+		WGPUPipelineLayout pipeline_layout;
+	};
+
 public:
 	virtual String shader_get_binary_cache_key() override final;
 	virtual Vector<uint8_t> shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) override final;
