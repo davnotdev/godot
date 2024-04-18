@@ -181,6 +181,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 					}
 
 					if (need_image_format) {
+						uniform.image_format = DATA_FORMAT_MAX;
 						switch (binding.image.image_format) {
 							case SpvImageFormatRgba32f:
 								uniform.image_format = DATA_FORMAT_R32G32B32A32_SFLOAT;

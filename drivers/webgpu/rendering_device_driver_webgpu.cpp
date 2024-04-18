@@ -15,7 +15,15 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	adapter = context_driver->adapter_get(p_device_index);
 	context_device = context_driver->device_get(p_device_index);
 
-	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){};
+	WGPUFeatureName required_features[] = {
+		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
+		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16BitNorm,
+	};
+
+	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
+		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
+		.requiredFeatures = required_features,
+	};
 	wgpuAdapterRequestDevice(adapter, &device_desc, handle_request_device, &this->device);
 	ERR_FAIL_COND_V(!this->device, FAILED);
 
@@ -556,6 +564,11 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 				binding.stages = (uint32_t)uniform_refl.stages;
 				binding.length = uniform_refl.length;
 				binding.writable = (uint32_t)uniform_refl.writable;
+
+				binding.texture_is_multisample = uniform_refl.texture_is_multisample;
+				binding.image_format = uniform_refl.image_format;
+				binding.texture_image_type = uniform_refl.texture_image_type;
+
 				set_bindings.push_back(binding);
 			}
 			uniforms.push_back(set_bindings);
@@ -698,7 +711,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	r_shader_desc = {};
 
 	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
-	ShaderInfo* shader_info = memnew(ShaderInfo);
+	ShaderInfo *shader_info = memnew(ShaderInfo);
 
 	const uint8_t *binptr = p_shader_binary.ptr();
 	uint32_t binsize = p_shader_binary.size();
@@ -752,6 +765,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			info.length = set_ptr[j].length;
 			info.binding = set_ptr[j].binding;
 			info.stages = set_ptr[j].stages;
+			info.texture_is_multisample = set_ptr[j].texture_is_multisample;
+			info.image_format = (DataFormat)set_ptr[j].image_format;
+			info.texture_image_type = (TextureType)set_ptr[j].texture_image_type;
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
 			layout_entry.binding = set_ptr[j].binding;
@@ -776,13 +792,16 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_TEXTURE: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						// TODO
+						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
 					layout_entry.storageTexture = (WGPUStorageTextureBindingLayout){
-						.access = set_ptr[j].writable ? WGPUStorageTextureAccess_ReadWrite : WGPUStorageTextureAccess_ReadOnly,
+						// STUB: Not supported by webgpu without feature flag.
+						// .access = set_ptr[j].writable ? WGPUStorageTextureAccess_ReadWrite : WGPUStorageTextureAccess_ReadOnly,
+						.access = WGPUStorageTextureAccess_WriteOnly,
 						.format = webgpu_texture_format_from_rd(info.image_format),
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 					};
@@ -790,6 +809,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						// TODO
+						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
@@ -887,8 +907,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	for (int i = 0; i < r_shader_desc.stages.size(); i++) {
 		WGPUShaderModuleSPIRVDescriptor shader_module_spirv_desc = (WGPUShaderModuleSPIRVDescriptor){
-			.chain = (WGPUChainedStruct) {
-				.sType = WGPUSType_ShaderModuleSPIRVDescriptor,
+			.chain = (WGPUChainedStruct){
+					.sType = WGPUSType_ShaderModuleSPIRVDescriptor,
 			},
 			.codeSize = (uint32_t)stages_spirv[i].size() / 4,
 			.code = (const uint32_t *)stages_spirv[i].ptr(),
@@ -901,7 +921,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
 
-		ERR_FAIL_COND_V(shader_module, ShaderID());
+		ERR_FAIL_COND_V(!shader_module, ShaderID());
 
 		shader_info->shader_modules.push_back(shader_module);
 	}
@@ -915,13 +935,13 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 		WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
 
-		ERR_FAIL_COND_V(bind_group_layout, ShaderID());
+		ERR_FAIL_COND_V(!bind_group_layout, ShaderID());
 
 		// shader_info.vk_descriptor_set_layouts.push_back(layout);
 		shader_info->bind_group_layouts.push_back(bind_group_layout);
 	}
 
-	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor) {
+	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor){
 		.bindGroupLayoutCount = binary_data.set_count,
 		.bindGroupLayouts = shader_info->bind_group_layouts.ptr(),
 	};
@@ -936,7 +956,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	/* } */
 
 	shader_info->pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &pipeline_layout_descriptor);
-	ERR_FAIL_COND_V(shader_info->pipeline_layout, ShaderID());
+	ERR_FAIL_COND_V(!shader_info->pipeline_layout, ShaderID());
 
 	// TODO: impl
 	print_error("TODO --> shader_create_from_bytecode");

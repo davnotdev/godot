@@ -186,6 +186,10 @@ private:
 			uint32_t stages = 0;
 			uint32_t length = 0; // Size of arrays (in total elements), or UBOs (in bytes * total elements).
 			uint32_t writable = 0;
+
+			uint32_t image_format = 0;
+		    uint32_t texture_image_type = 0;
+			uint32_t texture_is_multisample = 0;
 		};
 
 		struct SpecializationConstant {
