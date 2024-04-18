@@ -29,8 +29,15 @@ typedef enum WGPUNativeFeature {
     WGPUNativeFeature_PipelineStatisticsQuery = 0x00030008,
     WGPUNativeFeature_StorageResourceBindingArray = 0x00030009,
     WGPUNativeFeature_PartiallyBoundBindingArray = 0x0003000A,
-    WGPUNativeFeature_Force32 = 0x7FFFFFFF
+    WGPUNativeFeature_Force32 = 0x7FFFFFFF,
+
+    // Added for https://github.com/davnotdev/wgpu-native/tree/trunk
+    WGPUNativeFeature_TextureFormat16BitNorm = 0x00040001,
 } WGPUNativeFeature;
+
+// Added for https://github.com/davnotdev/wgpu-native/tree/trunk
+#define WGPUTextureFormat_R16Unorm (WGPUTextureFormat)0x00040001
+#define WGPUTextureFormat_R16Snorm (WGPUTextureFormat)0x00040002
 
 typedef enum WGPULogLevel {
     WGPULogLevel_Off = 0x00000000,
