@@ -200,14 +200,14 @@ private:
 		};
 
 		struct Data {
-			// uint64_t vertex_input_mask = 0;
-			// uint32_t fragment_output_mask = 0;
+			uint64_t vertex_input_mask = 0;
+			uint32_t fragment_output_mask = 0;
 			uint32_t specialization_constants_count = 0;
 			uint32_t is_compute = 0;
 			uint32_t compute_local_size[3] = {};
 			uint32_t set_count = 0;
-			// uint32_t push_constant_size = 0;
-			// uint32_t vk_push_constant_stages_mask = 0;
+			uint32_t push_constant_size = 0;
+			uint32_t push_constant_stages = 0;
 			uint32_t stage_count = 0;
 			uint32_t shader_name_len = 0;
 		};

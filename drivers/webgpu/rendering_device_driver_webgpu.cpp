@@ -548,10 +548,10 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		binary_data.compute_local_size[1] = shader_refl.compute_local_size[1];
 		binary_data.compute_local_size[2] = shader_refl.compute_local_size[2];
 		binary_data.set_count = shader_refl.uniform_sets.size();
-		// binary_data.push_constant_size = shader_refl.push_constant_size;
+		binary_data.push_constant_size = shader_refl.push_constant_size;
 		for (uint32_t i = 0; i < SHADER_STAGE_MAX; i++) {
 			if (shader_refl.push_constant_stages.has_flag((ShaderStage)(1 << i))) {
-				// binary_data.vk_push_constant_stages_mask |= RD_STAGE_TO_VK_SHADER_STAGE_BITS[i];
+				binary_data.push_constant_stages |= webgpu_shader_stage_from_rd((ShaderStage)i);
 			}
 		}
 
@@ -727,11 +727,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	uint32_t bin_data_size = decode_uint32(binptr + 8);
 	const ShaderBinary::Data &binary_data = *(reinterpret_cast<const ShaderBinary::Data *>(binptr + 12));
 
-	// r_shader_desc.push_constant_size = binary_data.push_constant_size;
-	// shader_info.vk_push_constant_stages = binary_data.vk_push_constant_stages_mask;
+	r_shader_desc.push_constant_size = binary_data.push_constant_size;
 
-	// r_shader_desc.vertex_input_mask = binary_data.vertex_input_mask;
-	// r_shader_desc.fragment_output_mask = binary_data.fragment_output_mask;
+	r_shader_desc.vertex_input_mask = binary_data.vertex_input_mask;
+	r_shader_desc.fragment_output_mask = binary_data.fragment_output_mask;
 
 	r_shader_desc.is_compute = binary_data.is_compute;
 	r_shader_desc.compute_local_size[0] = binary_data.compute_local_size[0];
@@ -771,10 +770,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
 			layout_entry.binding = set_ptr[j].binding;
-			// layout_binding.descriptorCount = 1;
 			for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
 				if ((set_ptr[j].stages & (1 << k))) {
-					// bind_entry.stageFlags |= RD_STAGE_TO_VK_SHADER_STAGE_BITS[k];
+					layout_entry.visibility |= webgpu_shader_stage_from_rd((ShaderStage)k);
 				}
 			}
 
@@ -791,7 +789,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
-						// TODO
+						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
 						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
@@ -808,7 +806,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
-						// TODO
+						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
 						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
@@ -926,7 +924,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->shader_modules.push_back(shader_module);
 	}
 
-	// DEV_ASSERT((uint32_t)vk_set_bindings.size() == binary_data.set_count);
+	DEV_ASSERT((uint32_t)vk_set_bindings.size() == binary_data.set_count);
 	for (uint32_t i = 0; i < binary_data.set_count; i++) {
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
 			.entryCount = (size_t)bind_group_layout_entries[i].size(),
@@ -937,30 +935,42 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 		ERR_FAIL_COND_V(!bind_group_layout, ShaderID());
 
-		// shader_info.vk_descriptor_set_layouts.push_back(layout);
 		shader_info->bind_group_layouts.push_back(bind_group_layout);
 	}
 
+	WGPUPushConstantRange push_constant_range;
+	size_t push_constant_range_count = 0;
+
+	if (binary_data.push_constant_size) {
+		uint32_t stages = WGPUShaderStage_None;
+		for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
+			if ((binary_data.push_constant_stages & (1 << k))) {
+				stages |= webgpu_shader_stage_from_rd((ShaderStage)k);
+			}
+		}
+
+		push_constant_range = (WGPUPushConstantRange){
+			.stages = (WGPUShaderStage)stages,
+			.start = 0,
+			.end = binary_data.push_constant_size,
+		};
+	}
+
+	WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
+		.pushConstantRangeCount = push_constant_range_count,
+		.pushConstantRanges = &push_constant_range,
+	};
+
 	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor){
+		.nextInChain = (WGPUChainedStruct *)&wgpu_pipeline_extras,
 		.bindGroupLayoutCount = binary_data.set_count,
 		.bindGroupLayouts = shader_info->bind_group_layouts.ptr(),
 	};
 
-	/* if (binary_data.push_constant_size) { */
-	/* 	VkPushConstantRange *push_constant_range = ALLOCA_SINGLE(VkPushConstantRange); */
-	/* 	*push_constant_range = {}; */
-	/* 	push_constant_range->stageFlags = binary_data.vk_push_constant_stages_mask; */
-	/* 	push_constant_range->size = binary_data.push_constant_size; */
-	/* 	pipeline_layout_create_info.pushConstantRangeCount = 1; */
-	/* 	pipeline_layout_create_info.pPushConstantRanges = push_constant_range; */
-	/* } */
+	// TODO: Implement the usage of specialization constants.
 
 	shader_info->pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &pipeline_layout_descriptor);
 	ERR_FAIL_COND_V(!shader_info->pipeline_layout, ShaderID());
-
-	// TODO: impl
-	print_error("TODO --> shader_create_from_bytecode");
-	exit(1);
 
 	return ShaderID(shader_info);
 }
