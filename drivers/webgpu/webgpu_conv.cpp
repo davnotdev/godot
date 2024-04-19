@@ -329,6 +329,23 @@ WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType 
 	}
 }
 
+WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage) {
+	switch (p_shader_stage) {
+		case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
+			return WGPUShaderStage_Vertex;
+		case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
+			return WGPUShaderStage_Fragment;
+		case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
+		case RenderingDeviceCommons::SHADER_STAGE_COMPUTE_BIT:
+			return WGPUShaderStage_Compute;
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_CONTROL:
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION:
+		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_MAX:
+			return WGPUShaderStage_None;
+	}
+}
+
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
 	WGPULimits limits = p_limits.limits;
 	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
