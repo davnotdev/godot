@@ -34,7 +34,7 @@
 #include "core/object/object.h"
 #include "core/variant/type_info.h"
 
-#define STEPIFY(m_number, m_alignment) ((((m_number) + ((m_alignment)-1)) / (m_alignment)) * (m_alignment))
+#define STEPIFY(m_number, m_alignment) ((((m_number) + ((m_alignment) - 1)) / (m_alignment)) * (m_alignment))
 
 class RenderingDeviceCommons : public Object {
 	////////////////////////////////////////////
@@ -895,6 +895,14 @@ public:
 		// For texture and image uniform types.
 		TextureType texture_image_type = TEXTURE_TYPE_2D;
 
+		// NOTE: This is only used in WebGpu and is simply an extended `writable`.
+		enum ImageAccess {
+			ReadWrite,
+			ReadOnly,
+			WriteOnly,
+		};
+		ImageAccess image_access = ImageAccess::ReadWrite;
+
 		bool operator!=(const ShaderUniform &p_other) const {
 			return binding != p_other.binding || type != p_other.type || writable != p_other.writable || stages != p_other.stages || length != p_other.length;
 		}
@@ -921,6 +929,9 @@ public:
 
 	struct ShaderSpecializationConstant : public PipelineSpecializationConstant {
 		BitField<ShaderStage> stages;
+
+		// NOTE: This is only used in WebGpu.
+		String name;
 
 		bool operator<(const ShaderSpecializationConstant &p_other) const { return constant_id < p_other.constant_id; }
 	};

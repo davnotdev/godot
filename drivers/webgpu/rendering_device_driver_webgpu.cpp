@@ -4,6 +4,7 @@
 #include "webgpu_conv.h"
 
 #include <wgpu.h>
+#include <cstring>
 
 static void handle_request_device(WGPURequestDeviceStatus status,
 		WGPUDevice device, char const *message,
@@ -18,6 +19,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	WGPUFeatureName required_features[] = {
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16BitNorm,
+		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 	};
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
@@ -567,6 +569,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 				binding.texture_is_multisample = uniform_refl.texture_is_multisample;
 				binding.image_format = uniform_refl.image_format;
+				binding.image_access = uniform_refl.image_access;
 				binding.texture_image_type = uniform_refl.texture_image_type;
 
 				set_bindings.push_back(binding);
@@ -576,10 +579,13 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 		for (const ShaderSpecializationConstant &refl_sc : shader_refl.specialization_constants) {
 			ShaderBinary::SpecializationConstant spec_constant;
-			spec_constant.type = (uint32_t)refl_sc.type;
 			spec_constant.constant_id = refl_sc.constant_id;
 			spec_constant.int_value = refl_sc.int_value;
-			spec_constant.stage_flags = (uint32_t)refl_sc.stages;
+
+			CharString ascii_name = refl_sc.name.ascii();
+			ERR_FAIL_COND_V(ascii_name.size() < ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN, Vector<uint8_t>());
+			strncpy(spec_constant.value_name, ascii_name.ptr(), ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN);
+
 			specialization_constants.push_back(spec_constant);
 		}
 	}
@@ -766,6 +772,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			info.stages = set_ptr[j].stages;
 			info.texture_is_multisample = set_ptr[j].texture_is_multisample;
 			info.image_format = (DataFormat)set_ptr[j].image_format;
+			info.image_access = (ShaderUniform::ImageAccess)set_ptr[j].image_access;
 			info.texture_image_type = (TextureType)set_ptr[j].texture_image_type;
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
@@ -796,10 +803,21 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					};
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
+					WGPUStorageTextureAccess access;
+					switch (info.image_access) {
+						case ShaderUniform::ImageAccess::ReadWrite:
+							access = WGPUStorageTextureAccess_ReadWrite;
+							break;
+						case ShaderUniform::ImageAccess::ReadOnly:
+							access = WGPUStorageTextureAccess_ReadOnly;
+							break;
+						case ShaderUniform::ImageAccess::WriteOnly:
+							access = WGPUStorageTextureAccess_WriteOnly;
+							break;
+					}
+
 					layout_entry.storageTexture = (WGPUStorageTextureBindingLayout){
-						// STUB: Not supported by webgpu without feature flag.
-						// .access = set_ptr[j].writable ? WGPUStorageTextureAccess_ReadWrite : WGPUStorageTextureAccess_ReadOnly,
-						.access = WGPUStorageTextureAccess_WriteOnly,
+						.access = access,
 						.format = webgpu_texture_format_from_rd(info.image_format),
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 					};
@@ -849,11 +867,12 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	for (uint32_t i = 0; i < binary_data.specialization_constants_count; i++) {
 		const ShaderBinary::SpecializationConstant &src_sc = *(reinterpret_cast<const ShaderBinary::SpecializationConstant *>(binptr + read_offset));
 		ShaderSpecializationConstant sc;
-		sc.type = PipelineSpecializationConstantType(src_sc.type);
 		sc.constant_id = src_sc.constant_id;
 		sc.int_value = src_sc.int_value;
-		sc.stages = src_sc.stage_flags;
+		sc.name = String((char *)src_sc.value_name);
 		r_shader_desc.specialization_constants.write[i] = sc;
+
+		shader_info->override_keys[sc.constant_id] = sc.name;
 
 		read_offset += sizeof(ShaderBinary::SpecializationConstant);
 	}
@@ -1134,9 +1153,42 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 // ----- PIPELINE -----
 
 RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
-	// TODO: impl
-	print_error("TODO --> compute_pipeline_create");
-	exit(1);
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+
+	ERR_FAIL_COND_V(shader_info->shader_modules.size() != 1, PipelineID());
+
+	Vector<WGPUConstantEntry> constants;
+	for (int i = 0; i < p_specialization_constants.size(); i++) {
+		PipelineSpecializationConstant constant = p_specialization_constants[i];
+		union {
+			int i;
+			double d;
+		} val;
+
+		val.i = constant.int_value;
+
+		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
+		constants.push_back((WGPUConstantEntry){
+				.key = key_name,
+				.value = val.d,
+		});
+	}
+
+	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
+		.module = shader_info->shader_modules[0],
+		.entryPoint = "main",
+		.constantCount = (size_t)constants.size(),
+		.constants = constants.ptr(),
+	};
+
+	WGPUComputePipelineDescriptor compute_pipeline_desc = (WGPUComputePipelineDescriptor){
+		.layout = shader_info->pipeline_layout,
+		.compute = programmable_stage_desc,
+	};
+
+	WGPUComputePipeline compute_pipeline = wgpuDeviceCreateComputePipeline(device, &compute_pipeline_desc);
+
+	return PipelineID(compute_pipeline);
 }
 
 /*****************/
