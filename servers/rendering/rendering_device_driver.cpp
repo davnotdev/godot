@@ -88,6 +88,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 					bool may_be_writable = false;
 					bool need_texture_is_multisample = false;
 					bool need_image_format = false;
+					bool need_image_access = false;
 					bool need_texture_image_type = false;
 
 					switch (binding.descriptor_type) {
@@ -112,6 +113,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 							need_array_dimensions = true;
 							may_be_writable = true;
 							need_image_format = true;
+							need_image_access = true;
 							need_texture_image_type = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER: {
@@ -309,6 +311,14 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						}
 					}
 
+					if (need_image_access) {
+						if (binding.decoration_flags & SPV_REFLECT_DECORATION_NON_READABLE) {
+							uniform.image_access = ShaderUniform::ImageAccess::WriteOnly;
+						} else if (binding.decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE) {
+							uniform.image_access = ShaderUniform::ImageAccess::ReadOnly;
+						}
+					}
+
 					if (need_texture_image_type) {
 						switch (binding.image.dim) {
 							case SpvDim1D:
@@ -404,6 +414,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						SpvReflectSpecializationConstant *spc = spec_constants[j];
 
 						sconst.constant_id = spc->constant_id;
+						sconst.name = String(spc->name);
 						sconst.int_value = 0; // Clear previous value JIC.
 						switch (spc->constant_type) {
 							case SPV_REFLECT_SPECIALIZATION_CONSTANT_BOOL: {

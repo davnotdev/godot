@@ -1,6 +1,7 @@
 #ifndef RENDERING_DEVICE_DRIVER_WEBGPU_H
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
+#include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 
@@ -188,15 +189,18 @@ private:
 			uint32_t writable = 0;
 
 			uint32_t image_format = 0;
-		    uint32_t texture_image_type = 0;
+			uint32_t image_access = 0;
+			uint32_t texture_image_type = 0;
 			uint32_t texture_is_multisample = 0;
 		};
 
 		struct SpecializationConstant {
-			uint32_t type = 0;
+			static const size_t OVERRIDE_CONSTANT_STRLEN = 48;
+			// NOTE: This is based on the current longest override variable at 39 characters.
+			// char[48] = uint32_t[12]
+			char value_name[OVERRIDE_CONSTANT_STRLEN] = { 0 };
 			uint32_t constant_id = 0;
 			uint32_t int_value = 0;
-			uint32_t stage_flags = 0;
 		};
 
 		struct Data {
@@ -216,6 +220,8 @@ private:
 	struct ShaderInfo {
 		Vector<WGPUShaderModule> shader_modules;
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
+		// Maps `constant_id` to override key name
+		HashMap<uint32_t, String> override_keys;
 		WGPUPipelineLayout pipeline_layout;
 	};
 
