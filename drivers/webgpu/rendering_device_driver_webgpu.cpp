@@ -20,6 +20,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16BitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
+		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
 	};
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
@@ -1002,12 +1003,94 @@ void RenderingDeviceDriverWebGpu::shader_free(ShaderID p_shader) {
 /*********************/
 
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index) {
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+
+	Vector<WGPUBindGroupEntry> entries;
+
+	// Used to allow data stored in entries to live long enough to be used.
+	Vector<Vector<WGPUSampler>> owned_samplers;
+	Vector<Vector<WGPUTextureView>> owned_texture_views;
+	Vector<WGPUBindGroupEntryExtras> owned_chained_extras;
+
+	for (int i = 0; i < p_uniforms.size(); i++) {
+		const BoundUniform &uniform = p_uniforms[i];
+		WGPUBindGroupEntry entry;
+		entry.binding = uniform.binding;
+		entry.nextInChain = nullptr;
+
+		switch (uniform.type) {
+			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER:
+			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
+				Vector<WGPUSampler> uniform_samplers;
+
+				for (uint32_t j = 0; j < uniform.ids.size(); j++) {
+					WGPUSampler sampler = (WGPUSampler)uniform.ids[j].id;
+					uniform_samplers.push_back(sampler);
+				}
+
+				WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+					.samplers = uniform_samplers.ptr(),
+					.samplerCount = (size_t)owned_texture_views.size(),
+				};
+				owned_chained_extras.push_back(entry_extras);
+				entry.nextInChain = (WGPUChainedStruct *)&owned_chained_extras[owned_chained_extras.size() - 1];
+				owned_samplers.push_back(uniform_samplers);
+
+			} break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
+			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
+			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
+				Vector<WGPUTextureView> uniform_texture_views;
+
+				for (uint32_t j = 0; j < uniform.ids.size(); j++) {
+					TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
+					uniform_texture_views.push_back(texture_info->view);
+				}
+
+				WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+					.textureViews = uniform_texture_views.ptr(),
+					.textureViewCount = (size_t)uniform_texture_views.size(),
+				};
+				owned_chained_extras.push_back(entry_extras);
+				entry.nextInChain = (WGPUChainedStruct *)&owned_chained_extras[owned_chained_extras.size() - 1];
+				owned_texture_views.push_back(uniform_texture_views);
+			} break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE_BUFFER:
+			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE_BUFFER:
+			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE_BUFFER:
+				CRASH_NOW_MSG("Unimplemented!"); // TODO.
+				break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_UNIFORM_BUFFER:
+			case RenderingDeviceCommons::UNIFORM_TYPE_STORAGE_BUFFER: {
+				BufferInfo *buffer_info = (BufferInfo *)uniform.ids[0].id;
+				entry.buffer = buffer_info->buffer;
+				entry.offset = 0;
+				entry.size = buffer_info->size;
+			} break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_MAX:
+				break;
+		}
+		entries.push_back(entry);
+	}
+
+	WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
+		.layout = shader_info->bind_group_layouts[p_set_index],
+		.entryCount = (size_t)entries.size(),
+		.entries = entries.ptr(),
+	};
+
+	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
+
 	// TODO: impl
-	print_error("TODO --> uniform_set_create");
-	exit(1);
+	/* print_error("TODO --> uniform_set_create"); */
+	/* exit(1); */
+	return UniformSetID(bind_group);
 }
 
-void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {}
+void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
+	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
+	wgpuBindGroupRelease(bind_group);
+}
 
 // ----- COMMANDS -----
 
