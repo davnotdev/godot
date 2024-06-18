@@ -18,7 +18,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	WGPUFeatureName required_features[] = {
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
-		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16BitNorm,
+		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
 	};
