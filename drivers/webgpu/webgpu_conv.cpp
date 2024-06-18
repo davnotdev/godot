@@ -60,12 +60,13 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R16_SFLOAT:
 			ret = WGPUTextureFormat_R16Float;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R16_UNORM:
-			ret = WGPUTextureFormat_R16Unorm;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R16_SNORM:
-			ret = WGPUTextureFormat_R16Snorm;
-			break;
+		// TODO: Broke while updating wgpu
+		/* case RDD::DataFormat::DATA_FORMAT_R16_UNORM: */
+		/* 	ret = WGPUTextureFormat_R16UNorm; */
+		/* 	break; */
+		/* case RDD::DataFormat::DATA_FORMAT_R16_SNORM: */
+		/* 	ret = WGPUTextureFormat_R16Snorm; */
+		/* 	break; */
 		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
 			ret = WGPUTextureFormat_R32Uint;
 			break;
