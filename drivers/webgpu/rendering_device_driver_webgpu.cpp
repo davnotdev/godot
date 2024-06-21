@@ -22,6 +22,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
+		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
 	};
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
@@ -209,6 +210,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.format = webgpu_texture_format_from_rd(p_view.format),
+		.dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type),
 		.mipLevelCount = texture_desc.mipLevelCount,
 		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
 	};
@@ -520,7 +522,7 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 
 RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
 	// TODO: impl
-	print_error("TODO --> framebuffer_create");
+	CRASH_NOW_MSG("TODO --> framebuffer_create");
 	exit(1);
 }
 
@@ -787,8 +789,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
+					// TODO: I don't know what this means.
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
-						.type = WGPUSamplerBindingType_NonFiltering
+						.type = WGPUSamplerBindingType_Comparison
 					};
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
@@ -1010,52 +1013,65 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 	Vector<WGPUBindGroupEntry> entries;
 
 	// Used to allow data stored in entries to live long enough to be used.
-	Vector<Vector<WGPUSampler>> owned_samplers;
-	Vector<Vector<WGPUTextureView>> owned_texture_views;
-	Vector<WGPUBindGroupEntryExtras> owned_chained_extras;
+	List<Vector<WGPUSampler>> owned_samplers;
+	List<Vector<WGPUTextureView>> owned_texture_views;
+	List<WGPUBindGroupEntryExtras> owned_chained_extras;
 
 	for (int i = 0; i < p_uniforms.size(); i++) {
 		const BoundUniform &uniform = p_uniforms[i];
-		WGPUBindGroupEntry entry;
+		WGPUBindGroupEntry entry = { 0 };
 		entry.binding = uniform.binding;
-		entry.nextInChain = nullptr;
 
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER:
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				Vector<WGPUSampler> uniform_samplers;
+				if (uniform.ids.size() == 1) {
+					entry.sampler = (WGPUSampler)uniform.ids[0].id;
+				} else {
+					Vector<WGPUSampler> uniform_samplers;
 
-				for (uint32_t j = 0; j < uniform.ids.size(); j++) {
-					WGPUSampler sampler = (WGPUSampler)uniform.ids[j].id;
-					uniform_samplers.push_back(sampler);
+					for (uint32_t j = 0; j < uniform.ids.size(); j++) {
+						WGPUSampler sampler = (WGPUSampler)uniform.ids[j].id;
+						uniform_samplers.push_back(sampler);
+					}
+
+					WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+						.chain = (WGPUChainedStruct){
+								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
+						},
+						.samplers = uniform_samplers.ptr(),
+						.samplerCount = (size_t)owned_texture_views.size(),
+					};
+					owned_chained_extras.push_back(entry_extras);
+					entry.nextInChain = (WGPUChainedStruct *)owned_chained_extras.back();
+					owned_samplers.push_back(uniform_samplers);
 				}
-
-				WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
-					.samplers = uniform_samplers.ptr(),
-					.samplerCount = (size_t)owned_texture_views.size(),
-				};
-				owned_chained_extras.push_back(entry_extras);
-				entry.nextInChain = (WGPUChainedStruct *)&owned_chained_extras[owned_chained_extras.size() - 1];
-				owned_samplers.push_back(uniform_samplers);
-
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
-				Vector<WGPUTextureView> uniform_texture_views;
+				if (uniform.ids.size() == 1) {
+					TextureInfo *texture_info = (TextureInfo *)uniform.ids[0].id;
+					entry.textureView = texture_info->view;
+				} else {
+					Vector<WGPUTextureView> uniform_texture_views;
 
-				for (uint32_t j = 0; j < uniform.ids.size(); j++) {
-					TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
-					uniform_texture_views.push_back(texture_info->view);
+					for (uint32_t j = 0; j < uniform.ids.size(); j++) {
+						TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
+						uniform_texture_views.push_back(texture_info->view);
+					}
+
+					WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+						.chain = (WGPUChainedStruct){
+								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
+						},
+						.textureViews = uniform_texture_views.ptr(),
+						.textureViewCount = (size_t)uniform_texture_views.size(),
+					};
+					owned_chained_extras.push_back(entry_extras);
+					entry.nextInChain = (WGPUChainedStruct *)owned_chained_extras.back();
+					owned_texture_views.push_back(uniform_texture_views);
 				}
-
-				WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
-					.textureViews = uniform_texture_views.ptr(),
-					.textureViewCount = (size_t)uniform_texture_views.size(),
-				};
-				owned_chained_extras.push_back(entry_extras);
-				entry.nextInChain = (WGPUChainedStruct *)&owned_chained_extras[owned_chained_extras.size() - 1];
-				owned_texture_views.push_back(uniform_texture_views);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE_BUFFER:
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE_BUFFER:
@@ -1083,9 +1099,6 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
 
-	// TODO: impl
-	/* print_error("TODO --> uniform_set_create"); */
-	/* exit(1); */
 	return UniformSetID(bind_group);
 }
 
@@ -1217,7 +1230,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		uint32_t p_render_subpass,
 		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
 	// TODO: impl
-	print_error("TODO --> render_pipeline_create");
+	CRASH_NOW_MSG("TODO --> render_pipeline_create");
 	exit(1);
 }
 
