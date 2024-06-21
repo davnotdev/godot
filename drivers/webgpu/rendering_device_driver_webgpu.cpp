@@ -18,6 +18,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	WGPUFeatureName required_features[] = {
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
+		(WGPUFeatureName)WGPUNativeFeature_SpirvShaderPassthrough,
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -932,12 +933,13 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			.code = (const uint32_t *)stages_spirv[i].ptr(),
 		};
 
-		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
-			.nextInChain = (const WGPUChainedStruct *)&shader_module_spirv_desc,
-			.hintCount = 0,
-		};
+		/* WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){ */
+		/* 	.nextInChain = (const WGPUChainedStruct *)&shader_module_spirv_desc, */
+		/* 	.hintCount = 0, */
+		/* }; */
 
-		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
+		/* WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc); */
+		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSPIRV(device, &shader_module_spirv_desc);
 
 		ERR_FAIL_COND_V(!shader_module, ShaderID());
 

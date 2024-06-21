@@ -1,7 +1,7 @@
 #include "webgpu_conv.h"
 #include "webgpu.h"
 
-// TODO: This is currently only used for R16_UNORM and R16_SNORM from https://github.com/davnotdev/wgpu-native/tree/trunk
+// TODO: This is currently only used for R16_UNORM and R16_SNORM from https://github.com/davnotdev/wgpu-native/tree/godot-webgpu
 #include <wgpu.h>
 
 WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buffer_usage) {
@@ -60,13 +60,12 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R16_SFLOAT:
 			ret = WGPUTextureFormat_R16Float;
 			break;
-		// TODO: Broke while updating wgpu
-		/* case RDD::DataFormat::DATA_FORMAT_R16_UNORM: */
-		/* 	ret = WGPUTextureFormat_R16UNorm; */
-		/* 	break; */
-		/* case RDD::DataFormat::DATA_FORMAT_R16_SNORM: */
-		/* 	ret = WGPUTextureFormat_R16Snorm; */
-		/* 	break; */
+		case RDD::DataFormat::DATA_FORMAT_R16_UNORM:
+			ret = (WGPUTextureFormat)WGPUTextureFormatExtras_R16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16_SNORM:
+			ret = (WGPUTextureFormat)WGPUTextureFormatExtras_R16Snorm;
+			break;
 		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
 			ret = WGPUTextureFormat_R32Uint;
 			break;
