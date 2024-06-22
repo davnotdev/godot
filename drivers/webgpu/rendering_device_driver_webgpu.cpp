@@ -567,6 +567,8 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	Vector<Vector<ShaderBinary::DataBinding>> uniforms; // Set bindings.
 	Vector<ShaderBinary::SpecializationConstant> specialization_constants;
 	{
+		binary_data.vertex_input_mask = shader_refl.vertex_input_mask;
+		binary_data.fragment_output_mask = shader_refl.fragment_output_mask;
 		binary_data.specialization_constants_count = shader_refl.specialization_constants.size();
 		binary_data.is_compute = shader_refl.is_compute;
 		binary_data.compute_local_size[0] = shader_refl.compute_local_size[0];
