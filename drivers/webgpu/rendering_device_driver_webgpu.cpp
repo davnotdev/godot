@@ -236,7 +236,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	return TextureID(texture_info);
 }
 
-RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil) {}
+RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> texture_create_from_extension");
+}
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {
 	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
@@ -312,7 +315,10 @@ void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {
 	wgpuSamplerRelease(sampler);
 }
 
-bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) {}
+bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> sampler_is_format_supported_for_filter");
+}
 
 /**********************/
 /**** VERTEX ARRAY ****/
