@@ -52,6 +52,7 @@ public:
 private:
 	struct TextureInfo {
 		WGPUTexture texture;
+		WGPUTextureFormat format;
 		bool is_original_texture;
 		WGPUTextureView view;
 		uint32_t width;

@@ -49,18 +49,22 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /**** BUFFERS ****/
 /*****************/
 
-RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType _p_allocation_type) {
+RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
 	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
 	uint32_t map_mode = 0;
 	bool is_transfer_buffer = false;
 
-	if (usage & WGPUBufferUsage_MapRead) {
-		map_mode |= WGPUMapMode_Read;
-		is_transfer_buffer = true;
-	}
-	if (usage & WGPUBufferUsage_MapWrite) {
-		map_mode |= WGPUMapMode_Write;
-		is_transfer_buffer = true;
+	if (p_allocation_type == MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU) {
+		usage = (WGPUBufferUsage)((int)usage & ~(WGPUBufferUsage_MapRead | WGPUBufferUsage_MapWrite));
+	} else {
+		if (usage & WGPUBufferUsage_MapRead) {
+			map_mode |= WGPUMapMode_Read;
+			is_transfer_buffer = true;
+		}
+		if (usage & WGPUBufferUsage_MapWrite) {
+			map_mode |= WGPUMapMode_Write;
+			is_transfer_buffer = true;
+		}
 	}
 
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
@@ -207,9 +211,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	};
 
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
+	WGPUTextureFormat format = webgpu_texture_format_from_rd(p_view.format);
 
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
-		.format = webgpu_texture_format_from_rd(p_view.format),
+		.format = format,
 		.dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type),
 		.mipLevelCount = texture_desc.mipLevelCount,
 		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
@@ -219,6 +224,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
+	texture_info->format = format;
 	texture_info->is_original_texture = true;
 	texture_info->view = view;
 	texture_info->width = size.width;
@@ -402,7 +408,10 @@ RenderingDeviceDriver::CommandQueueID RenderingDeviceDriverWebGpu::command_queue
 	return CommandQueueID(1);
 }
 
-Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {}
+Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_queue_execute_and_present");
+}
 
 void RenderingDeviceDriverWebGpu::command_queue_free(CommandQueueID _p_cmd_queue) {
 	// Empty.
@@ -442,6 +451,8 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 }
 
 bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_buffer_begin_secondary");
 }
 
 void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {
@@ -453,7 +464,10 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 	wgpuCommandEncoderRelease(encoder);
 }
 
-void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {}
+void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_buffer_execute_secondary");
+}
 
 /********************/
 /**** SWAP CHAIN ****/
@@ -523,7 +537,6 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> framebuffer_create");
-	exit(1);
 }
 
 void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {}
@@ -1109,21 +1122,165 @@ void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
 
 // ----- COMMANDS -----
 
-void RenderingDeviceDriverWebGpu::command_uniform_set_prepare_for_use(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {}
+void RenderingDeviceDriverWebGpu::command_uniform_set_prepare_for_use(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_uniform_set_prepare_for_use");
+}
 
 /******************/
 /**** TRANSFER ****/
 /******************/
 
-void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {}
-void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {}
+void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
 
-void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, VectorView<TextureCopyRegion> p_regions) {}
-void RenderingDeviceDriverWebGpu::command_resolve_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, uint32_t p_src_layer, uint32_t p_src_mipmap, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, uint32_t p_dst_layer, uint32_t p_dst_mipmap) {}
-void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, const Color &p_color, const TextureSubresourceRange &p_subresources) {}
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
-void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {}
-void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) {}
+	wgpuCommandEncoderClearBuffer(encoder, buffer_info->buffer, p_offset, p_size);
+}
+
+void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
+
+	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
+	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
+
+	for (int i = 0; i < p_regions.size(); i++) {
+		BufferCopyRegion region = p_regions[i];
+		wgpuCommandEncoderCopyBufferToBuffer(encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, region.size);
+	}
+}
+
+void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout _p_src_texture_layout, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<TextureCopyRegion> p_regions) {
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
+
+	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
+	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
+
+	for (int i = 0; i < p_regions.size(); i++) {
+		TextureCopyRegion region = p_regions[i];
+		WGPUImageCopyTexture src_texture_cp = (WGPUImageCopyTexture){
+			.texture = src_texture_info->texture,
+			.mipLevel = region.src_subresources.mipmap,
+			.origin = (WGPUOrigin3D){
+					.x = (uint32_t)region.src_offset.x,
+					.y = (uint32_t)region.src_offset.y,
+					.z = (uint32_t)region.src_offset.z,
+			},
+			.aspect = webgpu_texture_aspect_from_rd(region.src_subresources.aspect),
+		};
+		WGPUImageCopyTexture dst_texture_cp = (WGPUImageCopyTexture){
+			.texture = dst_texture_info->texture,
+			.mipLevel = region.dst_subresources.mipmap,
+			.origin = (WGPUOrigin3D){
+					.x = (uint32_t)region.dst_offset.x,
+					.y = (uint32_t)region.dst_offset.y,
+					.z = (uint32_t)region.dst_offset.z,
+			},
+			.aspect = webgpu_texture_aspect_from_rd(region.dst_subresources.aspect),
+		};
+		WGPUExtent3D cp_size = (WGPUExtent3D){
+			.width = (uint32_t)region.size.x,
+			.height = (uint32_t)region.size.y,
+			.depthOrArrayLayers = (uint32_t)region.size.z,
+		};
+		wgpuCommandEncoderCopyTextureToTexture(encoder, &src_texture_cp, &dst_texture_cp, &cp_size);
+	}
+}
+
+void RenderingDeviceDriverWebGpu::command_resolve_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, uint32_t p_src_layer, uint32_t p_src_mipmap, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, uint32_t p_dst_layer, uint32_t p_dst_mipmap) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_resolve_texture");
+}
+void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, const Color &p_color, const TextureSubresourceRange &p_subresources) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_clear_color_texture");
+}
+
+void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
+
+	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
+	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
+
+	for (int i = 0; i < p_regions.size(); i++) {
+		BufferTextureCopyRegion region = p_regions[i];
+
+		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(dst_texture_info->format);
+
+		WGPUImageCopyBuffer cp_buffer = (WGPUImageCopyBuffer){
+			.layout = (WGPUTextureDataLayout){
+					.offset = region.buffer_offset,
+					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
+					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
+			},
+			.buffer = src_buffer_info->buffer,
+		};
+
+		WGPUImageCopyTexture cp_texture = (WGPUImageCopyTexture){
+			.texture = dst_texture_info->texture,
+			.mipLevel = region.texture_subresources.mipmap,
+			.origin = (WGPUOrigin3D){
+					.x = (uint32_t)region.texture_offset.x,
+					.y = (uint32_t)region.texture_offset.y,
+					.z = (uint32_t)region.texture_offset.z,
+			},
+			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresources.aspect),
+		};
+		WGPUExtent3D cp_size = (WGPUExtent3D){
+			.width = (uint32_t)region.texture_region_size.x,
+			.height = (uint32_t)region.texture_region_size.y,
+			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
+		};
+
+		wgpuCommandEncoderCopyBufferToTexture(encoder, &cp_buffer, &cp_texture, &cp_size);
+	}
+}
+
+void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) {
+	WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer - 1];
+	DEV_ASSERT(encoder == nullptr);
+
+	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
+	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
+	for (int i = 0; i < p_regions.size(); i++) {
+		BufferTextureCopyRegion region = p_regions[i];
+
+		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(src_texture_info->format);
+
+		WGPUImageCopyTexture cp_texture = (WGPUImageCopyTexture){
+			.texture = src_texture_info->texture,
+			.mipLevel = region.texture_subresources.mipmap,
+			.origin = (WGPUOrigin3D){
+					.x = (uint32_t)region.texture_offset.x,
+					.y = (uint32_t)region.texture_offset.y,
+					.z = (uint32_t)region.texture_offset.z,
+			},
+			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresources.aspect),
+		};
+
+		WGPUImageCopyBuffer cp_buffer = (WGPUImageCopyBuffer){
+			.layout = (WGPUTextureDataLayout){
+					.offset = region.buffer_offset,
+					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
+					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
+			},
+			.buffer = dst_buffer_info->buffer,
+		};
+
+		WGPUExtent3D cp_size = (WGPUExtent3D){
+			.width = (uint32_t)region.texture_region_size.x,
+			.height = (uint32_t)region.texture_region_size.y,
+			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
+		};
+
+		wgpuCommandEncoderCopyTextureToBuffer(encoder, &cp_texture, &cp_buffer, &cp_size);
+	}
+}
 
 /******************/
 /**** PIPELINE ****/
@@ -1133,7 +1290,10 @@ void RenderingDeviceDriverWebGpu::pipeline_free(PipelineID p_pipeline) {}
 
 // ----- BINDING -----
 
-void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {}
+void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_bind_push_constants");
+}
 
 // ----- CACHE -----
 
@@ -1187,32 +1347,99 @@ void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {
 
 // ----- COMMANDS -----
 
-void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) {}
-void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_buffer) {}
-void RenderingDeviceDriverWebGpu::command_next_render_subpass(CommandBufferID p_cmd_buffer, CommandBufferType p_cmd_buffer_type) {}
-void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_viewports) {}
-void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_scissors) {}
-void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBufferID p_cmd_buffer, VectorView<AttachmentClear> p_attachment_clears, VectorView<Rect2i> p_rects) {}
+void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_begin_render_pass");
+}
+
+void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_buffer) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_end_render_pass");
+}
+
+void RenderingDeviceDriverWebGpu::command_next_render_subpass(CommandBufferID p_cmd_buffer, CommandBufferType p_cmd_buffer_type) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_next_render_subpass");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_viewports) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_set_viewport");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_scissors) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_set_scissor");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBufferID p_cmd_buffer, VectorView<AttachmentClear> p_attachment_clears, VectorView<Rect2i> p_rects) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_clear_attachments");
+}
 
 // Binding.
-void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {}
-void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {}
+void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_bind_render_pipeline");
+}
+
+void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_bind_render_uniform_set");
+}
 
 // Drawing.
-void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {}
-void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID p_cmd_buffer, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance) {}
-void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {}
-void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride) {}
-void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {}
-void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride) {}
+void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID p_cmd_buffer, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw_indexed");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw_indexed_indirect");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw_indexed_indirect_count");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t p_stride) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw_indirect");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t p_stride) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_draw_indirect_count");
+}
 
 // Buffer binding.
-void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {}
-void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) {}
+void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_bind_vertex_buffers");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_bind_index_buffer");
+}
 
 // Dynamic state.
-void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBufferID p_cmd_buffer, const Color &p_constants) {}
-void RenderingDeviceDriverWebGpu::command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) {}
+void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBufferID p_cmd_buffer, const Color &p_constants) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_set_blend_constants");
+}
+
+void RenderingDeviceDriverWebGpu::command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_render_set_line_width");
+}
 
 // ----- PIPELINE -----
 
@@ -1231,7 +1458,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> render_pipeline_create");
-	exit(1);
 }
 
 /*****************/
@@ -1241,12 +1467,24 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 // ----- COMMANDS -----
 
 // Binding.
-void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {}
-void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {}
+void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_bind_compute_pipeline");
+}
+void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_bind_compute_uniform_set");
+}
 
 // Dispatching.
-void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) {}
-void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) {}
+void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_compute_dispatch");
+}
+void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> command_compute_dispatch_indirect");
+}
 
 // ----- PIPELINE -----
 
@@ -1348,8 +1586,12 @@ uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
-	// TODO
-	return RenderingDeviceDriver::api_trait_get(p_trait);
+	switch (p_trait) {
+		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT:
+			return 256;
+		default:
+			return RenderingDeviceDriver::api_trait_get(p_trait);
+	}
 }
 
 bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {

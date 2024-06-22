@@ -6,29 +6,30 @@
 
 WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buffer_usage) {
 	uint32_t ret = 0;
+	// Only use MapWrite or MapRead if these are CPU buffers.
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TRANSFER_FROM_BIT) {
-		ret |= WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+		ret |= WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TRANSFER_TO_BIT) {
-		ret = WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
+		ret |= WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_TEXEL_BIT) {
-		ret = WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
+		ret |= WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_UNIFORM_BIT) {
-		ret = WGPUBufferUsage_Uniform;
+		ret |= WGPUBufferUsage_Uniform;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_STORAGE_BIT) {
-		ret = WGPUBufferUsage_Storage;
+		ret |= WGPUBufferUsage_Storage;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_INDEX_BIT) {
-		ret = WGPUBufferUsage_Index;
+		ret |= WGPUBufferUsage_Index;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_VERTEX_BIT) {
-		ret = WGPUBufferUsage_Vertex;
+		ret |= WGPUBufferUsage_Vertex;
 	}
 	if (p_buffer_usage & RDD::BufferUsageBits::BUFFER_USAGE_INDIRECT_BIT) {
-		ret = WGPUBufferUsage_Indirect;
+		ret |= WGPUBufferUsage_Indirect;
 	}
 	return (WGPUBufferUsage)ret;
 }
@@ -38,6 +39,7 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 
 	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
 	// TODO: The BC, ETC2, and ASTC compressed formats have been left out.
+	// NOTE: Please also update `webgpu_bytes_per_row_from_format` alongside this.
 	switch (p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R8_UNORM:
 			ret = WGPUTextureFormat_R8Unorm;
@@ -289,7 +291,7 @@ WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
 }
 
 WGPULoadOp webgpu_load_op_from_rd(RDD::AttachmentLoadOp p_load_op) {
-	switch(p_load_op) {
+	switch (p_load_op) {
 		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_LOAD:
 			return WGPULoadOp_Load;
 		case RenderingDeviceDriver::ATTACHMENT_LOAD_OP_CLEAR:
@@ -309,7 +311,7 @@ WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op) {
 }
 
 WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType p_texture_type) {
-	switch(p_texture_type) {
+	switch (p_texture_type) {
 		case RenderingDeviceCommons::TEXTURE_TYPE_1D:
 			return WGPUTextureViewDimension_1D;
 		case RenderingDeviceCommons::TEXTURE_TYPE_2D:
@@ -343,6 +345,17 @@ WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage) {
 		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION_BIT:
 		case RenderingDeviceCommons::SHADER_STAGE_MAX:
 			return WGPUShaderStage_None;
+	}
+}
+
+WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits> p_texture_aspect_bits) {
+	// NOTE: WGPUTextureAspect_All will be preferred if we cannot match a specific aspect.
+	if (p_texture_aspect_bits == RDD::TextureAspectBits::TEXTURE_ASPECT_DEPTH_BIT) {
+		return WGPUTextureAspect_DepthOnly;
+	} else if (p_texture_aspect_bits == RDD::TextureAspectBits::TEXTURE_ASPECT_STENCIL_BIT) {
+		return WGPUTextureAspect_StencilOnly;
+	} else {
+		return WGPUTextureAspect_All;
 	}
 }
 
@@ -438,5 +451,65 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_VRS_TEXEL_HEIGHT:
 			return UINT64_MAX;
+	}
+}
+
+ImageBufferLayoutInfo webgpu_image_buffer_layout_from_format(WGPUTextureFormat p_format) {
+	// NOTE: Please also update `webgpu_texture_format_from_rd` alongside this.
+	switch ((uint32_t)p_format) {
+		case WGPUTextureFormat_R8Unorm:
+		case WGPUTextureFormat_R8Snorm:
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_R8Sint:
+			return { 1, 1, 1 };
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_R16Float:
+		case WGPUTextureFormatExtras_R16Unorm:
+		case WGPUTextureFormatExtras_R16Snorm:
+			return { 2, 1, 1 };
+		case WGPUTextureFormat_R32Uint:
+		case WGPUTextureFormat_R32Sint:
+		case WGPUTextureFormat_R32Float:
+			return { 4, 1, 1 };
+		case WGPUTextureFormat_RG8Unorm:
+		case WGPUTextureFormat_RG8Snorm:
+		case WGPUTextureFormat_RG8Uint:
+		case WGPUTextureFormat_RG8Sint:
+			return { 2, 1, 1 };
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RG16Sint:
+		case WGPUTextureFormat_RG16Float:
+			return { 4, 1, 1 };
+		case WGPUTextureFormat_RGBA8Unorm:
+		case WGPUTextureFormat_RGBA8UnormSrgb:
+		case WGPUTextureFormat_RGBA8Snorm:
+		case WGPUTextureFormat_RGBA8Uint:
+		case WGPUTextureFormat_RGBA8Sint:
+		case WGPUTextureFormat_BGRA8Unorm:
+		case WGPUTextureFormat_BGRA8UnormSrgb:
+			return { 4, 1, 1 };
+		case WGPUTextureFormat_RG32Uint:
+		case WGPUTextureFormat_RG32Sint:
+		case WGPUTextureFormat_RG32Float:
+		case WGPUTextureFormat_RGBA16Uint:
+		case WGPUTextureFormat_RGBA16Sint:
+		case WGPUTextureFormat_RGBA16Float:
+			return { 8, 1, 1 };
+		case WGPUTextureFormat_RGBA32Uint:
+		case WGPUTextureFormat_RGBA32Sint:
+		case WGPUTextureFormat_RGBA32Float:
+			return { 16, 1, 1 };
+		case WGPUTextureFormat_Stencil8:
+			return { 1, 1, 1 };
+		case WGPUTextureFormat_Depth16Unorm:
+			return { 2, 1, 1 };
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32Float:
+			return { 4, 1, 1 };
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return { 5, 1, 1 };
+		default:
+			return { 0, 1, 1 };
 	}
 }

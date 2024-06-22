@@ -15,7 +15,17 @@ WGPULoadOp webgpu_load_op_from_rd(RDD::AttachmentLoadOp p_load_op);
 WGPUStoreOp webgpu_store_op_from_rd(RDD::AttachmentStoreOp p_store_op);
 WGPUTextureViewDimension webgpu_texture_view_dimension_from_rd(RDD::TextureType p_texture_type);
 WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage);
+WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits> p_texture_aspect_bits);
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits);
+
+typedef struct {
+	uint32_t bytes_per_block;
+	uint32_t pixels_per_block_x;
+	uint32_t pixels_per_block_y;
+
+} ImageBufferLayoutInfo;
+
+ImageBufferLayoutInfo webgpu_image_buffer_layout_from_format(WGPUTextureFormat p_format);
 
 #endif // WEBGPU_CONV_H
