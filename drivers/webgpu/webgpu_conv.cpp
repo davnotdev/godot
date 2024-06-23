@@ -226,62 +226,95 @@ WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
 	WGPUVertexFormat ret = WGPUVertexFormat_Undefined;
 
 	switch (p_data_format) {
-		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
-			ret = WGPUVertexFormat_Uint32;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R32_SINT:
-			ret = WGPUVertexFormat_Sint32;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R32_SFLOAT:
-			ret = WGPUVertexFormat_Float32;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R8G8_UINT:
+		case RDD::DATA_FORMAT_R8G8_UINT:
 			ret = WGPUVertexFormat_Uint8x2;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R8G8_SINT:
-			ret = WGPUVertexFormat_Sint8x2;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16_UINT:
-			ret = WGPUVertexFormat_Uint16x2;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16_SINT:
-			ret = WGPUVertexFormat_Sint16x2;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT:
-			ret = WGPUVertexFormat_Float16x2;
-			break;
-		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UINT:
+		case RDD::DATA_FORMAT_R8G8B8A8_UINT:
 			ret = WGPUVertexFormat_Uint8x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SINT:
+		case RDD::DATA_FORMAT_R8G8_SINT:
+			ret = WGPUVertexFormat_Sint8x2;
+			break;
+		case RDD::DATA_FORMAT_R8G8B8A8_SINT:
 			ret = WGPUVertexFormat_Sint8x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32_UINT:
-			ret = WGPUVertexFormat_Uint32x2;
+		case RDD::DATA_FORMAT_R8G8_UNORM:
+			ret = WGPUVertexFormat_Unorm8x2;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32_SINT:
-			ret = WGPUVertexFormat_Sint32x2;
+		case RDD::DATA_FORMAT_R8G8B8A8_UNORM:
+			ret = WGPUVertexFormat_Unorm8x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32_SFLOAT:
-			ret = WGPUVertexFormat_Float32x2;
+		case RDD::DATA_FORMAT_R8G8_SNORM:
+			ret = WGPUVertexFormat_Snorm8x2;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UINT:
+		case RDD::DATA_FORMAT_R8G8B8A8_SNORM:
+			ret = WGPUVertexFormat_Snorm8x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_UINT:
+			ret = WGPUVertexFormat_Uint16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_UINT:
 			ret = WGPUVertexFormat_Uint16x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SINT:
+		case RDD::DATA_FORMAT_R16G16_SINT:
+			ret = WGPUVertexFormat_Sint16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SINT:
 			ret = WGPUVertexFormat_Sint16x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT:
+		case RDD::DATA_FORMAT_R16G16_UNORM:
+			ret = WGPUVertexFormat_Unorm16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_UNORM:
+			ret = WGPUVertexFormat_Unorm16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_SNORM:
+			ret = WGPUVertexFormat_Snorm16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SNORM:
+			ret = WGPUVertexFormat_Snorm16x4;
+			break;
+		case RDD::DATA_FORMAT_R16G16_SFLOAT:
+			ret = WGPUVertexFormat_Float16x2;
+			break;
+		case RDD::DATA_FORMAT_R16G16B16A16_SFLOAT:
 			ret = WGPUVertexFormat_Float16x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT:
+		case RDD::DATA_FORMAT_R32_SFLOAT:
+			ret = WGPUVertexFormat_Float32;
+			break;
+		case RDD::DATA_FORMAT_R32G32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_SFLOAT:
+			ret = WGPUVertexFormat_Float32x4;
+			break;
+		case RDD::DATA_FORMAT_R32_UINT:
+			ret = WGPUVertexFormat_Uint32;
+			break;
+		case RDD::DATA_FORMAT_R32G32_UINT:
+			ret = WGPUVertexFormat_Uint32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_UINT:
+			ret = WGPUVertexFormat_Uint32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_UINT:
 			ret = WGPUVertexFormat_Uint32x4;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SINT:
-			ret = WGPUVertexFormat_Sint32x4;
+		case RDD::DATA_FORMAT_R32_SINT:
+			ret = WGPUVertexFormat_Sint32;
 			break;
-		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT:
-			ret = WGPUVertexFormat_Float32x4;
+		case RDD::DATA_FORMAT_R32G32_SINT:
+			ret = WGPUVertexFormat_Sint32x2;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32_SINT:
+			ret = WGPUVertexFormat_Sint32x3;
+			break;
+		case RDD::DATA_FORMAT_R32G32B32A32_SINT:
+			ret = WGPUVertexFormat_Sint32x4;
 			break;
 		default:
 			break;
@@ -356,6 +389,88 @@ WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits>
 		return WGPUTextureAspect_StencilOnly;
 	} else {
 		return WGPUTextureAspect_All;
+	}
+}
+
+WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_operation) {
+	switch (p_blend_operation) {
+		case RenderingDeviceCommons::BLEND_OP_ADD:
+			return WGPUBlendOperation_Add;
+		case RenderingDeviceCommons::BLEND_OP_SUBTRACT:
+			return WGPUBlendOperation_Subtract;
+		case RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT:
+			return WGPUBlendOperation_ReverseSubtract;
+		case RenderingDeviceCommons::BLEND_OP_MINIMUM:
+			return WGPUBlendOperation_Min;
+		case RenderingDeviceCommons::BLEND_OP_MAXIMUM:
+			return WGPUBlendOperation_Max;
+		default:
+			return WGPUBlendOperation_Add;
+	}
+}
+
+WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor) {
+	// NOTE: Some of these blend factors are not supported, so we default to `WGPUBlendFactor_Zero`
+	switch (p_blend_factor) {
+		case RenderingDeviceCommons::BLEND_FACTOR_ZERO:
+			return WGPUBlendFactor_Zero;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE:
+			return WGPUBlendFactor_One;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_COLOR:
+			return WGPUBlendFactor_Src;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_COLOR:
+			return WGPUBlendFactor_OneMinusSrc;
+		case RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR:
+			return WGPUBlendFactor_Dst;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_DST_COLOR:
+			return WGPUBlendFactor_OneMinusDst;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA:
+			return WGPUBlendFactor_SrcAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA:
+			return WGPUBlendFactor_OneMinusSrcAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_DST_ALPHA:
+			return WGPUBlendFactor_DstAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_DST_ALPHA:
+			return WGPUBlendFactor_OneMinusDstAlpha;
+		case RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_COLOR:
+			return WGPUBlendFactor_Constant;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR:
+			return WGPUBlendFactor_OneMinusConstant;
+		case RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_ALPHA:
+			return WGPUBlendFactor_Constant;
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA:
+			return WGPUBlendFactor_OneMinusConstant;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA_SATURATE:
+			return WGPUBlendFactor_SrcAlphaSaturated;
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC1_COLOR:
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC1_COLOR:
+		case RenderingDeviceCommons::BLEND_FACTOR_SRC1_ALPHA:
+		case RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA:
+		case RenderingDeviceCommons::BLEND_FACTOR_MAX:
+			return WGPUBlendFactor_Zero;
+	}
+}
+
+WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_stencil_operation) {
+	switch (p_stencil_operation) {
+		case RenderingDeviceCommons::STENCIL_OP_KEEP:
+			return WGPUStencilOperation_Keep;
+		case RenderingDeviceCommons::STENCIL_OP_ZERO:
+			return WGPUStencilOperation_Zero;
+		case RenderingDeviceCommons::STENCIL_OP_REPLACE:
+			return WGPUStencilOperation_Replace;
+		case RenderingDeviceCommons::STENCIL_OP_INCREMENT_AND_CLAMP:
+			return WGPUStencilOperation_IncrementClamp;
+		case RenderingDeviceCommons::STENCIL_OP_DECREMENT_AND_CLAMP:
+			return WGPUStencilOperation_DecrementClamp;
+		case RenderingDeviceCommons::STENCIL_OP_INVERT:
+			return WGPUStencilOperation_Invert;
+		case RenderingDeviceCommons::STENCIL_OP_INCREMENT_AND_WRAP:
+			return WGPUStencilOperation_IncrementWrap;
+		case RenderingDeviceCommons::STENCIL_OP_DECREMENT_AND_WRAP:
+			return WGPUStencilOperation_DecrementWrap;
+		case RenderingDeviceCommons::STENCIL_OP_MAX:
+			return WGPUStencilOperation_Keep;
 	}
 }
 
