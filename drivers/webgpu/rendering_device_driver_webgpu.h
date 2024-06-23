@@ -219,7 +219,10 @@ private:
 	};
 
 	struct ShaderInfo {
-		Vector<WGPUShaderModule> shader_modules;
+		WGPU_NULLABLE WGPUShaderModule vertex_shader;
+		WGPU_NULLABLE WGPUShaderModule fragment_shader;
+		WGPU_NULLABLE WGPUShaderModule compute_shader;
+
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		// Maps `constant_id` to override key name
 		HashMap<uint32_t, String> override_keys;
