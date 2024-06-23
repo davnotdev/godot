@@ -1,6 +1,7 @@
 #include "rendering_device_driver_webgpu.h"
 #include "core/io/marshalls.h"
 #include "thirdparty/misc/smolv.h"
+#include "webgpu.h"
 #include "webgpu_conv.h"
 
 #include <wgpu.h>
@@ -25,9 +26,49 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
 	};
 
+	// NOTE: These tweaks are ONLY REQUIRED FOR FORWARD+.
+	// Forward Mobile should still be fully supported under the default limits.
+	WGPURequiredLimits required_limits = (WGPURequiredLimits){
+		.limits = (WGPULimits){
+				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
+				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
+				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
+				.maxTextureArrayLayers = WGPU_LIMIT_U32_UNDEFINED,
+				.maxBindGroups = 5,
+				.maxBindGroupsPlusVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
+				.maxBindingsPerBindGroup = WGPU_LIMIT_U32_UNDEFINED,
+				.maxDynamicUniformBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
+				.maxDynamicStorageBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
+				.maxSampledTexturesPerShaderStage = 49,
+				.maxSamplersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				.maxStorageBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				.maxStorageTexturesPerShaderStage = 8,
+				.maxUniformBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				.maxUniformBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
+				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
+				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
+				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
+				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
+				.maxBufferSize = WGPU_LIMIT_U64_UNDEFINED,
+				.maxVertexAttributes = WGPU_LIMIT_U32_UNDEFINED,
+				.maxVertexBufferArrayStride = WGPU_LIMIT_U32_UNDEFINED,
+				.maxInterStageShaderComponents = WGPU_LIMIT_U32_UNDEFINED,
+				.maxInterStageShaderVariables = WGPU_LIMIT_U32_UNDEFINED,
+				.maxColorAttachments = WGPU_LIMIT_U32_UNDEFINED,
+				.maxColorAttachmentBytesPerSample = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeWorkgroupStorageSize = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeInvocationsPerWorkgroup = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeWorkgroupSizeX = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeWorkgroupSizeY = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeWorkgroupSizeZ = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeWorkgroupsPerDimension = WGPU_LIMIT_U32_UNDEFINED,
+		},
+	};
+
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
 		.requiredFeatures = required_features,
+		.requiredLimits = &required_limits,
 	};
 	wgpuAdapterRequestDevice(adapter, &device_desc, handle_request_device, &this->device);
 	ERR_FAIL_COND_V(!this->device, FAILED);
@@ -260,7 +301,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	return TextureID(new_texture_info);
 }
 
-RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {}
+RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> texture_create_shared_from_slice");
+}
 
 void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 	TextureInfo *texture_info = (TextureInfo *)p_texture.id;
@@ -300,7 +344,9 @@ RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(con
 		.magFilter = p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.mag_filter),
 		.minFilter = p_state.use_anisotropy ? WGPUFilterMode_Linear : webgpu_filter_mode_from_rd(p_state.min_filter),
 		.mipmapFilter = p_state.use_anisotropy ? WGPUMipmapFilterMode_Linear : webgpu_mipmap_filter_mode_from_rd(p_state.mip_filter),
-		.lodMinClamp = p_state.min_lod,
+		// NOTE: `min_lod` cannot be negative.
+		// See https://www.w3.org/TR/webgpu/#sampler-creation
+		.lodMinClamp = p_state.min_lod < 0.0f ? 0.0f : p_state.min_lod,
 		.lodMaxClamp = p_state.max_lod,
 		.compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Always,
 		.maxAnisotropy = p_state.use_anisotropy ? (uint16_t)p_state.anisotropy_max : (uint16_t)1,
@@ -315,9 +361,9 @@ void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {
 	wgpuSamplerRelease(sampler);
 }
 
-bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> sampler_is_format_supported_for_filter");
+bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat _p_format, SamplerFilter p_filter) {
+	// "descriptor.magFilter, descriptor.minFilter, and descriptor.mipmapFilter must be "linear"."
+	return p_filter == SamplerFilter::SAMPLER_FILTER_LINEAR;
 }
 
 /**********************/
@@ -608,7 +654,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			spec_constant.int_value = refl_sc.int_value;
 
 			CharString ascii_name = refl_sc.name.ascii();
-			ERR_FAIL_COND_V(ascii_name.size() < ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN, Vector<uint8_t>());
+			ERR_FAIL_COND_V(ascii_name.size() > ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN, Vector<uint8_t>());
 			strncpy(spec_constant.value_name, ascii_name.ptr(), ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN);
 
 			specialization_constants.push_back(spec_constant);
@@ -743,6 +789,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
 	ShaderInfo *shader_info = memnew(ShaderInfo);
+	*shader_info = { 0 };
 
 	const uint8_t *binptr = p_shader_binary.ptr();
 	uint32_t binsize = p_shader_binary.size();
@@ -957,17 +1004,27 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			.code = (const uint32_t *)stages_spirv[i].ptr(),
 		};
 
-		/* WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){ */
-		/* 	.nextInChain = (const WGPUChainedStruct *)&shader_module_spirv_desc, */
-		/* 	.hintCount = 0, */
-		/* }; */
-
-		/* WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc); */
 		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSPIRV(device, &shader_module_spirv_desc);
-
 		ERR_FAIL_COND_V(!shader_module, ShaderID());
 
-		shader_info->shader_modules.push_back(shader_module);
+		ShaderStage stage = r_shader_desc.stages[i];
+		switch (stage) {
+			case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
+				ERR_FAIL_COND_V_MSG(shader_info->vertex_shader, ShaderID(), "More than one vertex stage in one shader.");
+				shader_info->vertex_shader = shader_module;
+				break;
+			case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
+				ERR_FAIL_COND_V_MSG(shader_info->fragment_shader, ShaderID(), "More than one fragment stage in one shader.");
+				shader_info->fragment_shader = shader_module;
+				break;
+			case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
+				ERR_FAIL_COND_V_MSG(shader_info->compute_shader, ShaderID(), "More than one compute stage in one shader.");
+				shader_info->compute_shader = shader_module;
+				break;
+			default:
+				ERR_FAIL_V_MSG(ShaderID(), vformat("WebGpu shader stage %d not supported", stage));
+				break;
+		}
 	}
 
 	DEV_ASSERT((uint32_t)vk_set_bindings.size() == binary_data.set_count);
@@ -1464,8 +1521,207 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		RenderPassID p_render_pass,
 		uint32_t p_render_subpass,
 		VectorView<PipelineSpecializationConstant> p_specialization_constants) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> render_pipeline_create");
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+	WGPURenderPipelineDescriptor pipeline_descriptor = { 0 };
+
+	// pipeline_descriptor.layout
+	pipeline_descriptor.layout = shader_info->pipeline_layout;
+
+	// pipeline_descriptor.vertex
+	WGPUVertexBufferLayout *vertex_buffer_layout = (WGPUVertexBufferLayout *)p_vertex_format.id;
+	ERR_FAIL_COND_V_MSG(!shader_info->vertex_shader, PipelineID(), "Render pipeline vertex shader null.");
+
+	WGPUConstantEntry *constants = ALLOCA_ARRAY(WGPUConstantEntry, p_specialization_constants.size());
+
+	for (int i = 0; i < p_specialization_constants.size(); i++) {
+		PipelineSpecializationConstant constant = p_specialization_constants[i];
+		union {
+			int i;
+			double d;
+		} val;
+
+		val.i = constant.int_value;
+
+		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
+		constants[i] = (WGPUConstantEntry){
+			.key = key_name,
+			.value = val.d,
+		};
+	}
+
+	WGPUVertexState vertex_state = (WGPUVertexState){
+		.module = shader_info->vertex_shader,
+		.entryPoint = "main",
+		.constantCount = (size_t)p_specialization_constants.size(),
+		.constants = constants,
+		.bufferCount = 1,
+		.buffers = vertex_buffer_layout
+	};
+	pipeline_descriptor.vertex = vertex_state;
+
+	// pipeline_descriptor.fragment
+	WGPUColorTargetState *targets = ALLOCA_ARRAY(WGPUColorTargetState, p_color_attachments.size());
+	size_t targets_count = 0;
+	for (uint32_t i = 0; i < p_color_attachments.size(); i++) {
+		if (p_color_attachments[i] != ATTACHMENT_UNUSED) {
+			const PipelineColorBlendState::Attachment attachment = p_blend_state.attachments[i];
+			WGPUBlendState *blend_state = ALLOCA_SINGLE(WGPUBlendState);
+			*blend_state = (WGPUBlendState){
+				.color =
+						(WGPUBlendComponent){
+								.operation = webgpu_blend_operation_from_rd(attachment.color_blend_op),
+								.srcFactor = webgpu_blend_factor_from_rd(attachment.src_color_blend_factor),
+								.dstFactor = webgpu_blend_factor_from_rd(attachment.dst_color_blend_factor),
+						},
+				.alpha =
+						(WGPUBlendComponent){
+								.operation = webgpu_blend_operation_from_rd(attachment.alpha_blend_op),
+								.srcFactor = webgpu_blend_factor_from_rd(attachment.src_alpha_blend_factor),
+								.dstFactor = webgpu_blend_factor_from_rd(attachment.dst_alpha_blend_factor),
+						},
+			};
+
+			uint32_t write_mask = WGPUColorWriteMask_None;
+			if (attachment.write_r) {
+				write_mask |= WGPUColorWriteMask_Red;
+			}
+			if (attachment.write_g) {
+				write_mask |= WGPUColorWriteMask_Green;
+			}
+			if (attachment.write_b) {
+				write_mask |= WGPUColorWriteMask_Blue;
+			}
+			if (attachment.write_a) {
+				write_mask |= WGPUColorWriteMask_Alpha;
+			}
+
+			targets[targets_count] = (WGPUColorTargetState){
+				// TODO: We do not have info on color target format.
+				.format = WGPUTextureFormat_Undefined,
+				.blend = attachment.enable_blend ? blend_state : nullptr,
+				.writeMask = write_mask,
+			};
+			targets_count++;
+		}
+	}
+
+	WGPUFragmentState fragment_state = (WGPUFragmentState){
+		.module = shader_info->fragment_shader,
+		.entryPoint = "main",
+		.constantCount = (size_t)p_specialization_constants.size(),
+		.constants = constants,
+		.targetCount = p_color_attachments.size(),
+		.targets = targets,
+	};
+	pipeline_descriptor.fragment = &fragment_state;
+
+	// pipeline_descriptor.primitive
+	// NOTE: We will default to `WGPUPrimitiveTopology_PointList` since not all topologies are supported.
+	WGPUPrimitiveTopology topology;
+	switch (p_render_primitive) {
+		case RenderingDeviceCommons::RENDER_PRIMITIVE_POINTS:
+			topology = WGPUPrimitiveTopology_PointList;
+			break;
+		case RenderingDeviceCommons::RENDER_PRIMITIVE_LINES:
+			topology = WGPUPrimitiveTopology_LineList;
+			break;
+		case RenderingDeviceCommons::RENDER_PRIMITIVE_LINESTRIPS:
+			topology = WGPUPrimitiveTopology_LineStrip;
+			break;
+		case RenderingDeviceCommons::RENDER_PRIMITIVE_TRIANGLES:
+			topology = WGPUPrimitiveTopology_TriangleList;
+			break;
+		case RenderingDeviceCommons::RENDER_PRIMITIVE_TRIANGLE_STRIPS:
+			topology = WGPUPrimitiveTopology_TriangleStrip;
+			break;
+		default:
+			topology = WGPUPrimitiveTopology_PointList;
+			break;
+	}
+
+	WGPUFrontFace front_face;
+	switch (p_rasterization_state.front_face) {
+		case RenderingDeviceCommons::POLYGON_FRONT_FACE_CLOCKWISE:
+			front_face = WGPUFrontFace_CW;
+			break;
+		case RenderingDeviceCommons::POLYGON_FRONT_FACE_COUNTER_CLOCKWISE:
+			front_face = WGPUFrontFace_CCW;
+			break;
+	}
+
+	WGPUCullMode cull_mode = WGPUCullMode_None;
+	switch (p_rasterization_state.cull_mode) {
+		case RenderingDeviceCommons::POLYGON_CULL_FRONT:
+			cull_mode = WGPUCullMode_Front;
+			break;
+		case RenderingDeviceCommons::POLYGON_CULL_BACK:
+			cull_mode = WGPUCullMode_Back;
+			break;
+		case RenderingDeviceCommons::POLYGON_CULL_DISABLED:
+		case RenderingDeviceCommons::POLYGON_CULL_MAX:
+			break;
+	}
+
+	WGPUPrimitiveState primitive_state = (WGPUPrimitiveState){
+		.topology = topology,
+		// TODO: We need this for primitive restart but currently cannot know the proper value.
+		.stripIndexFormat = WGPUIndexFormat_Undefined,
+		.frontFace = front_face,
+		.cullMode = cull_mode,
+		// TODO Consider implementing wireframe rendering (required native feature).
+		// TODO Consider implementing `p_rasterization_state.enable_depth_clamp` (required native feature).
+
+	};
+	pipeline_descriptor.primitive = primitive_state;
+
+	// pipeline_descriptor.depth_stencil
+	WGPUDepthStencilState depth_stencil_state = (WGPUDepthStencilState){
+		// TODO: We do not have info on depth target format.
+		.format = WGPUTextureFormat_Undefined,
+		.depthWriteEnabled = p_depth_stencil_state.enable_depth_write,
+		.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
+		.stencilFront =
+				(WGPUStencilFaceState){
+						.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.front_op.compare),
+						.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.fail),
+						.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.depth_fail),
+						.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.pass),
+				},
+		.stencilBack =
+				(WGPUStencilFaceState){
+						.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.back_op.compare),
+						.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.fail),
+						.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.depth_fail),
+						.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.pass),
+				},
+		// NOTE: We assume stencil read masks are the same for both front and back.
+		// This is how wgpu does it, see https://github.com/gfx-rs/wgpu/blob/6405dcf611a336eb7d3bf9de7b78d7d0b3d3b48d/wgpu-hal/src/vulkan/device.rs#L1778
+		.stencilReadMask = p_depth_stencil_state.front_op.compare_mask,
+		.stencilWriteMask = p_depth_stencil_state.front_op.write_mask,
+		.depthBias = (int32_t)p_rasterization_state.depth_bias_constant_factor,
+		.depthBiasSlopeScale = p_rasterization_state.depth_bias_slope_factor,
+		.depthBiasClamp = p_rasterization_state.depth_bias_clamp,
+	};
+	pipeline_descriptor.depthStencil = &depth_stencil_state;
+
+	// pipeline_descriptor.multisample
+	// NOTE: In a future version of wgpu, multisample.mask will be `u64`.
+	static_assert(sizeof(WGPUMultisampleState) == 24);
+	// TODO: Assert that p_format.samples follows this behavior.
+	uint32_t sample_count = pow(2, (uint32_t)p_multisample_state.sample_count);
+	pipeline_descriptor.multisample = (WGPUMultisampleState){
+		.count = sample_count,
+		.mask = p_multisample_state.sample_mask.size() ? *p_multisample_state.sample_mask.ptr() : !0,
+		.alphaToCoverageEnabled = p_multisample_state.enable_alpha_to_coverage,
+	};
+
+	// pipeline_descriptor.multiview
+	// TODO: Implement render pipeline multiview.
+
+	WGPURenderPipeline render_pipeline = wgpuDeviceCreateRenderPipeline(device, &pipeline_descriptor);
+	ERR_FAIL_COND_V(!render_pipeline, PipelineID());
+
+	return PipelineID(render_pipeline);
 }
 
 /*****************/
@@ -1499,7 +1755,7 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_create(ShaderID p_shader, VectorView<PipelineSpecializationConstant> p_specialization_constants) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	ERR_FAIL_COND_V(shader_info->shader_modules.size() != 1, PipelineID());
+	ERR_FAIL_COND_V_MSG(!shader_info->compute_shader, PipelineID(), "Compute pipeline shader null.");
 
 	Vector<WGPUConstantEntry> constants;
 	for (int i = 0; i < p_specialization_constants.size(); i++) {
@@ -1519,18 +1775,18 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 	}
 
 	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
-		.module = shader_info->shader_modules[0],
+		.module = shader_info->compute_shader,
 		.entryPoint = "main",
 		.constantCount = (size_t)constants.size(),
 		.constants = constants.ptr(),
 	};
 
-	WGPUComputePipelineDescriptor compute_pipeline_desc = (WGPUComputePipelineDescriptor){
+	WGPUComputePipelineDescriptor compute_pipeline_descriptor = (WGPUComputePipelineDescriptor){
 		.layout = shader_info->pipeline_layout,
 		.compute = programmable_stage_desc,
 	};
 
-	WGPUComputePipeline compute_pipeline = wgpuDeviceCreateComputePipeline(device, &compute_pipeline_desc);
+	WGPUComputePipeline compute_pipeline = wgpuDeviceCreateComputePipeline(device, &compute_pipeline_descriptor);
 
 	return PipelineID(compute_pipeline);
 }
