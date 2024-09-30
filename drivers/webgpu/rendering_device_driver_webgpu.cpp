@@ -604,11 +604,13 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
+	print_line("Compiling ", p_shader_name, "...");
 	Vector<ShaderStageSPIRVData> spirv;
 
-	for (uint32_t i = 0; i < spirv.size(); i++) {
+	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Vector<uint32_t> inSpirv;
-		inSpirv.resize(p_spirv[i].spirv.size() / 8);
+		inSpirv.resize(p_spirv[i].spirv.size() / 4);
+		memcpy(inSpirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
 		Vector<uint32_t> outSpirv = combimgsampsplitter(inSpirv);
 		spirv.push_back((ShaderStageSPIRVData){
 				.shader_stage = p_spirv[i].shader_stage,
