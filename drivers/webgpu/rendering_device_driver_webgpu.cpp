@@ -1,4 +1,5 @@
 #include "rendering_device_driver_webgpu.h"
+#include "combimgsamplersplitter.h"
 #include "core/io/marshalls.h"
 #include "thirdparty/misc/smolv.h"
 #include "webgpu.h"
@@ -603,9 +604,21 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
+	Vector<ShaderStageSPIRVData> spirv;
+
+	for (uint32_t i = 0; i < spirv.size(); i++) {
+		Vector<uint32_t> inSpirv;
+		inSpirv.resize(p_spirv[i].spirv.size() / 8);
+		Vector<uint32_t> outSpirv = combimgsampsplitter(inSpirv);
+		spirv.push_back((ShaderStageSPIRVData){
+				.shader_stage = p_spirv[i].shader_stage,
+				.spirv = outSpirv.to_byte_array(),
+		});
+	}
+
 	// This code is mostly taken from the vulkan device driver.
 	ShaderReflection shader_refl;
-	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
+	if (_reflect_spirv(spirv, shader_refl) != OK) {
 		return Vector<uint8_t>();
 	}
 
@@ -669,10 +682,10 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	bool strip_debug = false;
 
-	for (uint32_t i = 0; i < p_spirv.size(); i++) {
+	for (uint32_t i = 0; i < spirv.size(); i++) {
 		smolv::ByteArray smolv;
-		if (!smolv::Encode(p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size(), smolv, strip_debug ? smolv::kEncodeFlagStripDebugInfo : 0)) {
-			ERR_FAIL_V_MSG(Vector<uint8_t>(), "Error compressing shader stage :" + String(SHADER_STAGE_NAMES[p_spirv[i].shader_stage]));
+		if (!smolv::Encode(spirv[i].spirv.ptr(), spirv[i].spirv.size(), smolv, strip_debug ? smolv::kEncodeFlagStripDebugInfo : 0)) {
+			ERR_FAIL_V_MSG(Vector<uint8_t>(), "Error compressing shader stage :" + String(SHADER_STAGE_NAMES[spirv[i].shader_stage]));
 		} else {
 			smolv_size.push_back(smolv.size());
 			// zstd.
@@ -701,7 +714,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	binary_data.specialization_constants_count = specialization_constants.size();
 	binary_data.set_count = uniforms.size();
-	binary_data.stage_count = p_spirv.size();
+	binary_data.stage_count = spirv.size();
 
 	CharString shader_name_utf = p_shader_name.utf8();
 
@@ -768,7 +781,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		}
 
 		for (int i = 0; i < compressed_stages.size(); i++) {
-			encode_uint32(p_spirv[i].shader_stage, binptr + offset);
+			encode_uint32(spirv[i].shader_stage, binptr + offset);
 			offset += sizeof(uint32_t);
 			encode_uint32(smolv_size[i], binptr + offset);
 			offset += sizeof(uint32_t);
@@ -1091,10 +1104,8 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 	Vector<WGPUBindGroupEntry> entries;
 
 	// Used to allow data stored in entries to live long enough to be used.
-	List<Vector<WGPUSampler>> owned_samplers;
-	List<Vector<WGPUTextureView>> owned_texture_views;
-	List<WGPUBindGroupEntryExtras> owned_chained_extras;
 
+	bool prev_was_combimgsampl = false;
 	for (int i = 0; i < p_uniforms.size(); i++) {
 		const BoundUniform &uniform = p_uniforms[i];
 		WGPUBindGroupEntry entry = { 0 };
@@ -1102,29 +1113,40 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER:
-			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 				if (uniform.ids.size() == 1) {
 					entry.sampler = (WGPUSampler)uniform.ids[0].id;
 				} else {
-					Vector<WGPUSampler> uniform_samplers;
+					WGPUSampler *uniform_samplers = ALLOCA_ARRAY(WGPUSampler, uniform.ids.size());
 
 					for (uint32_t j = 0; j < uniform.ids.size(); j++) {
 						WGPUSampler sampler = (WGPUSampler)uniform.ids[j].id;
-						uniform_samplers.push_back(sampler);
+						uniform_samplers[j] = sampler;
 					}
 
-					WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+					WGPUBindGroupEntryExtras *entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
+					*entry_extras = (WGPUBindGroupEntryExtras){
 						.chain = (WGPUChainedStruct){
 								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
 						},
-						.samplers = uniform_samplers.ptr(),
-						.samplerCount = (size_t)owned_texture_views.size(),
+						.samplers = uniform_samplers,
+						.samplerCount = (size_t)uniform.ids.size(),
 					};
-					owned_chained_extras.push_back(entry_extras);
-					entry.nextInChain = (WGPUChainedStruct *)owned_chained_extras.back();
-					owned_samplers.push_back(uniform_samplers);
+					entry.nextInChain = (WGPUChainedStruct *)entry_extras;
 				}
-			} break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
+				if (uniform.ids.size() == 2) {
+					WGPUSampler sampler = (WGPUSampler)uniform.ids[0].id;
+					TextureInfo *texture_info = (TextureInfo *)uniform.ids[1].id;
+
+					entry.sampler = sampler;
+					entries.push_back((WGPUBindGroupEntry){
+							.textureView = texture_info->view });
+
+				} else {
+					CRASH_NOW_MSG("Unimplemented!"); // TODO.
+				}
+			}
+
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
@@ -1132,23 +1154,22 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 					TextureInfo *texture_info = (TextureInfo *)uniform.ids[0].id;
 					entry.textureView = texture_info->view;
 				} else {
-					Vector<WGPUTextureView> uniform_texture_views;
+					WGPUTextureView *uniform_texture_views = ALLOCA_ARRAY(WGPUTextureView, uniform.ids.size());
 
 					for (uint32_t j = 0; j < uniform.ids.size(); j++) {
 						TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
-						uniform_texture_views.push_back(texture_info->view);
+						uniform_texture_views[j] = texture_info->view;
 					}
 
-					WGPUBindGroupEntryExtras entry_extras = (WGPUBindGroupEntryExtras){
+					WGPUBindGroupEntryExtras *entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
+					*entry_extras = (WGPUBindGroupEntryExtras){
 						.chain = (WGPUChainedStruct){
 								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
 						},
-						.textureViews = uniform_texture_views.ptr(),
-						.textureViewCount = (size_t)uniform_texture_views.size(),
+						.textureViews = uniform_texture_views,
+						.textureViewCount = (size_t)uniform.ids.size(),
 					};
-					owned_chained_extras.push_back(entry_extras);
-					entry.nextInChain = (WGPUChainedStruct *)owned_chained_extras.back();
-					owned_texture_views.push_back(uniform_texture_views);
+					entry.nextInChain = (WGPUChainedStruct *)entry_extras;
 				}
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE_BUFFER:
@@ -1677,7 +1698,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	// pipeline_descriptor.depth_stencil
 	WGPUDepthStencilState depth_stencil_state = (WGPUDepthStencilState){
 		// TODO: We do not have info on depth target format.
-		.format = WGPUTextureFormat_Undefined,
+		.format = WGPUTextureFormat_Depth32Float,
 		.depthWriteEnabled = p_depth_stencil_state.enable_depth_write,
 		.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
 		.stencilFront =
