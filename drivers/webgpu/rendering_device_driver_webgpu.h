@@ -4,7 +4,6 @@
 #include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
-#include "drivers/webgpu/combimgsamplersplitter.h"
 
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
