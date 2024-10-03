@@ -307,13 +307,13 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			uint32_t sampler_v_res_id = v_res_id_and_sampler_v_res_id.second;
 			if (v_res_id == spv[d_idx + 1]) {
 				if (spv[d_idx + 2] == SPV_DECORATION_BINDING) {
-					descriptor_sets_to_correct.insert(spv[d_idx + 3]);
-
 					auto &decorations = sampler_id_to_decorations[sampler_v_res_id];
 					decorations.first = Pair(Pair(d_idx, spv[d_idx + 3]), true);
 				} else if (spv[d_idx + 2] == SPV_DECORATION_DESCRIPTOR_SET) {
 					auto &decorations = sampler_id_to_decorations[sampler_v_res_id];
 					decorations.second = Pair(Pair(d_idx, spv[d_idx + 3]), true);
+
+					descriptor_sets_to_correct.insert(spv[d_idx + 3]);
 				}
 			}
 		}
@@ -616,7 +616,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 
 		struct BindingsSort {
 			bool operator()(const Pair<uint32_t, uint32_t> &a, const Pair<uint32_t, uint32_t> &b) const {
-				return a.second < b.second;
+				return a.second == b.second ? a.first < b.second : a.second < b.second;
 			}
 		};
 
