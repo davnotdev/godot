@@ -21,25 +21,25 @@ const uint16_t SPV_INSTRUCTION_OP_LOAD = 61;
 const uint16_t SPV_INSTRUCTION_OP_DECORATE = 71;
 const uint16_t SPV_INSTRUCTION_OP_SAMPLED_IMAGE = 86;
 
-uint32_t encodeWord(uint16_t hiword, uint16_t loword) {
+uint32_t encode_word(uint16_t hiword, uint16_t loword) {
 	return (hiword << 16) | loword;
 }
 
-const uint32_t SPV_NOP_WORD = encodeWord(1, 0);
+const uint32_t SPV_NOP_WORD = encode_word(1, 0);
 
 const uint32_t SPV_STORAGE_CLASS_UNIFORM_CONSTANT = 0;
 const uint32_t SPV_DECORATION_BINDING = 33;
 const uint32_t SPV_DECORATION_DESCRIPTOR_SET = 34;
 
 struct InstructionInsert {
-	uint32_t previousSpvIdx;
+	uint32_t previous_spv_idx;
 	Vector<uint32_t> instruction;
 };
 
 struct WordInsert {
 	uint32_t idx;
 	uint32_t word;
-	uint32_t headIdx;
+	uint32_t head_idx;
 };
 
 template <typename T>
@@ -53,162 +53,166 @@ inline uint16_t loword(uint32_t val) {
 	return static_cast<uint16_t>(val & 0xFFFF);
 }
 
-Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
-	uint32_t instructionBound = inSpv[SPV_HEADER_INSTRUCTION_BOUND_OFFSET];
-	uint32_t magicNumber = inSpv[SPV_HEADER_MAGIC_NUM_OFFSET];
+Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
+	uint32_t instruction_bound = in_spv[SPV_HEADER_INSTRUCTION_BOUND_OFFSET];
+	uint32_t magic_number = in_spv[SPV_HEADER_MAGIC_NUM_OFFSET];
 
-	Vector<uint32_t> spvHeader;
+	Vector<uint32_t> spv_header;
 	for (int i = 0; i < SPV_HEADER_LENGTH; i++) {
-		spvHeader.push_back(inSpv[i]);
+		spv_header.push_back(in_spv[i]);
 	}
 
 	Vector<uint32_t> spv;
-	for (int i = SPV_HEADER_LENGTH; i < inSpv.size(); i++) {
-		spv.push_back(inSpv[i]);
+	for (int i = SPV_HEADER_LENGTH; i < in_spv.size(); i++) {
+		spv.push_back(in_spv[i]);
 	}
 
-	ERR_FAIL_COND_V(magicNumber != SPV_HEADER_MAGIC, Vector<uint32_t>());
+	ERR_FAIL_COND_V(magic_number != SPV_HEADER_MAGIC, Vector<uint32_t>());
 
-	Vector<InstructionInsert> instructionInserts;
-	Vector<WordInsert> wordInserts;
-	Vector<uint32_t> newSpv = spv;
+	Vector<InstructionInsert> instruction_inserts;
+	Vector<WordInsert> word_inserts;
+	Vector<uint32_t> new_spv = spv;
 
-	Optional<uint32_t> opTypeSamplerIdx;
-	Optional<uint32_t> firstOpTypeImageIdx;
-	Optional<uint32_t> firstOpDecorateIdx;
+	Optional<uint32_t> op_type_sampler_idx;
+	Optional<uint32_t> first_op_type_image_idx;
+	Optional<uint32_t> first_op_decorate_idx;
 
-	Vector<uint32_t> opTypeSampledImageIdxs;
-	Vector<uint32_t> opTypePointerIdxs;
-	Vector<uint32_t> opVariableIdxs;
-	Vector<uint32_t> opLoadIdxs;
-	Vector<uint32_t> opDecorateIdxs;
-	Vector<uint32_t> opTypeFunctionIdxs;
-	Vector<uint32_t> opFunctionParamterIdxs;
-	Vector<uint32_t> opFunctionCallIdxs;
+	Vector<uint32_t> op_type_sampled_image_idxs;
+	Vector<uint32_t> op_type_pointer_idxs;
+	Vector<uint32_t> op_variable_idxs;
+	Vector<uint32_t> op_loads_idxs;
+	Vector<uint32_t> op_decorate_idxs;
+	Vector<uint32_t> op_type_function_idxs;
+	Vector<uint32_t> op_function_parameter_idxs;
+	Vector<uint32_t> op_function_call_idxs;
 
 	// 1. Find locations of the instructions we need
-	uint32_t spvIdx = 0;
-	while (spvIdx < spv.size()) {
-		uint32_t op = spv[spvIdx];
-		uint16_t wordCound = hiword(op);
+	uint32_t spv_idx = 0;
+	while (spv_idx < spv.size()) {
+		uint32_t op = spv[spv_idx];
+		uint16_t word_count = hiword(op);
 		uint16_t instruction = loword(op);
 
 		switch (instruction) {
 			case SPV_INSTRUCTION_OP_TYPE_SAMPLER: {
-				opTypeSamplerIdx.first = spvIdx;
-				opTypeSamplerIdx.second = true;
-				for (int i = spvIdx; i < spvIdx + wordCound; i++) {
-					newSpv.set(i, SPV_NOP_WORD);
+				op_type_sampler_idx.first = spv_idx;
+				op_type_sampler_idx.second = true;
+				for (int i = spv_idx; i < spv_idx + word_count; i++) {
+					new_spv.set(i, SPV_NOP_WORD);
 				}
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_IMAGE: {
-				if (!firstOpTypeImageIdx.second) {
-					firstOpTypeImageIdx.first = spvIdx;
-					firstOpTypeImageIdx.second = true;
+				if (!first_op_type_image_idx.second) {
+					first_op_type_image_idx.first = spv_idx;
+					first_op_type_image_idx.second = true;
 				}
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_SAMPLED_IMAGE: {
-				opTypeSampledImageIdxs.push_back(spvIdx);
+				op_type_sampled_image_idxs.push_back(spv_idx);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_POINTER: {
-				if (spv[spvIdx + 2] == SPV_STORAGE_CLASS_UNIFORM_CONSTANT) {
-					opTypePointerIdxs.push_back(spvIdx);
+				if (spv[spv_idx + 2] == SPV_STORAGE_CLASS_UNIFORM_CONSTANT) {
+					op_type_pointer_idxs.push_back(spv_idx);
 				}
 				break;
 			}
 			case SPV_INSTRUCTION_OP_VARIABLE: {
-				opVariableIdxs.push_back(spvIdx);
+				op_variable_idxs.push_back(spv_idx);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_LOAD: {
-				opLoadIdxs.push_back(spvIdx);
+				op_loads_idxs.push_back(spv_idx);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_DECORATE: {
-				opDecorateIdxs.push_back(spvIdx);
-				if (!firstOpDecorateIdx.second) {
-					firstOpDecorateIdx.first = spvIdx;
-					firstOpDecorateIdx.second = true;
+				op_decorate_idxs.push_back(spv_idx);
+				if (!first_op_decorate_idx.second) {
+					first_op_decorate_idx.first = spv_idx;
+					first_op_decorate_idx.second = true;
 				}
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_FUNCTION: {
-				opTypeFunctionIdxs.push_back(spvIdx);
+				op_type_function_idxs.push_back(spv_idx);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_FUNCTION_PARAMETER: {
-				opFunctionParamterIdxs.push_back(spvIdx);
+				op_function_parameter_idxs.push_back(spv_idx);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_FUNCTION_CALL: {
-				opFunctionCallIdxs.push_back(spvIdx);
+				op_function_call_idxs.push_back(spv_idx);
 				break;
 			}
 			default:
 				break;
 		}
 
-		spvIdx += wordCound;
+		spv_idx += word_count;
 	}
 
 	// 2. Insert OpTypeSampler and respective OpTypePointer if necessary
 
-	ERR_FAIL_COND_V(!firstOpTypeImageIdx.second, Vector<uint32_t>());
-	uint32_t opTypeImageIdx = firstOpTypeImageIdx.first;
-
-	uint32_t opTypeSamplerResId;
-	if (opTypeSamplerIdx.second) {
-		opTypeSamplerResId = spv[opTypeSamplerIdx.first + 1];
-	} else {
-		opTypeSamplerResId = instructionBound;
-		instructionBound += 1;
+	// - If there has been no OpTypeImage, there will be nothing to do
+	if (!first_op_type_image_idx.second) {
+		return in_spv;
 	}
 
-	uint32_t opTypePointerSamplerResId = instructionBound;
-	instructionBound += 1;
+	uint32_t op_type_image_idx = first_op_type_image_idx.first;
 
-	instructionInserts.push_back(
-			{ opTypeImageIdx,
-					{ encodeWord(
+	uint32_t op_type_sampler_res_id;
+	if (op_type_sampler_idx.second) {
+		op_type_sampler_res_id = spv[op_type_sampler_idx.first + 1];
+	} else {
+		op_type_sampler_res_id = instruction_bound;
+		instruction_bound += 1;
+	}
+
+	uint32_t op_type_pointer_sampler_res_id = instruction_bound;
+	instruction_bound += 1;
+
+	instruction_inserts.push_back(
+			{ op_type_image_idx,
+					{ encode_word(
 							  2, SPV_INSTRUCTION_OP_TYPE_SAMPLER),
-							opTypeSamplerResId,
-							encodeWord(
+							op_type_sampler_res_id,
+							encode_word(
 									4, SPV_INSTRUCTION_OP_TYPE_POINTER),
-							opTypePointerSamplerResId, SPV_STORAGE_CLASS_UNIFORM_CONSTANT,
-							opTypeSamplerResId } });
+							op_type_pointer_sampler_res_id, SPV_STORAGE_CLASS_UNIFORM_CONSTANT,
+							op_type_sampler_res_id } });
 
 	// 3. OpTypePointer
-	Vector<Pair<uint32_t, uint32_t>> typePointerResIds;
+	Vector<Pair<uint32_t, uint32_t>> type_pointer_res_ids;
 
-	for (int i = 0; i < opTypePointerIdxs.size(); i++) {
-		uint32_t tpIdx = opTypePointerIdxs[i];
+	for (int i = 0; i < op_type_pointer_idxs.size(); i++) {
+		uint32_t tp_idx = op_type_pointer_idxs[i];
 
-		for (int j = 0; j < opTypeSampledImageIdxs.size(); ++j) {
-			uint32_t tsIdx = opTypeSampledImageIdxs[j];
+		for (int j = 0; j < op_type_sampled_image_idxs.size(); ++j) {
+			uint32_t ts_idx = op_type_sampled_image_idxs[j];
 
 			// - Find OpTypePointers that ref OpTypeSampledImage
-			if (spv[tpIdx + 3] == spv[tsIdx + 1]) {
+			if (spv[tp_idx + 3] == spv[ts_idx + 1]) {
 				// - Inject OpTypePointer for sampler pair
 
-				uint32_t underlyingImageId = spv[tsIdx + 2];
-				uint32_t opTypePointerResId = instructionBound;
-				instructionBound += 1;
-				instructionInserts.push_back(
-						{ tpIdx,
-								{ encodeWord(
+				uint32_t underlying_image_id = spv[ts_idx + 2];
+				uint32_t op_type_pointer_res_id = instruction_bound;
+				instruction_bound += 1;
+				instruction_inserts.push_back(
+						{ tp_idx,
+								{ encode_word(
 										  4,
 										  SPV_INSTRUCTION_OP_TYPE_POINTER),
-										opTypePointerResId, SPV_STORAGE_CLASS_UNIFORM_CONSTANT,
-										underlyingImageId } });
+										op_type_pointer_res_id, SPV_STORAGE_CLASS_UNIFORM_CONSTANT,
+										underlying_image_id } });
 
 				// - Change combined image sampler type to underlying image type
-				newSpv.set(tpIdx + 3, underlyingImageId);
+				new_spv.set(tp_idx + 3, underlying_image_id);
 
 				// - Save the OpTypePointer res id for later
-				typePointerResIds.push_back({ spv[tpIdx + 1], underlyingImageId });
+				type_pointer_res_ids.push_back({ spv[tp_idx + 1], underlying_image_id });
 
 				break;
 			}
@@ -217,32 +221,32 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 
 	// 4. OpVariable
 	Vector<Pair<Pair<uint32_t, uint32_t>, uint32_t>>
-			variableResIds;
+			variable_res_ids;
 
-	for (int i = 0; i < opVariableIdxs.size(); i++) {
-		uint32_t vIdx = opVariableIdxs[i];
+	for (int i = 0; i < op_variable_idxs.size(); i++) {
+		uint32_t v_idx = op_variable_idxs[i];
 
-		for (int j = 0; j < typePointerResIds.size(); ++j) {
-			uint32_t tpResId = typePointerResIds[j].first;
-			uint32_t underlyingImageId = typePointerResIds[j].second;
+		for (int j = 0; j < type_pointer_res_ids.size(); ++j) {
+			uint32_t tp_res_id = type_pointer_res_ids[j].first;
+			uint32_t underlying_image_id = type_pointer_res_ids[j].second;
 
 			// - Find all OpVariables that ref our typePointerResIds
-			if (tpResId == spv[vIdx + 1]) {
+			if (tp_res_id == spv[v_idx + 1]) {
 				// - Inject OpVariable for new sampler
-				uint32_t vResId = spv[vIdx + 2];
-				uint32_t samplerOpVariableResId = instructionBound;
-				instructionBound += 1;
+				uint32_t v_res_id = spv[v_idx + 2];
+				uint32_t sampler_op_variable_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				instructionInserts.push_back(
-						{ vIdx,
-								{ encodeWord(
+				instruction_inserts.push_back(
+						{ v_idx,
+								{ encode_word(
 										  4, SPV_INSTRUCTION_OP_VARIABLE),
-										opTypePointerSamplerResId, samplerOpVariableResId,
+										op_type_pointer_sampler_res_id, sampler_op_variable_res_id,
 										SPV_STORAGE_CLASS_UNIFORM_CONSTANT } });
 
 				// - Save the OpVariable res id for later
-				variableResIds.push_back(Pair(
-						Pair(vResId, samplerOpVariableResId), underlyingImageId));
+				variable_res_ids.push_back(Pair(
+						Pair(v_res_id, sampler_op_variable_res_id), underlying_image_id));
 
 				break;
 			}
@@ -250,37 +254,37 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 	}
 
 	// 5. OpLoad
-	for (int i = 0; i < opLoadIdxs.size(); i++) {
-		uint32_t lIdx = opLoadIdxs[i];
+	for (int i = 0; i < op_loads_idxs.size(); i++) {
+		uint32_t l_idx = op_loads_idxs[i];
 
-		for (int j = 0; j < variableResIds.size(); ++j) {
-			uint32_t vResId = variableResIds[j].first.first;
-			uint32_t samplerVResId = variableResIds[j].first.second;
-			uint32_t underlyingImageId = variableResIds[j].second;
+		for (int j = 0; j < variable_res_ids.size(); ++j) {
+			uint32_t v_res_id = variable_res_ids[j].first.first;
+			uint32_t sampler_v_res_id = variable_res_ids[j].first.second;
+			uint32_t underlying_image_id = variable_res_ids[j].second;
 
 			// - Find all OpLoads that reference variableResIds
-			if (vResId == spv[lIdx + 3]) {
+			if (v_res_id == spv[l_idx + 3]) {
 				// - Insert OpLoads and OpSampledImage to replace combimgsamp
-				uint32_t imageOpLoadResId = instructionBound;
-				instructionBound += 1;
+				uint32_t image_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				uint32_t imageOriginalResId = spv[lIdx + 2];
-				uint32_t originalCombinedResId = newSpv[lIdx + 1];
+				uint32_t image_original_res_id = spv[l_idx + 2];
+				uint32_t original_combined_res_id = new_spv[l_idx + 1];
 
-				newSpv.set(lIdx + 1, underlyingImageId);
-				newSpv.set(lIdx + 2, imageOpLoadResId);
+				new_spv.set(l_idx + 1, underlying_image_id);
+				new_spv.set(l_idx + 2, image_op_load_res_id);
 
-				uint32_t samplerOpLoadResId = instructionBound;
-				instructionBound += 1;
+				uint32_t sampler_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				instructionInserts.push_back(
-						{ lIdx,
-								{ encodeWord(4, SPV_INSTRUCTION_OP_LOAD),
-										opTypeSamplerResId, samplerOpLoadResId, samplerVResId,
+				instruction_inserts.push_back(
+						{ l_idx,
+								{ encode_word(4, SPV_INSTRUCTION_OP_LOAD),
+										op_type_sampler_res_id, sampler_op_load_res_id, sampler_v_res_id,
 
-										encodeWord(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
-										originalCombinedResId, imageOriginalResId,
-										imageOpLoadResId, samplerOpLoadResId } });
+										encode_word(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
+										original_combined_res_id, image_original_res_id,
+										image_op_load_res_id, sampler_op_load_res_id } });
 
 				break;
 			}
@@ -291,25 +295,25 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 	HashMap<uint32_t,
 			Pair<Optional<Pair<uint32_t, uint32_t>>,
 					Optional<Pair<uint32_t, uint32_t>>>>
-			samplerIdToDecorations;
-	HashSet<uint32_t> descriptorSetsToCorrect;
+			sampler_id_to_decorations;
+	HashSet<uint32_t> descriptor_sets_to_correct;
 
 	// - Find the current binding and descriptor set pair for each combimgsamp
-	for (int i = 0; i < opDecorateIdxs.size(); i++) {
-		uint32_t dIdx = opDecorateIdxs[i];
+	for (int i = 0; i < op_decorate_idxs.size(); i++) {
+		uint32_t d_idx = op_decorate_idxs[i];
 
-		for (const auto &[vResIdAndSamplerVResId, _] : variableResIds) {
-			uint32_t vResId = vResIdAndSamplerVResId.first;
-			uint32_t samplerVResId = vResIdAndSamplerVResId.second;
-			if (vResId == spv[dIdx + 1]) {
-				if (spv[dIdx + 2] == SPV_DECORATION_BINDING) {
-					descriptorSetsToCorrect.insert(spv[dIdx + 3]);
+		for (const auto &[v_res_id_and_sampler_v_res_id, _] : variable_res_ids) {
+			uint32_t v_res_id = v_res_id_and_sampler_v_res_id.first;
+			uint32_t sampler_v_res_id = v_res_id_and_sampler_v_res_id.second;
+			if (v_res_id == spv[d_idx + 1]) {
+				if (spv[d_idx + 2] == SPV_DECORATION_BINDING) {
+					descriptor_sets_to_correct.insert(spv[d_idx + 3]);
 
-					auto &decorations = samplerIdToDecorations[samplerVResId];
-					decorations.first = Pair(Pair(dIdx, spv[dIdx + 3]), true);
-				} else if (spv[dIdx + 2] == SPV_DECORATION_DESCRIPTOR_SET) {
-					auto &decorations = samplerIdToDecorations[samplerVResId];
-					decorations.second = Pair(Pair(dIdx, spv[dIdx + 3]), true);
+					auto &decorations = sampler_id_to_decorations[sampler_v_res_id];
+					decorations.first = Pair(Pair(d_idx, spv[d_idx + 3]), true);
+				} else if (spv[d_idx + 2] == SPV_DECORATION_DESCRIPTOR_SET) {
+					auto &decorations = sampler_id_to_decorations[sampler_v_res_id];
+					decorations.second = Pair(Pair(d_idx, spv[d_idx + 3]), true);
 				}
 			}
 		}
@@ -318,10 +322,10 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 	Vector<Pair<uint32_t,
 			Pair<Optional<Pair<uint32_t, uint32_t>>,
 					Optional<Pair<uint32_t, uint32_t>>>>>
-			samplerIdToDecorationsVec;
+			sampler_id_to_decorations_vec;
 
-	for (const auto &[first, second] : samplerIdToDecorations) {
-		samplerIdToDecorationsVec.push_back(Pair(first, second));
+	for (const auto &[first, second] : sampler_id_to_decorations) {
+		sampler_id_to_decorations_vec.push_back(Pair(first, second));
 	}
 
 	struct SamplerIdToDecorationsSort {
@@ -330,34 +334,34 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 		}
 	};
 
-	samplerIdToDecorationsVec.sort_custom<SamplerIdToDecorationsSort>();
+	sampler_id_to_decorations_vec.sort_custom<SamplerIdToDecorationsSort>();
 
 	HashMap<uint32_t, Pair<Pair<uint32_t, uint32_t>, Pair<uint32_t, uint32_t>>>
-			samplerIdToDecorationsFinal;
-	for (const auto &[samplerId, maybeBindingAndMaybeDescriptorSet] :
-			samplerIdToDecorationsVec) {
-		auto [maybeBinding, maybeDescriptorSet] =
-				maybeBindingAndMaybeDescriptorSet;
+			sampler_id_to_decorations_final;
+	for (const auto &[sampler_id, maybe_binding_and_maybe_descriptor_set] :
+			sampler_id_to_decorations_vec) {
+		auto [maybe_binding, maybe_descriptor_set] =
+				maybe_binding_and_maybe_descriptor_set;
 
-		ERR_FAIL_COND_V(!maybeBinding.second, Vector<uint32_t>());
-		ERR_FAIL_COND_V(!maybeDescriptorSet.second, Vector<uint32_t>());
-		ERR_FAIL_COND_V(!firstOpDecorateIdx.second, Vector<uint32_t>());
+		ERR_FAIL_COND_V(!maybe_binding.second, Vector<uint32_t>());
+		ERR_FAIL_COND_V(!maybe_descriptor_set.second, Vector<uint32_t>());
+		ERR_FAIL_COND_V(!first_op_decorate_idx.second, Vector<uint32_t>());
 
-		auto [bindingIdx, binding] = maybeBinding.first;
-		auto [descriptorSetIdx, descriptorSet] = maybeDescriptorSet.first;
+		auto [binding_idx, binding] = maybe_binding.first;
+		auto [descriptor_set_idx, descriptor_set] = maybe_descriptor_set.first;
 
-		samplerIdToDecorationsFinal[samplerId] = {
-			{ bindingIdx, binding }, { descriptorSetIdx, descriptorSet }
+		sampler_id_to_decorations_final[sampler_id] = {
+			{ binding_idx, binding }, { descriptor_set_idx, descriptor_set }
 		};
 	}
 
 	// - Insert new descriptor set and binding for new sampler
-	for (const auto &[samplerVResId, bindingDescriptorSetPair] :
-			samplerIdToDecorationsFinal) {
-		const auto &[bindingPair, descriptorSetPair] =
-				bindingDescriptorSetPair;
-		auto [bindingIdx, binding] = bindingPair;
-		auto [descriptorSetIdx, descriptorSet] = descriptorSetPair;
+	for (const auto &[sampler_v_res_id, binding_descriptor_set_pair] :
+			sampler_id_to_decorations_final) {
+		const auto &[binding_pair, descriptor_set_pair] =
+				binding_descriptor_set_pair;
+		auto [binding_idx, binding] = binding_pair;
+		auto [descriptor_set_idx, descriptor_set] = descriptor_set_pair;
 
 		// NOTE: If bindings are not ordered reasonably in spv, the original
 		// implementation may fail.
@@ -370,92 +374,92 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 		//      %u_combined = (0, 0)
 		//      %inserted_sampler = (0, 2)
 		// previous_spv_idx: descriptor_set_idx.max(binding_idx),
-		instructionInserts.push_back(
-				{ firstOpDecorateIdx
+		instruction_inserts.push_back(
+				{ first_op_decorate_idx
 								.first,
-						{ encodeWord(4, SPV_INSTRUCTION_OP_DECORATE), samplerVResId,
-								SPV_DECORATION_DESCRIPTOR_SET, descriptorSet,
-								encodeWord(4, SPV_INSTRUCTION_OP_DECORATE), samplerVResId,
+						{ encode_word(4, SPV_INSTRUCTION_OP_DECORATE), sampler_v_res_id,
+								SPV_DECORATION_DESCRIPTOR_SET, descriptor_set,
+								encode_word(4, SPV_INSTRUCTION_OP_DECORATE), sampler_v_res_id,
 								SPV_DECORATION_BINDING,
 								binding + 1 } });
 	}
 
 	// 7. OpTypeFunction
-	for (int i = 0; i < opTypeFunctionIdxs.size(); i++) {
-		uint32_t tfIdx = opTypeFunctionIdxs[i];
+	for (int i = 0; i < op_type_function_idxs.size(); i++) {
+		uint32_t tf_idx = op_type_function_idxs[i];
 
 		// - Append a sampler OpTypePointer to OpTypeFunctions when an underlying image OpTypePointer
 		// is found.
-		for (const auto &[imageTypePointer, _] : typePointerResIds) {
-			uint16_t wordCount = hiword(spv[tfIdx]);
+		for (const auto &[image_type_pointer, _] : type_pointer_res_ids) {
+			uint16_t word_count = hiword(spv[tf_idx]);
 
-			for (int j = 0; j < wordCount - 3; ++j) {
-				uint32_t tyIdx = tfIdx + 3 + j;
+			for (int j = 0; j < word_count - 3; ++j) {
+				uint32_t ty_idx = tf_idx + 3 + j;
 
-				if (spv[tyIdx] == imageTypePointer) {
-					wordInserts.push_back({ tyIdx,
-							opTypePointerSamplerResId,
-							tfIdx });
+				if (spv[ty_idx] == image_type_pointer) {
+					word_inserts.push_back({ ty_idx,
+							op_type_pointer_sampler_res_id,
+							tf_idx });
 				}
 			}
 		}
 	}
 
 	// 8. OpFunctionParameter
-	HashMap<uint32_t, Pair<uint32_t, uint32_t>> parameterResIds;
+	HashMap<uint32_t, Pair<uint32_t, uint32_t>> parameter_res_ids;
 
-	for (int i = 0; i < opFunctionParamterIdxs.size(); i++) {
-		uint32_t fpIdx = opFunctionParamterIdxs[i];
+	for (int i = 0; i < op_function_parameter_idxs.size(); i++) {
+		uint32_t fp_idx = op_function_parameter_idxs[i];
 
-		for (const auto &[imageTypePointer, underlyingImageId] : typePointerResIds) {
+		for (const auto &[image_type_pointer, underlying_image_id] : type_pointer_res_ids) {
 			// - Find all OpFunctionParameters that use an underlying image OpTypePointer
-			if (spv[fpIdx + 1] == imageTypePointer) {
-				uint32_t imageResId = spv[fpIdx + 2];
+			if (spv[fp_idx + 1] == image_type_pointer) {
+				uint32_t image_res_Id = spv[fp_idx + 2];
 
-				uint32_t samplerParamterResId = instructionBound;
-				instructionBound += 1;
+				uint32_t sampler_parameter_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				instructionInserts.push_back(
-						{ fpIdx,
-								{ encodeWord(
+				instruction_inserts.push_back(
+						{ fp_idx,
+								{ encode_word(
 										  3,
 										  SPV_INSTRUCTION_OP_FUNCTION_PARAMETER),
-										opTypePointerSamplerResId, samplerParamterResId } });
+										op_type_pointer_sampler_res_id, sampler_parameter_res_id } });
 
-				parameterResIds[imageResId] = { samplerParamterResId,
-					underlyingImageId };
+				parameter_res_ids[image_res_Id] = { sampler_parameter_res_id,
+					underlying_image_id };
 				break;
 			}
 		}
 	}
 
-	for (int i = 0; i < opLoadIdxs.size(); i++) {
-		uint32_t lIdx = opLoadIdxs[i];
+	for (int i = 0; i < op_loads_idxs.size(); i++) {
+		uint32_t l_idx = op_loads_idxs[i];
 
-		for (const auto &[image_res_id, sampler_data] : parameterResIds) {
+		for (const auto &[image_res_id, sampler_data] : parameter_res_ids) {
 			uint32_t sampler_parameter_res_id = sampler_data.first;
 			uint32_t underlying_image_id = sampler_data.second;
 
-			if (spv[lIdx + 3] == image_res_id) {
-				uint32_t image_op_load_res_id = instructionBound;
-				instructionBound += 1;
+			if (spv[l_idx + 3] == image_res_id) {
+				uint32_t image_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				uint32_t image_original_res_id = spv[lIdx + 2];
-				uint32_t original_combined_res_id = newSpv[lIdx + 1];
+				uint32_t image_original_res_id = spv[l_idx + 2];
+				uint32_t original_combined_res_id = new_spv[l_idx + 1];
 
-				newSpv.set(lIdx + 1, underlying_image_id);
-				newSpv.set(lIdx + 2, image_op_load_res_id);
+				new_spv.set(l_idx + 1, underlying_image_id);
+				new_spv.set(l_idx + 2, image_op_load_res_id);
 
-				uint32_t sampler_op_load_res_id = instructionBound;
-				instructionBound += 1;
+				uint32_t sampler_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
 
-				instructionInserts.push_back(
-						{ lIdx,
-								{ encodeWord(4, SPV_INSTRUCTION_OP_LOAD),
-										opTypeSamplerResId, sampler_op_load_res_id,
+				instruction_inserts.push_back(
+						{ l_idx,
+								{ encode_word(4, SPV_INSTRUCTION_OP_LOAD),
+										op_type_sampler_res_id, sampler_op_load_res_id,
 										sampler_parameter_res_id,
 
-										encodeWord(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
+										encode_word(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
 										original_combined_res_id, image_original_res_id,
 										image_op_load_res_id, sampler_op_load_res_id } });
 
@@ -465,30 +469,30 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 	}
 
 	// 9. OpFunctionCall
-	for (uint32_t fcIdx : opFunctionCallIdxs) {
-		Vector<Pair<uint32_t, uint32_t>> combinedResIds;
+	for (uint32_t fc_idx : op_function_call_idxs) {
+		Vector<Pair<uint32_t, uint32_t>> combined_res_ids;
 
 		// - Handle use of nested function calls
-		for (const auto &[imageResId, pair] : parameterResIds) {
-			combinedResIds.push_back({ imageResId, pair.first });
+		for (const auto &[image_res_id, pair] : parameter_res_ids) {
+			combined_res_ids.push_back({ image_res_id, pair.first });
 		}
 
 		// - Handle use of uniform variables
-		for (const auto &[imageIdAndSamplerId, _] : variableResIds) {
-			combinedResIds.push_back({ imageIdAndSamplerId.first, imageIdAndSamplerId.second });
+		for (const auto &[image_id_and_sampler_id, _] : variable_res_ids) {
+			combined_res_ids.push_back({ image_id_and_sampler_id.first, image_id_and_sampler_id.second });
 		}
 
-		for (const auto &[imageId, samplerId] : combinedResIds) {
-			uint16_t wordCount = hiword(spv[fcIdx]);
+		for (const auto &[image_id, sampler_id] : combined_res_ids) {
+			uint16_t word_count = hiword(spv[fc_idx]);
 
-			for (uint32_t i = 0; i < wordCount - 4; i++) {
-				uint32_t param = spv[fcIdx + 4 + i];
+			for (uint32_t i = 0; i < word_count - 4; i++) {
+				uint32_t param = spv[fc_idx + 4 + i];
 
-				if (param == imageId) {
-					wordInserts.push_back(WordInsert{
-							.idx = fcIdx + 4 + i,
-							.word = samplerId,
-							.headIdx = fcIdx });
+				if (param == image_id) {
+					word_inserts.push_back(WordInsert{
+							.idx = fc_idx + 4 + i,
+							.word = sampler_id,
+							.head_idx = fc_idx });
 				}
 			}
 		}
@@ -508,17 +512,17 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 	};
 
 	Vector<Insert> inserts;
-	for (const auto &wordInsert : wordInserts) {
+	for (const auto &word_insert : word_inserts) {
 		inserts.push_back((Insert){
 				.type = InsertType::Word,
-				.word = &wordInsert,
+				.word = &word_insert,
 				.spv = spv.ptr(),
 		});
 	}
-	for (const auto &instructionInsert : instructionInserts) {
+	for (const auto &instruction_insert : instruction_inserts) {
 		inserts.push_back((Insert){
 				.type = InsertType::Instruction,
-				.instruction = &instructionInsert,
+				.instruction = &instruction_insert,
 				.spv = spv.ptr(),
 		});
 	}
@@ -529,12 +533,12 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 				return a.word->idx < b.word->idx;
 			} else if (a.type == InsertType::Instruction &&
 					b.type == InsertType::Instruction) {
-				return a.instruction->previousSpvIdx <
-						b.instruction->previousSpvIdx;
+				return a.instruction->previous_spv_idx <
+						b.instruction->previous_spv_idx;
 			} else if (a.type == InsertType::Word) {
-				return a.word->idx < b.instruction->previousSpvIdx;
+				return a.word->idx < b.instruction->previous_spv_idx;
 			} else {
-				return a.instruction->previousSpvIdx < b.word->idx;
+				return a.instruction->previous_spv_idx < b.word->idx;
 			}
 		}
 	};
@@ -544,20 +548,20 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 
 	for (const auto &it : inserts) {
 		if (it.type == InsertType::Word) {
-			const WordInsert &newWord = *it.word;
-			newSpv.insert(newWord.idx + 1, newWord.word);
+			const WordInsert &new_word = *it.word;
+			new_spv.insert(new_word.idx + 1, new_word.word);
 
-			uint16_t currentHiword = hiword(newSpv[newWord.headIdx]);
-			newSpv.set(newWord.headIdx,
-					encodeWord(currentHiword + 1, loword(newSpv[newWord.headIdx])));
+			uint16_t current_hiword = hiword(new_spv[new_word.head_idx]);
+			new_spv.set(new_word.head_idx,
+					encode_word(current_hiword + 1, loword(new_spv[new_word.head_idx])));
 		} else if (it.type == InsertType::Instruction) {
-			const InstructionInsert &newInstruction = *it.instruction;
-			uint16_t offset = hiword(spv[newInstruction.previousSpvIdx]);
+			const InstructionInsert &new_instruction = *it.instruction;
+			uint16_t offset = hiword(spv[new_instruction.previous_spv_idx]);
 
-			for (int i = 0; i < newInstruction.instruction.size(); i++) {
-				newSpv.insert(newInstruction.previousSpvIdx +
+			for (int i = 0; i < new_instruction.instruction.size(); i++) {
+				new_spv.insert(new_instruction.previous_spv_idx +
 								offset + i,
-						newInstruction.instruction[i]);
+						new_instruction.instruction[i]);
 			}
 		}
 	}
@@ -568,23 +572,23 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 					Optional<Pair<uint32_t, uint32_t>>>>
 			candidates;
 
-	uint32_t dIdx = 0;
-	while (dIdx < newSpv.size()) {
-		uint32_t op = newSpv[dIdx];
-		uint16_t wordCount = hiword(op);
+	uint32_t d_idx = 0;
+	while (d_idx < new_spv.size()) {
+		uint32_t op = new_spv[d_idx];
+		uint16_t word_count = hiword(op);
 		uint16_t instruction = loword(op);
 
 		if (instruction == SPV_INSTRUCTION_OP_DECORATE) {
-			switch (newSpv[dIdx + 2]) {
+			switch (new_spv[d_idx + 2]) {
 				case SPV_DECORATION_DESCRIPTOR_SET: {
-					candidates[newSpv[dIdx + 1]].first.first = newSpv[dIdx + 3];
-					candidates[newSpv[dIdx + 1]].first.second = true;
+					candidates[new_spv[d_idx + 1]].first.first = new_spv[d_idx + 3];
+					candidates[new_spv[d_idx + 1]].first.second = true;
 					break;
 				}
 				case SPV_DECORATION_BINDING: {
-					candidates[newSpv[dIdx + 1]].second.first =
-							Pair(dIdx, newSpv[dIdx + 3]);
-					candidates[newSpv[dIdx + 1]].second.second =
+					candidates[new_spv[d_idx + 1]].second.first =
+							Pair(d_idx, new_spv[d_idx + 3]);
+					candidates[new_spv[d_idx + 1]].second.second =
 							true;
 					break;
 				}
@@ -592,20 +596,20 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 					break;
 			}
 		}
-		dIdx += wordCount;
+		d_idx += word_count;
 	}
 
-	for (const auto &descriptorSet : descriptorSetsToCorrect) {
+	for (const auto &descriptor_set : descriptor_sets_to_correct) {
 		Vector<Pair<uint32_t, uint32_t>> bindings;
 
-		for (const auto &[_, descriptorData] : candidates) {
-			auto &[maybeDescriptorSet, maybeBinding] = descriptorData;
-			if (maybeDescriptorSet.second && maybeBinding.second) {
-				uint32_t thisDescriptorSet = maybeDescriptorSet.first;
-				auto [bindingIdx, thisBinding] = maybeBinding.first;
+		for (const auto &[_, descriptor_data] : candidates) {
+			auto &[maybe_descriptor_set, maybe_binding] = descriptor_data;
+			if (maybe_descriptor_set.second && maybe_binding.second) {
+				uint32_t this_descriptor_set = maybe_descriptor_set.first;
+				auto [binding_idx, this_binding] = maybe_binding.first;
 
-				if (thisDescriptorSet == descriptorSet) {
-					bindings.push_back(Pair(bindingIdx, thisBinding));
+				if (this_descriptor_set == descriptor_set) {
+					bindings.push_back(Pair(binding_idx, this_binding));
 				}
 			}
 		}
@@ -618,28 +622,23 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &inSpv) {
 
 		bindings.sort_custom<BindingsSort>();
 
-		int32_t prevBinding = -1;
+		int32_t prev_binding = -1;
 		int32_t increment = 0;
 
-		for (auto &[dIdx, binding] : bindings) {
-			if (binding == static_cast<uint32_t>(prevBinding)) {
+		for (auto &[d_idx, binding] : bindings) {
+			if (binding == static_cast<uint32_t>(prev_binding)) {
 				increment += 1;
 			}
-			newSpv.set(dIdx + 3, newSpv[dIdx + 3] + increment);
-			prevBinding = static_cast<int32_t>(binding);
+			new_spv.set(d_idx + 3, new_spv[d_idx + 3] + increment);
+			prev_binding = static_cast<int32_t>(binding);
 		}
 	}
 
 	// 12. Write New Header and New Code
-	spvHeader.set(SPV_HEADER_INSTRUCTION_BOUND_OFFSET, instructionBound);
+	spv_header.set(SPV_HEADER_INSTRUCTION_BOUND_OFFSET, instruction_bound);
 
-	Vector<uint32_t> outSpv = spvHeader;
+	Vector<uint32_t> out_spv = spv_header;
+	out_spv.append_array(new_spv);
 
-	for (int i = 0; i < newSpv.size(); i++) {
-		if (newSpv[i] != SPV_NOP_WORD) {
-			outSpv.push_back(newSpv[i]);
-		}
-	}
-
-	return outSpv;
+	return out_spv;
 }
