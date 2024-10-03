@@ -604,17 +604,17 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
-	print_line("Compiling ", p_shader_name, "...");
 	Vector<ShaderStageSPIRVData> spirv;
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
-		Vector<uint32_t> inSpirv;
-		inSpirv.resize(p_spirv[i].spirv.size() / 4);
-		memcpy(inSpirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
-		Vector<uint32_t> outSpirv = combimgsampsplitter(inSpirv);
+		Vector<uint32_t> in_spirv;
+		in_spirv.resize(p_spirv[i].spirv.size() / 4);
+		memcpy(in_spirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
+		Vector<uint32_t> out_spirv = combimgsampsplitter(in_spirv);
+
 		spirv.push_back((ShaderStageSPIRVData){
 				.shader_stage = p_spirv[i].shader_stage,
-				.spirv = outSpirv.to_byte_array(),
+				.spirv = out_spirv.to_byte_array(),
 		});
 	}
 
@@ -1105,9 +1105,6 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 
 	Vector<WGPUBindGroupEntry> entries;
 
-	// Used to allow data stored in entries to live long enough to be used.
-
-	bool prev_was_combimgsampl = false;
 	for (int i = 0; i < p_uniforms.size(); i++) {
 		const BoundUniform &uniform = p_uniforms[i];
 		WGPUBindGroupEntry entry = { 0 };
