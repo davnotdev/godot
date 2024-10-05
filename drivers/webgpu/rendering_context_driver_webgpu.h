@@ -1,8 +1,8 @@
 #ifndef RENDERING_CONTEXT_DRIVER_WEBGPU_H
 #define RENDERING_CONTEXT_DRIVER_WEBGPU_H
 
-#include "servers/rendering/rendering_device_driver.h"
 #include "servers/rendering/rendering_context_driver.h"
+#include "servers/rendering/rendering_device_driver.h"
 
 #include <webgpu.h>
 
@@ -35,6 +35,7 @@ public:
 
 	struct Surface {
 		WGPUSurface surface = nullptr;
+		WGPUTextureFormat format = WGPUTextureFormat_Undefined;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		DisplayServer::VSyncMode vsync_mode = DisplayServer::VSYNC_ENABLED;
