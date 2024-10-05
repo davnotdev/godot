@@ -418,11 +418,9 @@ private:
 			WGPUColor color;
 		};
 
-		class SetPushConstants {
-		public:
+		struct SetPushConstants {
 			WGPUShaderStageFlags stages;
 			uint32_t offset;
-			uint32_t byte_size;
 		};
 
 		union {
@@ -441,14 +439,15 @@ private:
 			SetBlendConstant set_blend_constant;
 			SetPushConstants set_push_constants;
 		};
+
+		Vector<uint8_t> push_constant_data;
 	};
 
 	struct RenderPassEncoderInfo {
 		Vector<WGPURenderPassColorAttachment> color_attachments;
 		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
 		Vector<RenderPassEncoderCommand> commands;
-
-		Vector<uint8_t> push_constant_data = Vector<uint8_t>({});
+		WGPUTextureView maybe_surface_texture_view;
 	};
 
 	Pair<RenderPassEncoderInfo, bool> active_render_pass_encoder_info;
@@ -502,7 +501,59 @@ public:
 	/*****************/
 
 	// ----- COMMANDS -----
+private:
+	struct ComputePassEncoderCommand {
+		enum class CommandType {
+			SET_PIPELINE,
+			SET_BIND_GROUP,
+			SET_PUSH_CONSTANTS,
+			DISPATCH_WORKGROUPS,
+			DISPATCH_WORKGROUPS_INDIRECT,
+		};
 
+		struct SetPipeline {
+			WGPUComputePipeline pipeline;
+		};
+
+		struct SetBindGroup {
+			uint32_t index;
+			WGPUBindGroup bind_group;
+		};
+
+		struct SetPushConstants {
+			uint32_t offset;
+		};
+
+		struct DispatchWorkgroups {
+			uint32_t workgroup_count_x;
+			uint32_t workgroup_count_y;
+			uint32_t workgroup_count_z;
+		};
+
+		struct DispatchWorkgroupsIndirect {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
+		};
+
+		CommandType type;
+		Vector<uint8_t> push_constant_data;
+
+		union {
+			SetBindGroup set_bind_group;
+			SetPipeline set_pipeline;
+			SetPushConstants set_push_constants;
+			DispatchWorkgroups dispatch_workgroups;
+			DispatchWorkgroupsIndirect dispatch_workgroups_indirect;
+		};
+	};
+
+	struct ComputePassEncoderInfo {
+		Vector<ComputePassEncoderCommand> commands;
+	};
+
+	Pair<ComputePassEncoderInfo, bool> active_compute_pass_encoder_info;
+
+public:
 	// Binding.
 	virtual void command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) override final;
 	virtual void command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) override final;

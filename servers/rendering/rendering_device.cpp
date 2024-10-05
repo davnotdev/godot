@@ -3293,7 +3293,6 @@ RenderingDevice::DrawListID RenderingDevice::draw_list_begin_for_screen(DisplayS
 }
 
 Error RenderingDevice::_draw_list_setup_framebuffer(Framebuffer *p_framebuffer, InitialAction p_initial_color_action, FinalAction p_final_color_action, InitialAction p_initial_depth_action, FinalAction p_final_depth_action, RDD::FramebufferID *r_framebuffer, RDD::RenderPassID *r_render_pass, uint32_t *r_subpass_count) {
-	print_line("AAAAAAa");
 	Framebuffer::VersionKey vk;
 	vk.initial_color_action = p_initial_color_action;
 	vk.final_color_action = p_final_color_action;
