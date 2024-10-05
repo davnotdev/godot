@@ -253,7 +253,7 @@ typedef struct WGPUSurfaceConfigurationExtras {
 typedef void (*WGPULogCallback)(WGPULogLevel level, char const * message, void * userdata);
 
 typedef enum WGPUTextureFormatExtras {
-    // From Features::TEXTURE_FORMAT_16BIT_NORM
+    // From Features::TEXTURE_FORMAT_16BIT_NORM 
     WGPUTextureFormatExtras_R16Unorm = 0x00030001,
     WGPUTextureFormatExtras_R16Snorm = 0x00030002,
     WGPUTextureFormatExtras_Rg16Unorm = 0x00030003,
@@ -294,6 +294,8 @@ void wgpuComputePassEncoderBeginPipelineStatisticsQuery(WGPUComputePassEncoder c
 void wgpuComputePassEncoderEndPipelineStatisticsQuery(WGPUComputePassEncoder computePassEncoder);
 void wgpuRenderPassEncoderBeginPipelineStatisticsQuery(WGPURenderPassEncoder renderPassEncoder, WGPUQuerySet querySet, uint32_t queryIndex);
 void wgpuRenderPassEncoderEndPipelineStatisticsQuery(WGPURenderPassEncoder renderPassEncoder);
+
+void wgpuComputePassEncoderSetPushConstants(WGPUComputePassEncoder encoder, uint32_t offset, uint32_t sizeBytes, void const * data);
 
 WGPUShaderModule wgpuDeviceCreateShaderModuleSPIRV(WGPUDevice device, WGPUShaderModuleSPIRVDescriptor const * descriptor);
 
