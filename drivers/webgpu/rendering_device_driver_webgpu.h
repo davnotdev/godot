@@ -17,8 +17,7 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 
 	RenderingDeviceDriver::Capabilities capabilties;
 
-	// NOTE: Indexed by CommandBufferID with offset of 1, so that index 0 => 1.
-	TightLocalVector<WGPUCommandEncoder> command_encoders;
+	Vector<WGPUCommandEncoder> command_encoders = TightLocalVector<WGPUCommandEncoder>({ nullptr });
 
 public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
@@ -170,6 +169,12 @@ public:
 	/**** FRAMEBUFFER ****/
 	/*********************/
 
+private:
+	struct FramebufferInfo {
+		SwapChainID maybe_swapchain;
+	};
+
+public:
 	virtual FramebufferID framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) override final;
 	virtual void framebuffer_free(FramebufferID p_framebuffer) override final;
 
@@ -222,6 +227,8 @@ private:
 		WGPU_NULLABLE WGPUShaderModule vertex_shader;
 		WGPU_NULLABLE WGPUShaderModule fragment_shader;
 		WGPU_NULLABLE WGPUShaderModule compute_shader;
+
+		WGPUShaderStageFlags stage_flags;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		// Maps `constant_id` to override key name
@@ -284,6 +291,7 @@ public:
 
 	// ----- SUBPASS -----
 
+private:
 	struct RenderPassAttachmentInfo {
 		WGPUTextureFormat format;
 		uint32_t sample_count;
@@ -303,6 +311,149 @@ public:
 
 	// ----- COMMANDS -----
 
+	struct RenderPassEncoderCommand {
+	public:
+		enum class CommandType {
+			SET_VIEWPORT,
+			SET_SCISSOR_RECT,
+			SET_PIPELINE,
+			SET_BIND_GROUP,
+			DRAW,
+			DRAW_INDEXED,
+			MULTI_DRAW_INDIRECT,
+			MULTI_DRAW_INDIRECT_COUNT,
+			MULTI_DRAW_INDEXED_INDIRECT,
+			MULTI_DRAW_INDEXED_INDIRECT_COUNT,
+			SET_VERTEX_BUFFER,
+			SET_INDEX_BUFFER,
+			SET_BLEND_CONSTANTS,
+			SET_PUSH_CONSTANTS,
+		};
+
+		CommandType type;
+
+		struct SetViewport {
+			float x;
+			float y;
+			float width;
+			float height;
+			float min_depth;
+			float max_depth;
+		};
+
+		struct SetScissorRect {
+			uint32_t x;
+			uint32_t y;
+			uint32_t width;
+			uint32_t height;
+		};
+
+		struct SetPipeline {
+			WGPURenderPipeline pipeline;
+		};
+
+		struct SetBindGroup {
+			uint32_t group_index;
+			WGPUBindGroup bind_group;
+		};
+
+		struct Draw {
+			uint32_t vertex_count;
+			uint32_t instance_count;
+			uint32_t first_vertex;
+			uint32_t first_instance;
+		};
+
+		struct DrawIndexed {
+			uint32_t index_count;
+			uint32_t instance_count;
+			uint32_t first_index;
+			int32_t base_vertex;
+			uint32_t first_instance;
+		};
+
+		struct MultiDrawIndirect {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
+			uint32_t count;
+		};
+
+		struct MultiDrawIndirectCount {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
+			WGPUBuffer count_buffer;
+			uint64_t count_offset;
+			uint32_t max_count;
+		};
+
+		struct MultiDrawIndexedIndirect {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
+			uint32_t count;
+		};
+
+		struct MultiDrawIndexedIndirectCount {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
+			WGPUBuffer count_buffer;
+			uint64_t count_offset;
+			uint32_t max_count;
+		};
+
+		struct SetVertexBuffer {
+			uint32_t slot;
+			WGPUBuffer buffer;
+			uint64_t offset;
+			uint64_t size;
+		};
+
+		struct SetIndexBuffer {
+			WGPUBuffer buffer;
+			WGPUIndexFormat format;
+			uint64_t offset;
+			uint64_t size;
+		};
+
+		struct SetBlendConstant {
+			WGPUColor color;
+		};
+
+		class SetPushConstants {
+		public:
+			WGPUShaderStageFlags stages;
+			uint32_t offset;
+			uint32_t byte_size;
+		};
+
+		union {
+			SetViewport set_viewport;
+			SetScissorRect set_scissor_rect;
+			SetPipeline set_pipeline;
+			SetBindGroup set_bind_group;
+			Draw draw;
+			DrawIndexed draw_indexed;
+			MultiDrawIndirect multi_draw_indirect;
+			MultiDrawIndexedIndirect multi_draw_indexed_indirect;
+			MultiDrawIndirectCount multi_draw_indirect_count;
+			MultiDrawIndexedIndirectCount multi_draw_indexed_indirect_count;
+			SetVertexBuffer set_vertex_buffer;
+			SetIndexBuffer set_index_buffer;
+			SetBlendConstant set_blend_constant;
+			SetPushConstants set_push_constants;
+		};
+	};
+
+	struct RenderPassEncoderInfo {
+		Vector<WGPURenderPassColorAttachment> color_attachments;
+		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
+		Vector<RenderPassEncoderCommand> commands;
+
+		Vector<uint8_t> push_constant_data = Vector<uint8_t>({});
+	};
+
+	Pair<RenderPassEncoderInfo, bool> active_render_pass_encoder_info;
+
+public:
 	virtual void command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) override final;
 	virtual void command_end_render_pass(CommandBufferID p_cmd_buffer) override final;
 	virtual void command_next_render_subpass(CommandBufferID p_cmd_buffer, CommandBufferType p_cmd_buffer_type) override final;

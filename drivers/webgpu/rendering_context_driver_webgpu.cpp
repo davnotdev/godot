@@ -96,7 +96,7 @@ RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(c
 void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_t p_width, uint32_t p_height) {
 	Surface *surface = (Surface *)(p_surface);
 	surface->width = p_width;
-	surface->width = p_height;
+	surface->height = p_height;
 	surface->needs_resize = true;
 }
 
