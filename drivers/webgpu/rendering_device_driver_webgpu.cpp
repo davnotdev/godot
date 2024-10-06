@@ -9,8 +9,6 @@
 #include <wgpu.h>
 #include <cstring>
 
-#define SURFACE_FRAMEBUFFER_ID 1
-
 static void handle_request_device(WGPURequestDeviceStatus status,
 		WGPUDevice device, char const *message,
 		void *userdata) {
@@ -139,6 +137,7 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 
 	return BufferID(buffer_info);
 }
+/* TODO --> texture_create_shared_from_slice */
 
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
 	// TODO
@@ -632,18 +631,7 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 	WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(surface->surface, adapter);
 	surface->format = surface_format;
 
-	// TODO: Complete full surface config.
-	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
-		.device = this->device,
-		.format = surface_format,
-		.usage = WGPUTextureUsage_RenderAttachment,
-		.width = 1152,
-		.height = 648,
-		/* .width = surface->width, */
-		/* .height = surface->height, */
-	};
-
-	wgpuSurfaceConfigure(surface->surface, &surface_config);
+	surface->configure(this->adapter, this->device);
 
 	render_pass_info->attachments = Vector<RenderPassAttachmentInfo>({ (RenderPassAttachmentInfo){
 			.format = surface_format,
@@ -663,7 +651,12 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 	return SwapChainID(swapchain_info);
 }
 
-Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue, SwapChainID _p_swap_chain, uint32_t _p_desired_framebuffer_count) {
+Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue, SwapChainID p_swap_chain, uint32_t _p_desired_framebuffer_count) {
+	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
+	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+
+	surface->configure(this->adapter, this->device);
+
 	return OK;
 }
 
@@ -1476,8 +1469,7 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
 
-	// HACK: The last copy is seemingly broken!
-	for (int i = 0; i < p_regions.size() - 1; i++) {
+	for (int i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];
 
 		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(dst_texture_info->format);
@@ -2372,6 +2364,10 @@ uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 	switch (p_trait) {
 		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT:
+			return 256;
+		case API_TRAIT_HONORS_PIPELINE_BARRIERS:
+			return 0;
+		case API_TRAIT_TEXTURE_DATA_ROW_PITCH_STEP:
 			return 256;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);

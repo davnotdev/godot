@@ -157,4 +157,22 @@ void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Devi
 	driver_devices.push_back(p_device);
 }
 
+void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
+	// NOTE: This is not the best way of getting the format of the surface.
+	WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(surface, p_adapter);
+	this->format = surface_format;
+
+	// TODO: Complete full surface config.
+	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
+		.device = p_device,
+		.format = surface_format,
+		.usage = WGPUTextureUsage_RenderAttachment,
+		.width = this->width,
+		.height = this->height,
+	};
+
+	wgpuSurfaceConfigure(this->surface, &surface_config);
+
+}
+
 #endif // WEBGPU_ENABLED
