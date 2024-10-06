@@ -33,13 +33,16 @@ public:
 	RenderingContextDriverWebGpu();
 	virtual ~RenderingContextDriverWebGpu() override;
 
-	struct Surface {
+	class Surface {
+	public:
 		WGPUSurface surface = nullptr;
 		WGPUTextureFormat format = WGPUTextureFormat_Undefined;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		DisplayServer::VSyncMode vsync_mode = DisplayServer::VSYNC_ENABLED;
 		bool needs_resize = false;
+
+		void configure(WGPUAdapter p_adapter, WGPUDevice p_device);
 	};
 
 	WGPUInstance instance_get() const;
