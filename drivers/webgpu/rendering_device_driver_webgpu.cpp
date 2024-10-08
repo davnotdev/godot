@@ -137,7 +137,6 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 
 	return BufferID(buffer_info);
 }
-/* TODO --> texture_create_shared_from_slice */
 
 bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) {
 	// TODO
@@ -317,8 +316,41 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 }
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> texture_create_shared_from_slice");
+	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
+
+	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.format = webgpu_texture_format_from_rd(p_view.format),
+		.baseMipLevel = p_mipmap,
+		.mipLevelCount = p_mipmaps,
+		.baseArrayLayer = p_layer,
+		.arrayLayerCount = p_layers,
+	};
+
+	switch (p_slice_type) {
+		case RenderingDeviceCommons::TEXTURE_SLICE_2D:
+			texture_view_desc.dimension = WGPUTextureViewDimension_2D;
+			break;
+		case RenderingDeviceCommons::TEXTURE_SLICE_CUBEMAP:
+			texture_view_desc.dimension = WGPUTextureViewDimension_Cube;
+			break;
+		case RenderingDeviceCommons::TEXTURE_SLICE_3D:
+			texture_view_desc.dimension = WGPUTextureViewDimension_2D;
+			break;
+		case RenderingDeviceCommons::TEXTURE_SLICE_2D_ARRAY:
+			texture_view_desc.dimension = WGPUTextureViewDimension_2DArray;
+			break;
+		case RenderingDeviceCommons::TEXTURE_SLICE_MAX:
+			return TextureID();
+	}
+
+	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
+
+	TextureInfo *new_texture_info = memnew(TextureInfo);
+	*new_texture_info = *texture_info;
+	new_texture_info->view = view;
+	new_texture_info->is_original_texture = false;
+
+	return TextureID(new_texture_info);
 }
 
 void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
@@ -693,9 +725,17 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 /**** FRAMEBUFFER ****/
 /*********************/
 
-RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> framebuffer_create");
+RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t _p_width, uint32_t _p_height) {
+	FramebufferInfo *framebuffer_info = memnew(FramebufferInfo);
+	framebuffer_info->maybe_swapchain = SwapChainID();
+
+	Vector<TextureID> attachments = Vector<TextureID>();
+	for (uint32_t i = 0; i < p_attachments.size(); i++) {
+		attachments.push_back(p_attachments[i]);
+	}
+	framebuffer_info->attachments = attachments;
+
+	return FramebufferID(framebuffer_info);
 }
 
 void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {}
@@ -1454,12 +1494,12 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 }
 
 void RenderingDeviceDriverWebGpu::command_resolve_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, uint32_t p_src_layer, uint32_t p_src_mipmap, TextureID p_dst_texture, TextureLayout p_dst_texture_layout, uint32_t p_dst_layer, uint32_t p_dst_mipmap) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> command_resolve_texture");
+	// NOTE: No easy support.
+	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
-void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, const Color &p_color, const TextureSubresourceRange &p_subresources) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> command_clear_color_texture");
+void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID _p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, const Color &p_color, const TextureSubresourceRange &p_subresources) {
+	// NOTE: No easy support.
+	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {
@@ -1630,26 +1670,47 @@ void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {
 void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) {
 	Vector<WGPURenderPassColorAttachment> color_attachments;
 
+	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
 	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
+
+	DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
+
 	WGPUTextureView maybe_surface_texture_view = nullptr;
+	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
+		RenderPassAttachmentInfo attachment = render_pass_info->attachments[i];
 
-	if (framebuffer_info->maybe_swapchain) {
-		SwapChainInfo *swapchain_info = (SwapChainInfo *)framebuffer_info->maybe_swapchain.id;
-		RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+		WGPUTextureView view;
+		if (framebuffer_info->maybe_swapchain) {
+			SwapChainInfo *swapchain_info = (SwapChainInfo *)framebuffer_info->maybe_swapchain.id;
+			RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
 
-		WGPUSurfaceTexture surface_texture;
-		wgpuSurfaceGetCurrentTexture(surface->surface, &surface_texture);
+			DEV_ASSERT(render_pass_info.attachments.size() == 0);
 
-		WGPUTextureView surface_texture_view = wgpuTextureCreateView(surface_texture.texture, nullptr);
-		maybe_surface_texture_view = surface_texture_view;
+			WGPUSurfaceTexture surface_texture;
+			wgpuSurfaceGetCurrentTexture(surface->surface, &surface_texture);
+
+			WGPUTextureView surface_texture_view = wgpuTextureCreateView(surface_texture.texture, nullptr);
+			maybe_surface_texture_view = surface_texture_view;
+
+			view = surface_texture_view;
+		} else {
+			TextureID attachment_texture_id = framebuffer_info->attachments[i];
+
+			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
+			view = attachment_texture->view;
+		}
 
 		color_attachments.push_back((WGPURenderPassColorAttachment){
-				.view = surface_texture_view,
-				.loadOp = WGPULoadOp_Clear,
-				.storeOp = WGPUStoreOp_Store,
+				.view = view,
+				.loadOp = attachment.load_op,
+				.storeOp = attachment.store_op,
+				.clearValue = (WGPUColor){
+						.r = 0.5,
+						.g = 0.3,
+						.b = 0.0,
+						.a = 1.0,
+				},
 		});
-	} else {
-		CRASH_NOW_MSG("Unimplemented");
 	}
 
 	this->active_render_pass_encoder_info.first = (RenderPassEncoderInfo){
@@ -1783,8 +1844,8 @@ void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID _p_
 }
 
 void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBufferID _p_cmd_buffer, VectorView<AttachmentClear> p_attachment_clears, VectorView<Rect2i> p_rects) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> command_render_clear_attachments");
+	// NOTE: No easy support.
+	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
 
 // Binding.
@@ -2352,7 +2413,12 @@ void RenderingDeviceDriverWebGpu::end_segment() {}
 
 void RenderingDeviceDriverWebGpu::set_object_name(ObjectType p_type, ID p_driver_id, const String &p_name) {}
 uint64_t RenderingDeviceDriverWebGpu::get_resource_native_handle(DriverResource p_type, ID p_driver_id) {}
-uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {}
+
+uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {
+	// TODO: impl
+	return 0;
+}
+
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 	WGPUSupportedLimitsExtras extras;
 	WGPUSupportedLimits limits;
