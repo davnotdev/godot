@@ -172,6 +172,8 @@ public:
 private:
 	struct FramebufferInfo {
 		SwapChainID maybe_swapchain;
+
+		Vector<TextureID> attachments;
 	};
 
 public:

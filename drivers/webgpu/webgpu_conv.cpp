@@ -553,10 +553,12 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p
 			return limits.maxComputeWorkgroupSizeY;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
 			return limits.maxComputeWorkgroupSizeZ;
+		// HACK: These need to be defined to get a working window.
+		// I'm not sure what this number should be.
 		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
-			return UINT64_MAX;
+			return 99999;
 		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_Y:
-			return UINT64_MAX;
+			return 99999;
 		case RenderingDeviceCommons::LIMIT_SUBGROUP_SIZE:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_SUBGROUP_MIN_SIZE:
