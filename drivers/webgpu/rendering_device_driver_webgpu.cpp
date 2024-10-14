@@ -9,6 +9,8 @@
 #include <wgpu.h>
 #include <cstring>
 
+#define WGPU_LOG
+
 static void handle_request_device(WGPURequestDeviceStatus status,
 		WGPUDevice device, char const *message,
 		void *userdata) {
@@ -16,6 +18,13 @@ static void handle_request_device(WGPURequestDeviceStatus status,
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
+#ifdef WGPU_LOG
+	wgpuSetLogCallback([](WGPULogLevel p_level, const char *p_message, void *p_user_data) {
+		print_line("[WGPU]", p_message);
+	},
+			nullptr);
+#endif
+
 	adapter = context_driver->adapter_get(p_device_index);
 	context_device = context_driver->device_get(p_device_index);
 
@@ -25,6 +34,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
+		(WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
+		(WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
 		(WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
 		(WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
@@ -56,8 +67,9 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxSampledTexturesPerShaderStage = 49,
 				.maxSamplersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
 				.maxStorageBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
-				.maxStorageTexturesPerShaderStage = 8,
-				.maxUniformBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				.maxStorageTexturesPerShaderStage = 15,
+				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
+				.maxUniformBuffersPerShaderStage = 32768 + 272,
 				.maxUniformBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
 				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
@@ -1018,6 +1030,16 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				}
 			}
 
+			WGPUBindGroupLayoutEntryExtras *layout_entry_extras = ALLOCA_SINGLE(WGPUBindGroupLayoutEntryExtras);
+			*layout_entry_extras = (WGPUBindGroupLayoutEntryExtras){
+				.chain = (WGPUChainedStruct){
+						.sType = (WGPUSType)WGPUSType_BindGroupLayoutEntryExtras,
+				},
+				.count = set_ptr[j].length
+			};
+
+			layout_entry.nextInChain = (const WGPUChainedStruct *)layout_entry_extras;
+
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
 					// TODO: I don't know what this means.
@@ -1026,7 +1048,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					};
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-					WGPUBindGroupLayoutEntry texture_layout_entry = {};
+					WGPUBindGroupLayoutEntry texture_layout_entry = layout_entry;
 					texture_layout_entry.binding = set_ptr[j].binding + wgpu_binding_offset;
 
 					texture_layout_entry.texture = (WGPUTextureBindingLayout){
