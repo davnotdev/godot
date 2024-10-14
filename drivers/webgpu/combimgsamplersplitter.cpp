@@ -9,6 +9,8 @@ const uint32_t SPV_HEADER_MAGIC = 0x07230203;
 const uint32_t SPV_HEADER_MAGIC_NUM_OFFSET = 0;
 const uint32_t SPV_HEADER_INSTRUCTION_BOUND_OFFSET = 3;
 
+const uint16_t SPV_INSTRUCTION_OP_NOP = 1;
+const uint16_t SPV_INSTRUCTION_OP_TYPE_VOID = 19;
 const uint16_t SPV_INSTRUCTION_OP_TYPE_IMAGE = 25;
 const uint16_t SPV_INSTRUCTION_OP_TYPE_SAMPLER = 26;
 const uint16_t SPV_INSTRUCTION_OP_TYPE_SAMPLED_IMAGE = 27;
@@ -24,8 +26,6 @@ const uint16_t SPV_INSTRUCTION_OP_SAMPLED_IMAGE = 86;
 uint32_t encode_word(uint16_t hiword, uint16_t loword) {
 	return (hiword << 16) | loword;
 }
-
-const uint32_t SPV_NOP_WORD = encode_word(1, 0);
 
 const uint32_t SPV_STORAGE_CLASS_UNIFORM_CONSTANT = 0;
 const uint32_t SPV_DECORATION_BINDING = 33;
@@ -76,6 +76,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	Optional<uint32_t> op_type_sampler_idx;
 	Optional<uint32_t> first_op_type_image_idx;
 	Optional<uint32_t> first_op_decorate_idx;
+	Optional<uint32_t> first_op_type_void_idx;
 
 	Vector<uint32_t> op_type_sampled_image_idxs;
 	Vector<uint32_t> op_type_pointer_idxs;
@@ -94,12 +95,15 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		uint16_t instruction = loword(op);
 
 		switch (instruction) {
+			case SPV_INSTRUCTION_OP_TYPE_VOID: {
+				first_op_type_void_idx.first = spv_idx;
+				first_op_type_void_idx.second = true;
+				break;
+			}
 			case SPV_INSTRUCTION_OP_TYPE_SAMPLER: {
 				op_type_sampler_idx.first = spv_idx;
 				op_type_sampler_idx.second = true;
-				for (int i = spv_idx; i < spv_idx + word_count; i++) {
-					new_spv.set(i, SPV_NOP_WORD);
-				}
+				new_spv.set(spv_idx, encode_word(word_count, SPV_INSTRUCTION_OP_NOP));
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_IMAGE: {
@@ -161,7 +165,9 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		return in_spv;
 	}
 
-	uint32_t op_type_image_idx = first_op_type_image_idx.first;
+	// Let's avoid trouble and just insert after OpTypeVoid
+	/* uint32_t op_type_image_idx = first_op_type_image_idx.first; */
+	uint32_t op_type_void_idx = first_op_type_void_idx.first;
 
 	uint32_t op_type_sampler_res_id;
 	if (op_type_sampler_idx.second) {
@@ -175,7 +181,9 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	instruction_bound += 1;
 
 	instruction_inserts.push_back(
-			{ op_type_image_idx,
+			// Let's avoid trouble and just create the OpTypeSampler after OpTypeVoid
+			/* { op_type_image_idx, */
+			{ op_type_void_idx,
 					{ encode_word(
 							  2, SPV_INSTRUCTION_OP_TYPE_SAMPLER),
 							op_type_sampler_res_id,
@@ -634,7 +642,28 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		}
 	}
 
-	// 12. Write New Header and New Code
+	// 12. Remove the original optypesampler
+	// we end up creating our own optypesampler to resolve ordering issues.
+
+	uint32_t i_idx = 0;
+	while (i_idx < new_spv.size()) {
+		uint32_t op = new_spv[i_idx];
+		uint16_t word_count = hiword(op);
+		uint16_t instruction = loword(op);
+
+		if (instruction == SPV_INSTRUCTION_OP_NOP) {
+			for (int i = 0; i < word_count; i++) {
+				new_spv.remove_at(i_idx);
+			}
+
+			// Assuming there was only one OpTypeSampler, this only needs to run once.
+			break;
+		}
+
+		i_idx += word_count;
+	}
+
+	// 13. Write New Header and New Code
 	spv_header.set(SPV_HEADER_INSTRUCTION_BOUND_OFFSET, instruction_bound);
 
 	Vector<uint32_t> out_spv = spv_header;
