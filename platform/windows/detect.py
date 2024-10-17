@@ -724,6 +724,9 @@ def configure_mingw(env: "SConsEnvironment"):
         if not env["use_volk"]:
             env.Append(LIBS=["vulkan"])
 
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+
     if env["d3d12"]:
         # Check whether we have d3d12 dependencies installed.
         if not os.path.exists(env["mesa_libs"]):

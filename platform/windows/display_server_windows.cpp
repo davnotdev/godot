@@ -42,6 +42,9 @@
 #if defined(VULKAN_ENABLED)
 #include "rendering_context_driver_vulkan_windows.h"
 #endif
+#if defined(WEBGPU_ENABLED)
+#include "rendering_context_driver_webgpu_windows.h"
+#endif
 #if defined(D3D12_ENABLED)
 #include "drivers/d3d12/rendering_context_driver_d3d12.h"
 #endif
@@ -5141,6 +5144,9 @@ DisplayServer::WindowID DisplayServerWindows::_create_window(WindowMode p_mode, 
 #ifdef VULKAN_ENABLED
 				RenderingContextDriverVulkanWindows::WindowPlatformData vulkan;
 #endif
+#ifdef WEBGPU_ENABLED
+				RenderingContextDriverWebGpuWindows::WindowPlatformData webgpu;
+#endif
 #ifdef D3D12_ENABLED
 				RenderingContextDriverD3D12::WindowPlatformData d3d12;
 #endif
@@ -5149,6 +5155,12 @@ DisplayServer::WindowID DisplayServerWindows::_create_window(WindowMode p_mode, 
 			if (rendering_driver == "vulkan") {
 				wpd.vulkan.window = wd.hWnd;
 				wpd.vulkan.instance = hInstance;
+			}
+#endif
+#ifdef WEBGPU_ENABLED
+			if (rendering_driver == "webgpu") {
+				wpd.webgpu.window = wd.hWnd;
+				wpd.webgpu.instance = hInstance;
 			}
 #endif
 #ifdef D3D12_ENABLED
@@ -5625,6 +5637,11 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Win
 		rendering_context = memnew(RenderingContextDriverVulkanWindows);
 	}
 #endif
+#if defined(WEBGPU_ENABLED)
+	if (rendering_driver == "webgpu") {
+		rendering_context = memnew(RenderingContextDriverWebGpuWindows);
+	}
+#endif
 #if defined(D3D12_ENABLED)
 	if (rendering_driver == "d3d12") {
 		rendering_context = memnew(RenderingContextDriverD3D12);
@@ -5795,6 +5812,9 @@ Vector<String> DisplayServerWindows::get_rendering_drivers_func() {
 
 #ifdef VULKAN_ENABLED
 	drivers.push_back("vulkan");
+#endif
+#ifdef WEBGPU_ENABLED
+	drivers.push_back("webgpu");
 #endif
 #ifdef D3D12_ENABLED
 	drivers.push_back("d3d12");
