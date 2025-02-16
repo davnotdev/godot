@@ -63,10 +63,10 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 			ret = WGPUTextureFormat_R16Float;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16_UNORM:
-			ret = (WGPUTextureFormat)WGPUTextureFormatExtras_R16Unorm;
+			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_R16Unorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16_SNORM:
-			ret = (WGPUTextureFormat)WGPUTextureFormatExtras_R16Snorm;
+			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_R16Snorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
 			ret = WGPUTextureFormat_R32Uint;
@@ -173,16 +173,16 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 	return ret;
 }
 
-static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUFilterMode_Nearest));
-static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUFilterMode_Linear));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST + 1, WGPUFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR + 1, WGPUFilterMode_Linear));
 WGPUFilterMode webgpu_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
-	return (WGPUFilterMode)p_sampler_filter;
+	return (WGPUFilterMode)(p_sampler_filter + 1);
 }
 
-static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST, WGPUMipmapFilterMode_Nearest));
-static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR, WGPUMipmapFilterMode_Linear));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_NEAREST + 1, WGPUMipmapFilterMode_Nearest));
+static_assert(ENUM_MEMBERS_EQUAL(RDD::SAMPLER_FILTER_LINEAR + 1, WGPUMipmapFilterMode_Linear));
 WGPUMipmapFilterMode webgpu_mipmap_filter_mode_from_rd(RDD::SamplerFilter p_sampler_filter) {
-	return (WGPUMipmapFilterMode)p_sampler_filter;
+	return (WGPUMipmapFilterMode)(p_sampler_filter + 1);
 }
 
 WGPUAddressMode webgpu_address_mode_from_rd(RDD::SamplerRepeatMode p_sampler_repeat_mode) {
@@ -228,7 +228,8 @@ WGPUCompareFunction webgpu_compare_mode_from_rd(RDD::CompareOperator p_compare_o
 }
 
 WGPUVertexFormat webgpu_vertex_format_from_rd(RDD::DataFormat p_data_format) {
-	WGPUVertexFormat ret = WGPUVertexFormat_Undefined;
+	// There is no longer a `WGPUVertexFormat_Undefined` value.
+	WGPUVertexFormat ret = WGPUVertexFormat_Uint8;
 
 	switch (p_data_format) {
 		case RDD::DATA_FORMAT_R8G8_UINT:
@@ -479,14 +480,13 @@ WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_st
 	}
 }
 
-uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p_limits) {
-	WGPULimits limits = p_limits.limits;
+uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
 	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
 	switch (p_selected_limit) {
 		case RenderingDeviceCommons::LIMIT_MAX_BOUND_UNIFORM_SETS:
-			return limits.maxBindGroups;
+			return p_limits.maxBindGroups;
 		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS:
-			return limits.maxColorAttachments;
+			return p_limits.maxColorAttachments;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_UNIFORM_SET:
@@ -496,7 +496,7 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p
 		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_UNIFORM_SET:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_UNIFORM_SET:
-			return limits.maxUniformBuffersPerShaderStage;
+			return p_limits.maxUniformBuffersPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_DRAW_INDEXED_INDEX:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_HEIGHT:
@@ -504,39 +504,39 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p
 		case RenderingDeviceCommons::LIMIT_MAX_FRAMEBUFFER_WIDTH:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_ARRAY_LAYERS:
-			return limits.maxTextureArrayLayers;
+			return p_limits.maxTextureArrayLayers;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_1D:
-			return limits.maxTextureDimension1D;
+			return p_limits.maxTextureDimension1D;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_2D:
-			return limits.maxTextureDimension2D;
+			return p_limits.maxTextureDimension2D;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_3D:
-			return limits.maxTextureDimension3D;
+			return p_limits.maxTextureDimension3D;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURE_SIZE_CUBE:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE:
-			return limits.maxSampledTexturesPerShaderStage;
+			return p_limits.maxSampledTexturesPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_SAMPLERS_PER_SHADER_STAGE:
-			return limits.maxSamplersPerShaderStage;
+			return p_limits.maxSamplersPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_BUFFERS_PER_SHADER_STAGE:
-			return limits.maxStorageBuffersPerShaderStage;
+			return p_limits.maxStorageBuffersPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_STORAGE_IMAGES_PER_SHADER_STAGE:
-			return limits.maxStorageTexturesPerShaderStage;
+			return p_limits.maxStorageTexturesPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFERS_PER_SHADER_STAGE:
-			return limits.maxUniformBuffersPerShaderStage;
+			return p_limits.maxUniformBuffersPerShaderStage;
 		case RenderingDeviceCommons::LIMIT_MAX_PUSH_CONSTANT_SIZE:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_UNIFORM_BUFFER_SIZE:
-			return limits.maxUniformBufferBindingSize;
+			return p_limits.maxUniformBufferBindingSize;
 		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTE_OFFSET:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_ATTRIBUTES:
-			return limits.maxVertexAttributes;
+			return p_limits.maxVertexAttributes;
 		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDINGS:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_VERTEX_INPUT_BINDING_STRIDE:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
-			return limits.minUniformBufferOffsetAlignment;
+			return p_limits.minUniformBufferOffsetAlignment;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X:
@@ -546,13 +546,13 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPUSupportedLimits p
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_Z:
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS:
-			return limits.maxComputeInvocationsPerWorkgroup;
+			return p_limits.maxComputeInvocationsPerWorkgroup;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X:
-			return limits.maxComputeWorkgroupSizeX;
+			return p_limits.maxComputeWorkgroupSizeX;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y:
-			return limits.maxComputeWorkgroupSizeY;
+			return p_limits.maxComputeWorkgroupSizeY;
 		case RenderingDeviceCommons::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z:
-			return limits.maxComputeWorkgroupSizeZ;
+			return p_limits.maxComputeWorkgroupSizeZ;
 		// HACK: These need to be defined to get a working window.
 		// I'm not sure what this number should be.
 		case RenderingDeviceCommons::LIMIT_MAX_VIEWPORT_DIMENSIONS_X:
@@ -587,8 +587,8 @@ ImageBufferLayoutInfo webgpu_image_buffer_layout_from_format(WGPUTextureFormat p
 		case WGPUTextureFormat_R16Uint:
 		case WGPUTextureFormat_R16Sint:
 		case WGPUTextureFormat_R16Float:
-		case WGPUTextureFormatExtras_R16Unorm:
-		case WGPUTextureFormatExtras_R16Snorm:
+		case WGPUNativeTextureFormat_R16Unorm:
+		case WGPUNativeTextureFormat_R16Snorm:
 			return { 2, 1, 1 };
 		case WGPUTextureFormat_R32Uint:
 		case WGPUTextureFormat_R32Sint:
