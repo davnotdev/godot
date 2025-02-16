@@ -5,11 +5,11 @@
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpuX11::surface_create(const void *p_platform_data) {
 	const WindowPlatformData *wpd = (const WindowPlatformData *)(p_platform_data);
 
-	const WGPUSurfaceDescriptorFromXlibWindow xlib_desc =
-			(const WGPUSurfaceDescriptorFromXlibWindow){
+	const WGPUSurfaceSourceXlibWindow xlib_desc =
+			(const WGPUSurfaceSourceXlibWindow){
 				.chain =
 						(const WGPUChainedStruct){
-								.sType = WGPUSType_SurfaceDescriptorFromXlibWindow,
+								.sType = WGPUSType_SurfaceSourceXlibWindow,
 						},
 				.display = wpd->display,
 				.window = wpd->window,
