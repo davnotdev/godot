@@ -103,7 +103,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			case SPV_INSTRUCTION_OP_TYPE_SAMPLER: {
 				op_type_sampler_idx.first = spv_idx;
 				op_type_sampler_idx.second = true;
-				new_spv.set(spv_idx, encode_word(word_count, SPV_INSTRUCTION_OP_NOP));
+				new_spv.write[spv_idx] = encode_word(word_count, SPV_INSTRUCTION_OP_NOP);
 				break;
 			}
 			case SPV_INSTRUCTION_OP_TYPE_IMAGE: {
@@ -203,21 +203,10 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 
 			// - Find OpTypePointers that ref OpTypeSampledImage
 			if (spv[tp_idx + 3] == spv[ts_idx + 1]) {
-				// - Inject OpTypePointer for sampler pair
-
 				uint32_t underlying_image_id = spv[ts_idx + 2];
-				uint32_t op_type_pointer_res_id = instruction_bound;
-				instruction_bound += 1;
-				instruction_inserts.push_back(
-						{ tp_idx,
-								{ encode_word(
-										  4,
-										  SPV_INSTRUCTION_OP_TYPE_POINTER),
-										op_type_pointer_res_id, SPV_STORAGE_CLASS_UNIFORM_CONSTANT,
-										underlying_image_id } });
 
 				// - Change combined image sampler type to underlying image type
-				new_spv.set(tp_idx + 3, underlying_image_id);
+				new_spv.write[tp_idx + 3] = underlying_image_id;
 
 				// - Save the OpTypePointer res id for later
 				type_pointer_res_ids.push_back({ spv[tp_idx + 1], underlying_image_id });
@@ -261,45 +250,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		}
 	}
 
-	// 5. OpLoad
-	for (int i = 0; i < op_loads_idxs.size(); i++) {
-		uint32_t l_idx = op_loads_idxs[i];
-
-		for (int j = 0; j < variable_res_ids.size(); ++j) {
-			uint32_t v_res_id = variable_res_ids[j].first.first;
-			uint32_t sampler_v_res_id = variable_res_ids[j].first.second;
-			uint32_t underlying_image_id = variable_res_ids[j].second;
-
-			// - Find all OpLoads that reference variableResIds
-			if (v_res_id == spv[l_idx + 3]) {
-				// - Insert OpLoads and OpSampledImage to replace combimgsamp
-				uint32_t image_op_load_res_id = instruction_bound;
-				instruction_bound += 1;
-
-				uint32_t image_original_res_id = spv[l_idx + 2];
-				uint32_t original_combined_res_id = new_spv[l_idx + 1];
-
-				new_spv.set(l_idx + 1, underlying_image_id);
-				new_spv.set(l_idx + 2, image_op_load_res_id);
-
-				uint32_t sampler_op_load_res_id = instruction_bound;
-				instruction_bound += 1;
-
-				instruction_inserts.push_back(
-						{ l_idx,
-								{ encode_word(4, SPV_INSTRUCTION_OP_LOAD),
-										op_type_sampler_res_id, sampler_op_load_res_id, sampler_v_res_id,
-
-										encode_word(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
-										original_combined_res_id, image_original_res_id,
-										image_op_load_res_id, sampler_op_load_res_id } });
-
-				break;
-			}
-		}
-	}
-
-	// 6. OpDecorate
+	// 5. OpDecorate
 	HashMap<uint32_t,
 			Pair<Optional<Pair<uint32_t, uint32_t>>,
 					Optional<Pair<uint32_t, uint32_t>>>>
@@ -392,7 +343,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 								binding + 1 } });
 	}
 
-	// 7. OpTypeFunction
+	// 6. OpTypeFunction
 	for (int i = 0; i < op_type_function_idxs.size(); i++) {
 		uint32_t tf_idx = op_type_function_idxs[i];
 
@@ -413,7 +364,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		}
 	}
 
-	// 8. OpFunctionParameter
+	// 7. OpFunctionParameter
 	HashMap<uint32_t, Pair<uint32_t, uint32_t>> parameter_res_ids;
 
 	for (int i = 0; i < op_function_parameter_idxs.size(); i++) {
@@ -441,6 +392,45 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		}
 	}
 
+	// 8. OpLoad
+	for (int i = 0; i < op_loads_idxs.size(); i++) {
+		uint32_t l_idx = op_loads_idxs[i];
+
+		for (int j = 0; j < variable_res_ids.size(); ++j) {
+			uint32_t v_res_id = variable_res_ids[j].first.first;
+			uint32_t sampler_v_res_id = variable_res_ids[j].first.second;
+			uint32_t underlying_image_id = variable_res_ids[j].second;
+
+			// - Find all OpLoads that reference variableResIds
+			if (v_res_id == spv[l_idx + 3]) {
+				// - Insert OpLoads and OpSampledImage to replace combimgsamp
+				uint32_t image_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
+
+				uint32_t image_original_res_id = spv[l_idx + 2];
+				uint32_t original_combined_res_id = new_spv[l_idx + 1];
+
+				new_spv.write[l_idx + 1] = underlying_image_id;
+				new_spv.write[l_idx + 2] = image_op_load_res_id;
+
+				uint32_t sampler_op_load_res_id = instruction_bound;
+				instruction_bound += 1;
+
+				instruction_inserts.push_back(
+						{ l_idx,
+								{ encode_word(4, SPV_INSTRUCTION_OP_LOAD),
+										op_type_sampler_res_id, sampler_op_load_res_id, sampler_v_res_id,
+
+										encode_word(5, SPV_INSTRUCTION_OP_SAMPLED_IMAGE),
+										original_combined_res_id, image_original_res_id,
+										image_op_load_res_id, sampler_op_load_res_id } });
+
+				break;
+			}
+		}
+	}
+
+	// TODO: This code is not very DRY!
 	for (int i = 0; i < op_loads_idxs.size(); i++) {
 		uint32_t l_idx = op_loads_idxs[i];
 
@@ -455,8 +445,8 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 				uint32_t image_original_res_id = spv[l_idx + 2];
 				uint32_t original_combined_res_id = new_spv[l_idx + 1];
 
-				new_spv.set(l_idx + 1, underlying_image_id);
-				new_spv.set(l_idx + 2, image_op_load_res_id);
+				new_spv.write[l_idx + 1] = underlying_image_id;
+				new_spv.write[l_idx + 2] = image_op_load_res_id;
 
 				uint32_t sampler_op_load_res_id = instruction_bound;
 				instruction_bound += 1;
@@ -560,8 +550,8 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			new_spv.insert(new_word.idx + 1, new_word.word);
 
 			uint16_t current_hiword = hiword(new_spv[new_word.head_idx]);
-			new_spv.set(new_word.head_idx,
-					encode_word(current_hiword + 1, loword(new_spv[new_word.head_idx])));
+			new_spv.write[new_word.head_idx] =
+					encode_word(current_hiword + 1, loword(new_spv[new_word.head_idx]));
 		} else if (it.type == InsertType::Instruction) {
 			const InstructionInsert &new_instruction = *it.instruction;
 			uint16_t offset = hiword(spv[new_instruction.previous_spv_idx]);
@@ -631,19 +621,29 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		bindings.sort_custom<BindingsSort>();
 
 		int32_t prev_binding = -1;
+		int32_t prev_id = -1;
+		int32_t prev_d_idx = -1;
 		int32_t increment = 0;
 
 		for (auto &[d_idx, binding] : bindings) {
+			uint32_t this_id = new_spv[d_idx + 1];
+
 			if (binding == static_cast<uint32_t>(prev_binding)) {
 				increment += 1;
+
+				if (prev_id <= this_id) {
+					new_spv[static_cast<uint32_t>(prev_d_idx) + 3];
+					new_spv.write[d_idx + 3] -= 1;
+				}
 			}
-			new_spv.set(d_idx + 3, new_spv[d_idx + 3] + increment);
+			new_spv.write[d_idx + 3] += increment;
 			prev_binding = static_cast<int32_t>(binding);
+			prev_id = static_cast<int32_t>(this_id);
+			prev_d_idx = static_cast<int32_t>(d_idx);
 		}
 	}
 
 	// 12. Remove the original optypesampler
-	// we end up creating our own optypesampler to resolve ordering issues.
 
 	uint32_t i_idx = 0;
 	while (i_idx < new_spv.size()) {
@@ -655,16 +655,13 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			for (int i = 0; i < word_count; i++) {
 				new_spv.remove_at(i_idx);
 			}
-
-			// Assuming there was only one OpTypeSampler, this only needs to run once.
-			break;
+		} else {
+			i_idx += word_count;
 		}
-
-		i_idx += word_count;
 	}
 
 	// 13. Write New Header and New Code
-	spv_header.set(SPV_HEADER_INSTRUCTION_BOUND_OFFSET, instruction_bound);
+	spv_header.write[SPV_HEADER_INSTRUCTION_BOUND_OFFSET] = instruction_bound;
 
 	Vector<uint32_t> out_spv = spv_header;
 	out_spv.append_array(new_spv);
