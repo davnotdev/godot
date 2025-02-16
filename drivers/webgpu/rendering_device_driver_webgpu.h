@@ -52,6 +52,7 @@ private:
 	struct TextureInfo {
 		WGPUTexture texture;
 		WGPUTextureFormat format;
+		WGPUTextureUsage usage;
 		bool is_original_texture;
 		WGPUTextureView view;
 		uint32_t width;
@@ -230,7 +231,7 @@ private:
 		WGPU_NULLABLE WGPUShaderModule fragment_shader;
 		WGPU_NULLABLE WGPUShaderModule compute_shader;
 
-		WGPUShaderStageFlags stage_flags;
+		WGPUShaderStage stage_flags;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		// Maps `constant_id` to override key name
@@ -421,7 +422,7 @@ private:
 		};
 
 		struct SetPushConstants {
-			WGPUShaderStageFlags stages;
+			WGPUShaderStage stages;
 			uint32_t offset;
 		};
 

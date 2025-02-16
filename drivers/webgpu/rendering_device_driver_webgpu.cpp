@@ -12,15 +12,15 @@
 #define WGPU_LOG
 
 static void handle_request_device(WGPURequestDeviceStatus status,
-		WGPUDevice device, char const *message,
-		void *userdata) {
+		WGPUDevice device, WGPUStringView message,
+		void *userdata, void *_) {
 	*(WGPUDevice *)userdata = device;
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
 #ifdef WGPU_LOG
-	wgpuSetLogCallback([](WGPULogLevel p_level, const char *p_message, void *p_user_data) {
-		print_line("[WGPU]", p_message);
+	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
+		print_line("[WGPU]", p_message.data);
 	},
 			nullptr);
 #endif
@@ -43,18 +43,17 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	// NOTE: These tweaks are ONLY REQUIRED FOR FORWARD+.
 	// Forward Mobile should still be fully supported under the default limits.
-	WGPURequiredLimitsExtras required_native_limits = (WGPURequiredLimitsExtras){
-		.chain = (WGPUChainedStruct){
-				.sType = (WGPUSType)WGPUSType_RequiredLimitsExtras,
+	WGPUNativeLimits required_native_limits = (WGPUNativeLimits){
+		.chain = (WGPUChainedStructOut){
+				.sType = (WGPUSType)WGPUSType_NativeLimits,
 		},
-		.limits = (WGPUNativeLimits){
-				.maxPushConstantSize = 128,
-		}
+		.maxPushConstantSize = 128,
+		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED
 	};
 
-	WGPURequiredLimits required_limits = (WGPURequiredLimits){
-		.nextInChain = (WGPUChainedStruct *)&required_native_limits,
-		.limits = (WGPULimits){
+	WGPULimits required_limits =
+			(WGPULimits){
+				.nextInChain = (WGPUChainedStructOut *)&required_native_limits,
 				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
@@ -78,7 +77,6 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxBufferSize = WGPU_LIMIT_U64_UNDEFINED,
 				.maxVertexAttributes = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBufferArrayStride = WGPU_LIMIT_U32_UNDEFINED,
-				.maxInterStageShaderComponents = WGPU_LIMIT_U32_UNDEFINED,
 				.maxInterStageShaderVariables = WGPU_LIMIT_U32_UNDEFINED,
 				.maxColorAttachments = WGPU_LIMIT_U32_UNDEFINED,
 				.maxColorAttachmentBytesPerSample = WGPU_LIMIT_U32_UNDEFINED,
@@ -88,15 +86,19 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxComputeWorkgroupSizeY = WGPU_LIMIT_U32_UNDEFINED,
 				.maxComputeWorkgroupSizeZ = WGPU_LIMIT_U32_UNDEFINED,
 				.maxComputeWorkgroupsPerDimension = WGPU_LIMIT_U32_UNDEFINED,
-		},
-	};
+			};
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
 		.requiredFeatures = required_features,
 		.requiredLimits = &required_limits,
 	};
-	wgpuAdapterRequestDevice(adapter, &device_desc, handle_request_device, &this->device);
+	WGPURequestDeviceCallbackInfo device_callback_info = (WGPURequestDeviceCallbackInfo){
+		.mode = WGPUCallbackMode_AllowProcessEvents,
+		.callback = handle_request_device,
+		.userdata1 = &this->device,
+	};
+	wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
 	ERR_FAIL_COND_V(!this->device, FAILED);
 
 	queue = wgpuDeviceGetQueue(device);
@@ -105,8 +107,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	capabilties = (RenderingDeviceDriver::Capabilities){
 		// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
 		.device_family = DEVICE_WEBGPU,
-		.version_major = 0,
-		.version_minor = 19,
+		.version_major = 24,
+		.version_minor = 0,
 	};
 
 	return OK;
@@ -166,9 +168,9 @@ uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buff
 	return 0;
 }
 
-static void handle_buffer_map(WGPUBufferMapAsyncStatus status, void *userdata) {
+static void handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView _message, void *_userdata1, void *_userdata2) {
 	ERR_FAIL_COND_V_MSG(
-			status != WGPUBufferMapAsyncStatus_Success, (void)0,
+			status != WGPUMapAsyncStatus_Success, (void)0,
 			vformat("Failed to map buffer"));
 }
 
@@ -179,8 +181,12 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	uint64_t size = buffer_info->size;
 
 	if (!buffer_info->is_transfer_first_map) {
+		WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
+			.mode = WGPUCallbackMode_AllowProcessEvents,
+			.callback = handle_buffer_map,
+		};
 		wgpuBufferMapAsync(
-				buffer_info->buffer, buffer_info->map_mode, offset, size, handle_buffer_map, nullptr);
+				buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
 		wgpuDevicePoll(device, true, nullptr);
 	} else {
 		buffer_info->is_transfer_first_map = false;
@@ -292,6 +298,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
 	texture_info->format = format;
+	texture_info->usage = usage;
 	texture_info->is_original_texture = true;
 	texture_info->view = view;
 	texture_info->width = size.width;
@@ -311,10 +318,21 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_fro
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {
 	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
 
+	// HACK: We need to account for the fact that some texture formats may not support the usages of the
+	// The vulkan driver does a check then unflags certain usages, but we don't have that ability.
+	// Note that on wgpu vulkan, this will fail old versions of the the api (1.0 with minimal extensions).
+	WGPUTextureUsage texture_view_usage = texture_info->usage;
+	if (p_view.format == DATA_FORMAT_R8G8B8A8_SRGB) {
+		if (texture_info->usage & WGPUTextureUsage_StorageBinding) {
+			texture_view_usage &= (~WGPUTextureUsage_StorageBinding);
+		}
+	}
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.format = webgpu_texture_format_from_rd(p_view.format),
 		.mipLevelCount = texture_info->mip_level_count,
 		.arrayLayerCount = texture_info->is_using_depth ? 1 : texture_info->depth_or_array,
+		.usage = texture_view_usage,
 	};
 
 	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
@@ -672,7 +690,9 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
 
 	// NOTE: This is not the best way of getting the format of the surface.
-	WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(surface->surface, adapter);
+	WGPUSurfaceCapabilities capabilities;
+	wgpuSurfaceGetCapabilities(surface->surface, this->adapter, &capabilities);
+	WGPUTextureFormat surface_format = capabilities.formats[0];
 	surface->format = surface_format;
 
 	surface->configure(this->adapter, this->device);
@@ -721,7 +741,7 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_
 // We take this to create a framebuffer attachment that we never end up using since WebGpu does not support framebuffers.
 RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {
 	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
-	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+	RenderingContextDriverWebGpu::Surface *_ = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
 	// TODO: impl Replace this with a proper conversion
 	return DATA_FORMAT_B8G8R8A8_SRGB;
 }
@@ -1203,15 +1223,12 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	ERR_FAIL_COND_V(read_offset != binsize, ShaderID());
 
 	for (int i = 0; i < r_shader_desc.stages.size(); i++) {
-		WGPUShaderModuleSPIRVDescriptor shader_module_spirv_desc = (WGPUShaderModuleSPIRVDescriptor){
-			.chain = (WGPUChainedStruct){
-					.sType = WGPUSType_ShaderModuleSPIRVDescriptor,
-			},
-			.codeSize = (uint32_t)stages_spirv[i].size() / 4,
-			.code = (const uint32_t *)stages_spirv[i].ptr(),
+		WGPUShaderModuleDescriptorSpirV shader_module_spirv_desc = (WGPUShaderModuleDescriptorSpirV){
+			.sourceSize = (uint32_t)stages_spirv[i].size() / 4,
+			.source = (const uint32_t *)stages_spirv[i].ptr(),
 		};
 
-		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSPIRV(device, &shader_module_spirv_desc);
+		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSpirV(device, &shader_module_spirv_desc);
 		ERR_FAIL_COND_V(!shader_module, ShaderID());
 
 		ShaderStage stage = r_shader_desc.stages[i];
@@ -1486,7 +1503,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 
 	for (int i = 0; i < p_regions.size(); i++) {
 		TextureCopyRegion region = p_regions[i];
-		WGPUImageCopyTexture src_texture_cp = (WGPUImageCopyTexture){
+		WGPUTexelCopyTextureInfo src_texture_cp = (WGPUTexelCopyTextureInfo){
 			.texture = src_texture_info->texture,
 			.mipLevel = region.src_subresources.mipmap,
 			.origin = (WGPUOrigin3D){
@@ -1496,7 +1513,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 			},
 			.aspect = webgpu_texture_aspect_from_rd(region.src_subresources.aspect),
 		};
-		WGPUImageCopyTexture dst_texture_cp = (WGPUImageCopyTexture){
+		WGPUTexelCopyTextureInfo dst_texture_cp = (WGPUTexelCopyTextureInfo){
 			.texture = dst_texture_info->texture,
 			.mipLevel = region.dst_subresources.mipmap,
 			.origin = (WGPUOrigin3D){
@@ -1536,8 +1553,8 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(dst_texture_info->format);
 
-		WGPUImageCopyBuffer cp_buffer = (WGPUImageCopyBuffer){
-			.layout = (WGPUTextureDataLayout){
+		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
+			.layout = (WGPUTexelCopyBufferLayout){
 					.offset = region.buffer_offset,
 					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
 					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
@@ -1545,7 +1562,7 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			.buffer = src_buffer_info->buffer,
 		};
 
-		WGPUImageCopyTexture cp_texture = (WGPUImageCopyTexture){
+		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = dst_texture_info->texture,
 			.mipLevel = region.texture_subresources.mipmap,
 			.origin = (WGPUOrigin3D){
@@ -1576,7 +1593,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 
 		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(src_texture_info->format);
 
-		WGPUImageCopyTexture cp_texture = (WGPUImageCopyTexture){
+		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = src_texture_info->texture,
 			.mipLevel = region.texture_subresources.mipmap,
 			.origin = (WGPUOrigin3D){
@@ -1587,8 +1604,8 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresources.aspect),
 		};
 
-		WGPUImageCopyBuffer cp_buffer = (WGPUImageCopyBuffer){
-			.layout = (WGPUTextureDataLayout){
+		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
+			.layout = (WGPUTexelCopyBufferLayout){
 					.offset = region.buffer_offset,
 					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
 					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
@@ -2088,14 +2105,14 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
 		constants[i] = (WGPUConstantEntry){
-			.key = key_name,
+			.key = { key_name, WGPU_STRLEN },
 			.value = val.d,
 		};
 	}
 
 	WGPUVertexState vertex_state = (WGPUVertexState){
 		.module = shader_info->vertex_shader,
-		.entryPoint = "main",
+		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)p_specialization_constants.size(),
 		.constants = constants,
 		.bufferCount = 0,
@@ -2164,7 +2181,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	WGPUFragmentState fragment_state = (WGPUFragmentState){
 		.module = shader_info->fragment_shader,
-		.entryPoint = "main",
+		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)p_specialization_constants.size(),
 		.constants = constants,
 		.targetCount = p_color_attachments.size(),
@@ -2237,7 +2254,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		WGPUDepthStencilState depth_stencil_state = (WGPUDepthStencilState){
 			// TODO: We do not have info on depth target format.
 			.format = WGPUTextureFormat_Depth32Float,
-			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write,
+			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write ? WGPUOptionalBool_True : WGPUOptionalBool_False,
 			.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
 			.stencilFront =
 					(WGPUStencilFaceState){
@@ -2364,14 +2381,14 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 
 		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
 		constants.push_back((WGPUConstantEntry){
-				.key = key_name,
+				.key = { key_name, WGPU_STRLEN },
 				.value = val.d,
 		});
 	}
 
 	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
 		.module = shader_info->compute_shader,
-		.entryPoint = "main",
+		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)constants.size(),
 		.constants = constants.ptr(),
 	};
@@ -2442,8 +2459,8 @@ uint64_t RenderingDeviceDriverWebGpu::get_total_memory_used() {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
-	WGPUSupportedLimitsExtras extras;
-	WGPUSupportedLimits limits;
+	WGPUNativeLimits extras;
+	WGPULimits limits;
 	limits.nextInChain = (WGPUChainedStructOut *)&extras;
 	wgpuDeviceGetLimits(device, &limits);
 	return rd_limit_from_webgpu(p_limit, limits);
@@ -2475,7 +2492,7 @@ String RenderingDeviceDriverWebGpu::get_api_name() const {
 
 String RenderingDeviceDriverWebGpu::get_api_version() const {
 	// TODO: We should compile this in based on the wgpu / dawn version
-	return "v0.19.3.1 (wgpu)";
+	return "v24.0.0 (wgpu)";
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {}

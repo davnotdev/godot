@@ -9,19 +9,19 @@
 #include "rendering_device_driver_webgpu.h"
 
 static void handle_request_adapter(WGPURequestAdapterStatus status,
-		WGPUAdapter adapter, char const *message,
-		void *userdata) {
+		WGPUAdapter adapter, WGPUStringView message,
+		void *userdata, void *_) {
 	ERR_FAIL_COND_V_MSG(
 			status != WGPURequestAdapterStatus_Success, (void)0,
-			vformat("Failed to get wgpu adapter: %s", message));
+			vformat("Failed to get wgpu adapter: %s", message.data));
 
-	WGPUAdapterProperties props;
-	wgpuAdapterGetProperties(adapter, &props);
+	WGPUAdapterInfo info;
+	wgpuAdapterGetInfo(adapter, &info);
 
 	RenderingContextDriver::Device device;
-	device.name = String(props.name);
-	device.vendor = (RenderingContextDriver::Vendor)props.vendorID;
-	device.type = (RenderingContextDriver::DeviceType)props.adapterType;
+	device.name = String(info.device.data);
+	device.vendor = (RenderingContextDriver::Vendor)info.vendorID;
+	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
 
 	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)userdata;
 	context->adapter_push_back(
@@ -45,18 +45,26 @@ Error RenderingContextDriverWebGpu::initialize() {
 	instance = wgpuCreateInstance(nullptr);
 
 	WGPURequestAdapterOptions adapter_options = {};
+	WGPURequestAdapterCallbackInfo adapter_callback_info = {
+		.mode = WGPUCallbackMode_AllowProcessEvents,
+		.callback = handle_request_adapter,
+		.userdata1 = this,
+	};
 
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
 	wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
-			handle_request_adapter, this);
+			adapter_callback_info);
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
 	wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
-			handle_request_adapter, this);
+			adapter_callback_info);
+
+	// NOTE: Currently unimplemented in wgpu.
+	// wgpuInstanceProcessEvents(instance);
 
 	return OK;
 }
@@ -159,7 +167,9 @@ void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Devi
 
 void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
 	// NOTE: This is not the best way of getting the format of the surface.
-	WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(surface, p_adapter);
+	WGPUSurfaceCapabilities capabilities;
+	wgpuSurfaceGetCapabilities(surface, p_adapter, &capabilities);
+	WGPUTextureFormat surface_format = capabilities.formats[0];
 	this->format = surface_format;
 
 	// TODO: Complete full surface config.
