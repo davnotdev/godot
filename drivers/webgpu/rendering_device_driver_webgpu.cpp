@@ -1,12 +1,17 @@
 #include "rendering_device_driver_webgpu.h"
 #include "combimgsamplersplitter.h"
+#include "core/error/error_macros.h"
 #include "core/io/marshalls.h"
+#include "core/os/memory.h"
+#include "core/string/print_string.h"
+#include "core/templates/local_vector.h"
 #include "rendering_context_driver_webgpu.h"
 #include "thirdparty/misc/smolv.h"
 #include "webgpu.h"
 #include "webgpu_conv.h"
 
 #include <wgpu.h>
+#include <cstdint>
 #include <cstring>
 
 #define WGPU_LOG
@@ -398,7 +403,9 @@ uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_te
 }
 
 void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) {}
-uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {}
+uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
+	return nullptr;
+}
 void RenderingDeviceDriverWebGpu::texture_unmap(TextureID p_texture) {}
 
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
@@ -545,22 +552,20 @@ RenderingDeviceDriver::CommandQueueID RenderingDeviceDriverWebGpu::command_queue
 	return CommandQueueID(1);
 }
 
-Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueueID _p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {
-	DEV_ASSERT(p_cmd_buffer != nullptr);
-
+Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueueID p_cmd_queue, VectorView<SemaphoreID> p_wait_semaphores, VectorView<CommandBufferID> p_cmd_buffers, VectorView<SemaphoreID> p_cmd_semaphores, FenceID p_cmd_fence, VectorView<SwapChainID> p_swap_chains) {
 	Vector<WGPUCommandBuffer> commands = Vector<WGPUCommandBuffer>();
 
 	for (uint32_t i = 0; i < p_cmd_buffers.size(); i++) {
-		CommandBufferID cmd_buffer_id = p_cmd_buffers[i];
+		CommandBufferInfo* command_buffer_info = (CommandBufferInfo*)p_cmd_buffers[i].id;
 
-		WGPUCommandEncoder &encoder = command_encoders.write[cmd_buffer_id.id];
-		DEV_ASSERT(encoder == nullptr);
+		DEV_ASSERT(command_buffer_info != nullptr);
+		DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-		WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(encoder, nullptr);
+		WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(command_buffer_info->encoder, nullptr);
 		commands.push_back(command_buffer);
 
-		wgpuCommandEncoderRelease(encoder);
-		encoder = nullptr;
+		wgpuCommandEncoderRelease(command_buffer_info->encoder);
+		command_buffer_info->encoder = nullptr;
 	}
 
 	wgpuQueueSubmit(queue, commands.size(), commands.ptr());
@@ -589,37 +594,42 @@ void RenderingDeviceDriverWebGpu::command_queue_free(CommandQueueID _p_cmd_queue
 // ----- POOL -----
 
 RenderingDeviceDriver::CommandPoolID RenderingDeviceDriverWebGpu::command_pool_create(CommandQueueFamilyID _p_cmd_queue_family, CommandBufferType _p_cmd_buffer_type) {
-	// WebGpu has no concept of command pools.
-	// However, we will free command encoders with command_pool_free because command buffers are tied to the lifetime of command pools.
-	return CommandPoolID(1);
+	TightLocalVector<CommandBufferInfo *> *command_pool = memnew(TightLocalVector<CommandBufferInfo *>);
+	return CommandPoolID(command_pool);
 }
 
-void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID _p_cmd_pool) {
-	// Empty.
+void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {
+	TightLocalVector<CommandBufferInfo *> *command_pool = (TightLocalVector<CommandBufferInfo *> *)p_cmd_pool.id;
+	for (uint32_t i = 0; i < command_pool->size(); i++) {
+		memfree(command_pool->ptr()[i]);
+	}
+	memfree(command_pool);
 }
 
 // ----- BUFFER -----
 
-RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buffer_create(CommandPoolID _p_cmd_pool) {
-	command_encoders.push_back(nullptr);
-	return CommandBufferID(command_encoders.size() - 1);
+RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buffer_create(CommandPoolID p_cmd_pool) {
+	TightLocalVector<CommandBufferInfo *> *command_pool = (TightLocalVector<CommandBufferInfo *> *)p_cmd_pool.id;
+	CommandBufferInfo *command_buffer_info = memnew(CommandBufferInfo);
+
+	command_buffer_info->encoder = nullptr;
+	command_buffer_info->is_render_pass_active = false;
+
+	command_pool->push_back(command_buffer_info);
+
+	return CommandBufferID(command_buffer_info);
 }
 
 bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buffer) {
 	DEV_ASSERT(p_cmd_buffer != nullptr);
 
-	WGPUCommandEncoder &encoder_spot = command_encoders.write[p_cmd_buffer.id];
-	DEV_ASSERT(encoder_spot == nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 
 	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
-	WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
-
-	encoder_spot = encoder;
-
-	this->active_compute_pass_encoder_info.first = (ComputePassEncoderInfo){
+	command_buffer_info->encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
+	command_buffer_info->active_compute_pass_info = (ComputePassEncoderInfo){
 		.commands = Vector<ComputePassEncoderCommand>(),
 	};
-	this->active_compute_pass_encoder_info.second = true;
 
 	return true;
 }
@@ -632,17 +642,16 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID
 void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {
 	DEV_ASSERT(p_cmd_buffer != nullptr);
 
-	DEV_ASSERT(this->active_compute_pass_encoder_info.second != true);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 
-	WGPUCommandEncoder &encoder = command_encoders.write[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	if (this->active_compute_pass_encoder_info.first.commands.size() != 0) {
+	if (command_buffer_info->active_compute_pass_info.commands.size() != 0) {
 		WGPUComputePassEncoder compute_encoder = wgpuCommandEncoderBeginComputePass(
-				encoder, nullptr);
+				command_buffer_info->encoder, nullptr);
 
-		for (uint32_t i = 0; i < this->active_compute_pass_encoder_info.first.commands.size(); i++) {
-			ComputePassEncoderCommand &command = this->active_compute_pass_encoder_info.first.commands.write[i];
+		for (uint32_t i = 0; i < command_buffer_info->active_compute_pass_info.commands.size(); i++) {
+			ComputePassEncoderCommand &command = command_buffer_info->active_compute_pass_info.commands.write[i];
 
 			switch (command.type) {
 				case ComputePassEncoderCommand::CommandType::SET_PIPELINE: {
@@ -1472,31 +1481,33 @@ void RenderingDeviceDriverWebGpu::command_uniform_set_prepare_for_use(CommandBuf
 /******************/
 
 void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, uint64_t p_offset, uint64_t p_size) {
-	// TODO: impl Correctly assert this and other command buffers;
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
-	wgpuCommandEncoderClearBuffer(encoder, buffer_info->buffer, p_offset, p_size);
+	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
 
 	for (int i = 0; i < p_regions.size(); i++) {
 		BufferCopyRegion region = p_regions[i];
-		wgpuCommandEncoderCopyBufferToBuffer(encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, region.size);
+		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, region.size);
 	}
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout _p_src_texture_layout, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<TextureCopyRegion> p_regions) {
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
@@ -1528,7 +1539,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 			.height = (uint32_t)region.size.y,
 			.depthOrArrayLayers = (uint32_t)region.size.z,
 		};
-		wgpuCommandEncoderCopyTextureToTexture(encoder, &src_texture_cp, &dst_texture_cp, &cp_size);
+		wgpuCommandEncoderCopyTextureToTexture(command_buffer_info->encoder, &src_texture_cp, &dst_texture_cp, &cp_size);
 	}
 }
 
@@ -1542,8 +1553,9 @@ void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID _p
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
@@ -1578,13 +1590,14 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
 		};
 
-		wgpuCommandEncoderCopyBufferToTexture(encoder, &cp_buffer, &cp_texture, &cp_size);
+		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
 	}
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) {
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
-	DEV_ASSERT(encoder == nullptr);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
@@ -1619,7 +1632,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
 		};
 
-		wgpuCommandEncoderCopyTextureToBuffer(encoder, &cp_texture, &cp_buffer, &cp_size);
+		wgpuCommandEncoderCopyTextureToBuffer(command_buffer_info->encoder, &cp_texture, &cp_buffer, &cp_size);
 	}
 }
 
@@ -1631,21 +1644,27 @@ void RenderingDeviceDriverWebGpu::pipeline_free(PipelineID p_pipeline) {}
 
 // ----- BINDING -----
 
-void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID _p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
-	// TODO: impl compute push constants
-
-	ERR_FAIL_COND(this->active_render_pass_encoder_info.second != true /*||  compute pass encoder */);
+void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_cmd_buffer, ShaderID p_shader, uint32_t p_first_index, VectorView<uint32_t> p_data) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	if (active_render_pass_encoder_info.second) {
-		RenderPassEncoderInfo &render_pass_info = this->active_render_pass_encoder_info.first;
-		uint32_t byte_size = p_data.size() * (uint32_t)sizeof(uint32_t);
-		Vector<uint8_t> data = Vector<uint8_t>();
-		data.resize(byte_size);
-		memcpy(data.ptrw(), p_data.ptr(), byte_size);
+	uint32_t byte_size = p_data.size() * (uint32_t)sizeof(uint32_t);
+	Vector<uint8_t> data = Vector<uint8_t>();
+	data.resize(byte_size);
+	memcpy(data.ptrw(), p_data.ptr(), byte_size);
 
-		render_pass_info.commands.push_back((RenderPassEncoderCommand){
+	if (shader_info->stage_flags & WGPUShaderStage_Compute) {
+		command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
+				.type = ComputePassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
+				.set_push_constants = (ComputePassEncoderCommand::SetPushConstants){
+						.offset = p_first_index },
+				.push_constant_data = data,
+		});
+	} else if (shader_info->stage_flags & WGPUShaderStage_Vertex || shader_info->stage_flags & WGPUShaderStage_Fragment) {
+		command_buffer_info->active_render_pass_info.commands.push_back((RenderPassEncoderCommand){
 				.type = RenderPassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
 				.set_push_constants = (RenderPassEncoderCommand::SetPushConstants){
 						.stages = shader_info->stage_flags,
@@ -1707,6 +1726,10 @@ void RenderingDeviceDriverWebGpu::render_pass_free(RenderPassID p_render_pass) {
 // ----- COMMANDS -----
 
 void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+
 	Vector<WGPURenderPassColorAttachment> color_attachments;
 
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
@@ -1744,39 +1767,39 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 				.loadOp = attachment.load_op,
 				.storeOp = attachment.store_op,
 				.clearValue = (WGPUColor){
-						.r = 0.5,
-						.g = 0.3,
-						.b = 0.0,
-						.a = 1.0,
+						.r = p_clear_values[i].color.r,
+						.g = p_clear_values[i].color.g,
+						.b = p_clear_values[i].color.b,
+						.a = p_clear_values[i].color.a,
 				},
 		});
 	}
 
-	this->active_render_pass_encoder_info.first = (RenderPassEncoderInfo){
+	command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
 		.color_attachments = color_attachments,
 		.depth_stencil_attachment = Pair((WGPURenderPassDepthStencilAttachment){}, false),
 		.commands = Vector<RenderPassEncoderCommand>({}),
 		.maybe_surface_texture_view = maybe_surface_texture_view,
 	};
-	this->active_render_pass_encoder_info.second = true;
+	command_buffer_info->is_render_pass_active = true;
 }
 
 void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_buffer) {
-	DEV_ASSERT(p_cmd_buffer - 1 < command_encoders.size());
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
-
-	const WGPUCommandEncoder &encoder = command_encoders[p_cmd_buffer.id];
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	WGPURenderPassDescriptor render_pass_descriptor = (WGPURenderPassDescriptor){
-		.colorAttachmentCount = (uint32_t)this->active_render_pass_encoder_info.first.color_attachments.size(),
-		.colorAttachments = this->active_render_pass_encoder_info.first.color_attachments.ptr(),
-		.depthStencilAttachment = this->active_render_pass_encoder_info.first.depth_stencil_attachment.second ? &this->active_render_pass_encoder_info.first.depth_stencil_attachment.first : nullptr,
+		.colorAttachmentCount = (uint32_t)command_buffer_info->active_render_pass_info.color_attachments.size(),
+		.colorAttachments = command_buffer_info->active_render_pass_info.color_attachments.ptr(),
+		.depthStencilAttachment = command_buffer_info->active_render_pass_info.depth_stencil_attachment.second ? &command_buffer_info->active_render_pass_info.depth_stencil_attachment.first : nullptr,
 	};
 
-	WGPURenderPassEncoder render_encoder = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_descriptor);
+	WGPURenderPassEncoder render_encoder = wgpuCommandEncoderBeginRenderPass(command_buffer_info->encoder, &render_pass_descriptor);
 
-	for (uint32_t i = 0; i < this->active_render_pass_encoder_info.first.commands.size(); i++) {
-		RenderPassEncoderCommand &command = this->active_render_pass_encoder_info.first.commands.write[i];
+	for (uint32_t i = 0; i < command_buffer_info->active_render_pass_info.commands.size(); i++) {
+		RenderPassEncoderCommand &command = command_buffer_info->active_render_pass_info.commands.write[i];
 
 		switch (command.type) {
 			case RenderPassEncoderCommand::CommandType::SET_VIEWPORT: {
@@ -1838,7 +1861,7 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 		}
 	}
 
-	this->active_render_pass_encoder_info.second = false;
+	command_buffer_info->is_render_pass_active = false;
 
 	wgpuRenderPassEncoderEnd(render_encoder);
 	wgpuRenderPassEncoderRelease(render_encoder);
@@ -1848,12 +1871,15 @@ void RenderingDeviceDriverWebGpu::command_next_render_subpass(CommandBufferID _p
 	// Empty.
 }
 
-void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID _p_cmd_buffer, VectorView<Rect2i> p_viewports) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_viewports) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	ERR_FAIL_COND_MSG(p_viewports.size() != 1, "WebGpu cannot set multiple viewports.");
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_VIEWPORT,
 			.set_viewport = (RenderPassEncoderCommand::SetViewport){
 					.x = (float)p_viewports[0].position.x,
@@ -1866,12 +1892,15 @@ void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID _p
 	}));
 }
 
-void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID _p_cmd_buffer, VectorView<Rect2i> p_scissors) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_scissors) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	ERR_FAIL_COND_MSG(p_scissors.size() != 1, "WebGpu cannot set multiple scissors.");
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_SCISSOR_RECT,
 			.set_scissor_rect = (RenderPassEncoderCommand::SetScissorRect){
 					.x = (uint32_t)p_scissors[0].position.x,
@@ -1888,12 +1917,15 @@ void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBuffer
 }
 
 // Binding.
-void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID _p_cmd_buffer, PipelineID p_pipeline) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	WGPURenderPipeline render_pipeline = (WGPURenderPipeline)p_pipeline.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_PIPELINE,
 
 			.set_pipeline = (RenderPassEncoderCommand::SetPipeline){
@@ -1901,12 +1933,15 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID _
 			} }));
 }
 
-void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID _p_cmd_buffer, UniformSetID p_uniform_set, ShaderID _p_shader, uint32_t p_set_index) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID _p_shader, uint32_t p_set_index) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_BIND_GROUP,
 
 			.set_bind_group = (RenderPassEncoderCommand::SetBindGroup){
@@ -1916,9 +1951,13 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 }
 
 // Drawing.
-void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID _p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID p_cmd_buffer, uint32_t p_vertex_count, uint32_t p_instance_count, uint32_t p_base_vertex, uint32_t p_first_instance) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
+
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::DRAW,
 			.draw = (RenderPassEncoderCommand::Draw){
 					.vertex_count = p_vertex_count,
@@ -1929,9 +1968,13 @@ void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID _p_cmd_buf
 	}));
 }
 
-void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID _p_cmd_buffer, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID p_cmd_buffer, uint32_t p_index_count, uint32_t p_instance_count, uint32_t p_first_index, int32_t p_vertex_offset, uint32_t p_first_instance) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
+
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::DRAW_INDEXED,
 			.draw_indexed = (RenderPassEncoderCommand::DrawIndexed){
 					.index_count = p_index_count,
@@ -1942,12 +1985,15 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID _p
 			} }));
 }
 
-void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID _p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t _p_stride) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t _p_stride) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT,
 			.multi_draw_indirect = (RenderPassEncoderCommand::MultiDrawIndirect){
 					.indirect_buffer = indirect_buffer->buffer,
@@ -1956,13 +2002,16 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID _
 	}));
 }
 
-void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBufferID _p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t _p_stride) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t _p_stride) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 	BufferInfo *count_buffer = (BufferInfo *)p_count_buffer.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT_COUNT,
 			.multi_draw_indirect_count = (RenderPassEncoderCommand::MultiDrawIndirectCount){
 					.indirect_buffer = indirect_buffer->buffer,
@@ -1976,11 +2025,14 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBuff
 }
 
 void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, uint32_t p_draw_count, uint32_t _p_stride) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT,
 			.multi_draw_indexed_indirect = (RenderPassEncoderCommand::MultiDrawIndexedIndirect){
 					.indirect_buffer = indirect_buffer->buffer,
@@ -1989,13 +2041,16 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect(CommandBu
 	}));
 }
 
-void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(CommandBufferID _p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t _p_stride) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset, BufferID p_count_buffer, uint64_t p_count_buffer_offset, uint32_t p_max_draw_count, uint32_t _p_stride) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 	BufferInfo *count_buffer = (BufferInfo *)p_count_buffer.id;
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT,
 			.multi_draw_indexed_indirect_count = (RenderPassEncoderCommand::MultiDrawIndexedIndirectCount){
 					.indirect_buffer = indirect_buffer->buffer,
@@ -2007,13 +2062,16 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(Com
 }
 
 // Buffer binding.
-void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID _p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	for (uint32_t i = 0; i < p_binding_count; i++) {
 		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
 
-		this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 				.type = RenderPassEncoderCommand::CommandType::SET_VERTEX_BUFFER,
 				.set_vertex_buffer = (RenderPassEncoderCommand::SetVertexBuffer){
 						.slot = i,
@@ -2026,7 +2084,10 @@ void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBuff
 }
 
 void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
@@ -2040,7 +2101,7 @@ void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBuffer
 			break;
 	}
 
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_INDEX_BUFFER,
 			.set_index_buffer = (RenderPassEncoderCommand::SetIndexBuffer){
 					.buffer = buffer_info->buffer,
@@ -2052,8 +2113,12 @@ void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBuffer
 
 // Dynamic state.
 void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBufferID p_cmd_buffer, const Color &p_constants) {
-	DEV_ASSERT(this->active_render_pass_encoder_info != true);
-	this->active_render_pass_encoder_info.first.commands.push_back(((RenderPassEncoderCommand){
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
+
+	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_BLEND_CONSTANTS,
 			.set_blend_constant = (RenderPassEncoderCommand::SetBlendConstant){
 					.color = (WGPUColor){
@@ -2310,23 +2375,27 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 // ----- COMMANDS -----
 
 // Binding.
-void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID _p_cmd_buffer, PipelineID p_pipeline) {
-	ERR_FAIL_COND(this->active_compute_pass_encoder_info.second != true);
+void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID p_cmd_buffer, PipelineID p_pipeline) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	WGPUComputePipeline pipeline = (WGPUComputePipeline)p_pipeline.id;
 
-	this->active_compute_pass_encoder_info.first.commands.push_back((ComputePassEncoderCommand){
+	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::SET_PIPELINE,
 			.set_pipeline = (ComputePassEncoderCommand::SetPipeline){
 					.pipeline = pipeline,
 			} });
 }
-void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID _p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
-	ERR_FAIL_COND(this->active_compute_pass_encoder_info.second != true);
+void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 
-	this->active_compute_pass_encoder_info.first.commands.push_back((ComputePassEncoderCommand){
+	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::SET_BIND_GROUP,
 			.set_bind_group = (ComputePassEncoderCommand::SetBindGroup){
 					.index = p_set_index,
@@ -2336,10 +2405,12 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBuffer
 }
 
 // Dispatching.
-void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID _p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) {
-	ERR_FAIL_COND(this->active_compute_pass_encoder_info.second != true);
+void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID p_cmd_buffer, uint32_t p_x_groups, uint32_t p_y_groups, uint32_t p_z_groups) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	this->active_compute_pass_encoder_info.first.commands.push_back((ComputePassEncoderCommand){
+	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS,
 			.dispatch_workgroups = (ComputePassEncoderCommand::DispatchWorkgroups){
 					.workgroup_count_x = p_x_groups,
@@ -2348,12 +2419,14 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID _p_cm
 			},
 	});
 }
-void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBufferID _p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) {
-	ERR_FAIL_COND(this->active_compute_pass_encoder_info.second != true);
+void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBufferID p_cmd_buffer, BufferID p_indirect_buffer, uint64_t p_offset) {
+	DEV_ASSERT(p_cmd_buffer != nullptr);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	BufferInfo *buffer_info = (BufferInfo *)p_indirect_buffer.id;
 
-	this->active_compute_pass_encoder_info.first.commands.push_back((ComputePassEncoderCommand){
+	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS_INDIRECT,
 			.dispatch_workgroups_indirect = (ComputePassEncoderCommand::DispatchWorkgroupsIndirect){
 					.indirect_buffer = buffer_info->buffer,
