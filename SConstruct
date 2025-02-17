@@ -190,7 +190,7 @@ opts.Add(EnumVariable("precision", "Set the floating-point precision level", "si
 opts.Add(BoolVariable("minizip", "Enable ZIP archive support using minizip", True))
 opts.Add(BoolVariable("brotli", "Enable Brotli for decompresson and WOFF2 fonts support", True))
 opts.Add(BoolVariable("xaudio2", "Enable the XAudio2 audio driver", False))
-opts.Add(BoolVariable("vulkan", "Enable the vulkan rendering driver", False))
+opts.Add(BoolVariable("vulkan", "Enable the vulkan rendering driver", True))
 opts.Add(BoolVariable("webgpu", "Enable the webgpu rendering driver", True))
 opts.Add(BoolVariable("opengl3", "Enable the OpenGL/GLES3 rendering driver", False))
 opts.Add(BoolVariable("d3d12", "Enable the Direct3D 12 rendering driver (Windows only)", False))
