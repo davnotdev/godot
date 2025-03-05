@@ -291,7 +291,21 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
 	WGPUTextureFormat format = webgpu_texture_format_from_rd(p_view.format);
 
+	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
+		},
+		.swizzle = (WGPUTextureViewSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = format,
 		.dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type),
 		.mipLevelCount = texture_desc.mipLevelCount,
@@ -333,7 +347,21 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		}
 	}
 
+	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
+		},
+		.swizzle = (WGPUTextureViewSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = webgpu_texture_format_from_rd(p_view.format),
 		.mipLevelCount = texture_info->mip_level_count,
 		.arrayLayerCount = texture_info->is_using_depth ? 1 : texture_info->depth_or_array,
@@ -353,7 +381,21 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
 	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
 
+	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
+		},
+		.swizzle = (WGPUTextureViewSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
+		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = webgpu_texture_format_from_rd(p_view.format),
 		.baseMipLevel = p_mipmap,
 		.mipLevelCount = p_mipmaps,
@@ -462,32 +504,37 @@ bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFor
 
 // NOTE: The attributes in `p_vertex_attribs` must be in order.
 RenderingDeviceDriver::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(VectorView<VertexAttribute> p_vertex_attribs) {
-	WGPUVertexAttribute *vertex_attributes = memnew_arr(WGPUVertexAttribute, p_vertex_attribs.size());
-	uint64_t array_stride = 0;
-	for (int i = 0; i < p_vertex_attribs.size(); i++) {
+	VertexFormatInfo *vertex_format_info = memnew(VertexFormatInfo);
+	vertex_format_info->layouts.resize_zeroed(p_vertex_attribs.size());
+	vertex_format_info->vertex_attributes.resize_zeroed(p_vertex_attribs.size());
+
+	for (uint32_t i = 0; i < p_vertex_attribs.size(); i++) {
 		VertexAttribute attrib = p_vertex_attribs[i];
-		vertex_attributes[i] = (WGPUVertexAttribute){
-			.format = webgpu_vertex_format_from_rd(attrib.format),
-			.offset = attrib.offset,
-			.shaderLocation = attrib.location,
+
+		vertex_format_info->vertex_attributes.set(i,
+				(WGPUVertexAttribute){
+						.format = webgpu_vertex_format_from_rd(attrib.format),
+						.offset = attrib.offset,
+						.shaderLocation = attrib.location,
+				});
+
+		WGPUVertexStepMode step_mode = attrib.frequency == VertexFrequency::VERTEX_FREQUENCY_VERTEX ? WGPUVertexStepMode_Vertex : WGPUVertexStepMode_Instance;
+
+		WGPUVertexBufferLayout layout = (WGPUVertexBufferLayout){
+			.stepMode = step_mode,
+			.arrayStride = attrib.stride,
+			.attributeCount = 1,
+			.attributes = vertex_format_info->vertex_attributes.ptr() + i,
 		};
-		array_stride += attrib.stride;
+		vertex_format_info->layouts.set(i, layout);
 	}
 
-	WGPUVertexStepMode step_mode = p_vertex_attribs[0].frequency == VertexFrequency::VERTEX_FREQUENCY_VERTEX ? WGPUVertexStepMode_Vertex : WGPUVertexStepMode_Instance;
-
-	WGPUVertexBufferLayout *layout = memnew(WGPUVertexBufferLayout);
-	layout->attributes = vertex_attributes;
-	layout->attributeCount = p_vertex_attribs.size();
-	layout->stepMode = step_mode;
-	layout->arrayStride = array_stride;
-	return VertexFormatID(layout);
+	return VertexFormatID(vertex_format_info);
 }
 
 void RenderingDeviceDriverWebGpu::vertex_format_free(VertexFormatID p_vertex_format) {
-	WGPUVertexBufferLayout *layout = (WGPUVertexBufferLayout *)p_vertex_format.id;
-	memdelete_arr(layout->attributes);
-	memdelete(layout);
+	VertexFormatInfo *vertex_format_info = (VertexFormatInfo *)p_vertex_format.id;
+	memdelete(vertex_format_info);
 }
 
 /******************/
@@ -556,7 +603,7 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 	Vector<WGPUCommandBuffer> commands = Vector<WGPUCommandBuffer>();
 
 	for (uint32_t i = 0; i < p_cmd_buffers.size(); i++) {
-		CommandBufferInfo* command_buffer_info = (CommandBufferInfo*)p_cmd_buffers[i].id;
+		CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffers[i].id;
 
 		DEV_ASSERT(command_buffer_info != nullptr);
 		DEV_ASSERT(command_buffer_info->encoder != nullptr);
@@ -698,16 +745,10 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
 
-	// NOTE: This is not the best way of getting the format of the surface.
-	WGPUSurfaceCapabilities capabilities;
-	wgpuSurfaceGetCapabilities(surface->surface, this->adapter, &capabilities);
-	WGPUTextureFormat surface_format = capabilities.formats[0];
-	surface->format = surface_format;
-
 	surface->configure(this->adapter, this->device);
 
 	render_pass_info->attachments = Vector<RenderPassAttachmentInfo>({ (RenderPassAttachmentInfo){
-			.format = surface_format,
+			.format = surface->format,
 			.sample_count = 1,
 			.load_op = WGPULoadOp_Clear,
 			.store_op = WGPUStoreOp_Store,
@@ -746,13 +787,11 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::swap_chain_get_
 	return swapchain_info->render_pass;
 }
 
-// NOTE: In theory, this function's result doesn't matter.
-// We take this to create a framebuffer attachment that we never end up using since WebGpu does not support framebuffers.
 RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_format(SwapChainID p_swap_chain) {
 	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
-	RenderingContextDriverWebGpu::Surface *_ = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
-	// TODO: impl Replace this with a proper conversion
-	return DATA_FORMAT_B8G8R8A8_SRGB;
+	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+
+	return surface->rd_format;
 }
 
 void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
@@ -1879,17 +1918,19 @@ void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_
 
 	ERR_FAIL_COND_MSG(p_viewports.size() != 1, "WebGpu cannot set multiple viewports.");
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_VIEWPORT,
-			.set_viewport = (RenderPassEncoderCommand::SetViewport){
-					.x = (float)p_viewports[0].position.x,
-					.y = (float)p_viewports[0].position.y,
-					.width = (float)p_viewports[0].size.x,
-					.height = (float)p_viewports[0].size.y,
-					.min_depth = 0.0,
-					.max_depth = 1.0,
-			},
-	}));
+	for (int i = 0; i < p_viewports.size(); i++) {
+		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
+				.type = RenderPassEncoderCommand::CommandType::SET_VIEWPORT,
+				.set_viewport = (RenderPassEncoderCommand::SetViewport){
+						.x = (float)p_viewports[i].position.x,
+						.y = (float)p_viewports[i].position.y,
+						.width = (float)p_viewports[i].size.x,
+						.height = (float)p_viewports[i].size.y,
+						.min_depth = 0.0,
+						.max_depth = 1.0,
+				},
+		}));
+	}
 }
 
 void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_cmd_buffer, VectorView<Rect2i> p_scissors) {
@@ -1900,15 +1941,17 @@ void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_c
 
 	ERR_FAIL_COND_MSG(p_scissors.size() != 1, "WebGpu cannot set multiple scissors.");
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_SCISSOR_RECT,
-			.set_scissor_rect = (RenderPassEncoderCommand::SetScissorRect){
-					.x = (uint32_t)p_scissors[0].position.x,
-					.y = (uint32_t)p_scissors[0].position.y,
-					.width = (uint32_t)p_scissors[0].position.width,
-					.height = (uint32_t)p_scissors[0].position.height,
-			},
-	}));
+	for (int i = 0; i < p_scissors.size(); i++) {
+		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
+				.type = RenderPassEncoderCommand::CommandType::SET_SCISSOR_RECT,
+				.set_scissor_rect = (RenderPassEncoderCommand::SetScissorRect){
+						.x = (uint32_t)p_scissors[i].position.x,
+						.y = (uint32_t)p_scissors[i].position.y,
+						.width = (uint32_t)p_scissors[i].size.width,
+						.height = (uint32_t)p_scissors[i].size.height,
+				},
+		}));
+	}
 }
 
 void RenderingDeviceDriverWebGpu::command_render_clear_attachments(CommandBufferID _p_cmd_buffer, VectorView<AttachmentClear> p_attachment_clears, VectorView<Rect2i> p_rects) {
@@ -2185,9 +2228,9 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	// NOTE: I'm not sure dynamic vertex state is supported.
 	if (p_vertex_format) {
-		WGPUVertexBufferLayout *vertex_buffer_layout = (WGPUVertexBufferLayout *)p_vertex_format.id;
-		vertex_state.buffers = vertex_buffer_layout;
-		vertex_state.bufferCount = 1;
+		VertexFormatInfo *format_info = (VertexFormatInfo *)p_vertex_format.id;
+		vertex_state.buffers = format_info->layouts.ptr();
+		vertex_state.bufferCount = format_info->layouts.size();
 	}
 
 	pipeline_descriptor.vertex = vertex_state;

@@ -37,6 +37,7 @@ public:
 	public:
 		WGPUSurface surface = nullptr;
 		WGPUTextureFormat format = WGPUTextureFormat_Undefined;
+		RDD::DataFormat rd_format = RDD::DataFormat::DATA_FORMAT_MAX;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		DisplayServer::VSyncMode vsync_mode = DisplayServer::VSYNC_ENABLED;

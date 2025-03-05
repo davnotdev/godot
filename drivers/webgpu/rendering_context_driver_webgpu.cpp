@@ -60,8 +60,8 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
 	wgpuInstanceRequestAdapter(instance,
-			&adapter_options,
-			adapter_callback_info);
+		&adapter_options,
+		adapter_callback_info);
 
 	// NOTE: Currently unimplemented in wgpu.
 	// wgpuInstanceProcessEvents(instance);
@@ -166,23 +166,36 @@ void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Devi
 }
 
 void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
-	// NOTE: This is not the best way of getting the format of the surface.
 	WGPUSurfaceCapabilities capabilities;
 	wgpuSurfaceGetCapabilities(surface, p_adapter, &capabilities);
-	WGPUTextureFormat surface_format = capabilities.formats[0];
-	this->format = surface_format;
+
+	// Godot only supports these swapchain formats.
+	for (uint32_t i = 0; i < capabilities.formatCount; i++) {
+		WGPUTextureFormat format = capabilities.formats[i];
+		switch (format) {
+			case WGPUTextureFormat_BGRA8Unorm:
+				this->format = format;
+				this->rd_format = RDD::DATA_FORMAT_B8G8R8A8_UNORM;
+				break;
+			case WGPUTextureFormat_RGBA8Unorm:
+				this->format = format;
+				this->rd_format = RDD::DATA_FORMAT_R8G8B8A8_UNORM;
+				break;
+			default:
+				DEV_ASSERT(false && "No supported surface formats.");
+		}
+	}
 
 	// TODO: Complete full surface config.
 	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
 		.device = p_device,
-		.format = surface_format,
+		.format = this->format,
 		.usage = WGPUTextureUsage_RenderAttachment,
 		.width = this->width,
 		.height = this->height,
 	};
 
 	wgpuSurfaceConfigure(this->surface, &surface_config);
-
 }
 
 #endif // WEBGPU_ENABLED
