@@ -576,6 +576,25 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 	}
 }
 
+WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
+	switch (p_texture_swizzle) {
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ZERO:
+			return WGPUTextureComponentSwizzle_Zero;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ONE:
+			return WGPUTextureComponentSwizzle_One;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_R:
+			return WGPUTextureComponentSwizzle_R;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_G:
+			return WGPUTextureComponentSwizzle_G;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_B:
+			return WGPUTextureComponentSwizzle_B;
+		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_A:
+			return WGPUTextureComponentSwizzle_A;
+		default:
+			return WGPUTextureComponentSwizzle_Identity;
+	}
+}
+
 ImageBufferLayoutInfo webgpu_image_buffer_layout_from_format(WGPUTextureFormat p_format) {
 	// NOTE: Please also update `webgpu_texture_format_from_rd` alongside this.
 	switch ((uint32_t)p_format) {
