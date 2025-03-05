@@ -2,7 +2,6 @@
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
 #include "core/templates/hash_map.h"
-#include "core/templates/local_vector.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 
 #include "servers/rendering/rendering_context_driver.h"
@@ -48,6 +47,7 @@ public:
 
 private:
 	struct TextureInfo {
+	public:
 		WGPUTexture texture;
 		WGPUTextureFormat format;
 		WGPUTextureUsage usage;
@@ -59,6 +59,9 @@ private:
 		bool is_using_depth;
 		uint32_t mip_level_count;
 	};
+
+	// Keep track of existing mirror textures to ensure we don't write to a deleted texture.
+	HashSet<TextureID> mirror_textures;
 
 public:
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;
@@ -84,6 +87,12 @@ public:
 	/**********************/
 	/**** VERTEX ARRAY ****/
 	/**********************/
+
+private:
+	struct VertexFormatInfo {
+		Vector<WGPUVertexBufferLayout> layouts;
+		Vector<WGPUVertexAttribute> vertex_attributes;
+	};
 
 public:
 	virtual VertexFormatID vertex_format_create(VectorView<VertexAttribute> p_vertex_attribs) override final;
