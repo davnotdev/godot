@@ -250,9 +250,10 @@ RenderingDevice::Buffer *RenderingDevice::_get_buffer_from_owner(RID p_buffer) {
 	return buffer;
 }
 
-Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, const uint8_t *p_data, size_t p_data_size, uint32_t p_required_align) {
+Error RenderingDevice::_buffer_initialize(Buffer *p_buffer, const uint8_t *p_data, size_t p_data_size) {
+	uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	uint32_t transfer_worker_offset;
-	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data_size, p_required_align, transfer_worker_offset);
+	TransferWorker *transfer_worker = _acquire_transfer_worker(p_data_size, required_align, transfer_worker_offset);
 	p_buffer->transfer_worker_index = transfer_worker->index;
 
 	{
@@ -493,7 +494,7 @@ Error RenderingDevice::buffer_update(RID p_buffer, uint32_t p_offset, uint32_t p
 	command_buffer_copies_vector.clear();
 
 	const uint8_t *src_data = reinterpret_cast<const uint8_t *>(p_data);
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	while (to_submit > 0) {
 		uint32_t block_write_offset;
 		uint32_t block_write_amount;
@@ -725,7 +726,7 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 	get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
 	get_data_request.size = p_size;
 
-	const uint32_t required_align = 32;
+	const uint32_t required_align = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
 	uint32_t block_write_offset;
 	uint32_t block_write_amount;
 	StagingRequiredAction required_action;

@@ -16,16 +16,19 @@
 
 #define WGPU_LOG
 
-static void handle_request_device(WGPURequestDeviceStatus status,
-		WGPUDevice device, WGPUStringView message,
+static void handle_request_device(WGPURequestDeviceStatus p_status,
+		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
-	*(WGPUDevice *)userdata = device;
+	if (p_status != WGPURequestDeviceStatus_Success) {
+		print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
+	}
+	*(WGPUDevice *)userdata = p_device;
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
 #ifdef WGPU_LOG
 	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
-		print_line("[WGPU]", p_message.data);
+		print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
 	},
 			nullptr);
 #endif
@@ -34,6 +37,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	context_device = context_driver->device_get(p_device_index);
 
 	WGPUFeatureName required_features[] = {
+		WGPUFeatureName_Depth32FloatStencil8,
+
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
 		(WGPUFeatureName)WGPUNativeFeature_SpirvShaderPassthrough,
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
@@ -74,7 +79,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxStorageTexturesPerShaderStage = 15,
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
 				.maxUniformBuffersPerShaderStage = 32768 + 272,
-				.maxUniformBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
+				// NOTE: This is my system's max buffer size, needed for some godot examples.
+				.maxUniformBufferBindingSize = 2147483648,
 				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
@@ -115,17 +121,17 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.version_major = 24,
 		.version_minor = 0,
 	};
-	multiview_capabilities = (MultiviewCapabilities) {
+	multiview_capabilities = (MultiviewCapabilities){
 		.is_supported = false,
 	};
-	fdm_capabilities = (FragmentDensityMapCapabilities) {
+	fdm_capabilities = (FragmentDensityMapCapabilities){
 		.attachment_supported = false,
 		.dynamic_attachment_supported = false,
 		.non_subsampled_images_supported = false,
 		.invocations_supported = false,
 		.offset_supported = false,
 	};
-	fsr_capabilities = (FragmentShadingRateCapabilities) {
+	fsr_capabilities = (FragmentShadingRateCapabilities){
 		.pipeline_supported = false,
 		.primitive_supported = false,
 		.attachment_supported = false,
@@ -158,12 +164,14 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
 		.usage = usage,
-		.size = p_size,
+		.size = STEPIFY(p_size, 256),
 		.mappedAtCreation = is_transfer_buffer,
 	};
 	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
 
 	BufferInfo *buffer_info = memnew(BufferInfo);
+	// NOTE: The ACTUAL buffer size is aligned for copying.
+	// Some calls to command_copy_buffer don't respect alignment
 	buffer_info->size = p_size;
 	buffer_info->buffer = buffer;
 	buffer_info->map_mode = (WGPUMapMode)map_mode;
@@ -184,8 +192,8 @@ void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buffer) {
-	// TODO
-	return 0;
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	return buffer_info->size;
 }
 
 static void handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView _message, void *_userdata1, void *_userdata2) {
@@ -217,6 +225,7 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	buffer_info->is_transfer_first_map = false;
 
 	wgpuBufferUnmap(buffer_info->buffer);
 }
@@ -249,12 +258,15 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
 		usage_bits |= WGPUTextureUsage_StorageBinding;
 	}
+	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
+	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
+	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_format.format);
 
 	WGPUExtent3D size;
 	size.width = p_format.width;
 	size.height = p_format.height;
-	size.depthOrArrayLayers = 1;
+	size.depthOrArrayLayers = p_format.array_layers;
 	WGPUTextureDimension dimension;
 	bool is_using_depth = false;
 
@@ -301,7 +313,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		.usage = usage,
 		.dimension = dimension,
 		.size = size,
-		.format = webgpu_texture_format_from_rd(p_format.format),
+		.format = texture_format,
 		.mipLevelCount = mip_level_count,
 		.sampleCount = sample_count,
 		.viewFormatCount = (size_t)view_formats.size(),
@@ -309,7 +321,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	};
 
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
-	WGPUTextureFormat format = webgpu_texture_format_from_rd(p_view.format);
 
 	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
 		.chain = (WGPUChainedStruct){
@@ -324,27 +335,35 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		},
 	};
 
+	// HACK: You cannot have a Depth24PlusStencil8 or Depth32FloatStencil8 texture view.
+	if (view_format == WGPUTextureFormat_Depth24PlusStencil8) {
+		view_format = WGPUTextureFormat_Depth24Plus;
+		aspect = WGPUTextureAspect_DepthOnly;
+
+	} else if (view_format == WGPUTextureFormat_Depth32FloatStencil8) {
+		view_format = WGPUTextureFormat_Depth32Float;
+		aspect = WGPUTextureAspect_DepthOnly;
+	}
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
-		.format = format,
+		.format = view_format,
 		.dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type),
 		.mipLevelCount = texture_desc.mipLevelCount,
 		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
+		.aspect = aspect,
 	};
 
 	WGPUTextureView view = wgpuTextureCreateView(texture, &texture_view_desc);
 
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
-	texture_info->format = format;
-	texture_info->usage = usage;
-	texture_info->is_original_texture = true;
 	texture_info->view = view;
-	texture_info->width = size.width;
-	texture_info->height = size.height;
-	texture_info->depth_or_array = size.depthOrArrayLayers;
+	texture_info->rd_texture_format = p_format.format;
+	texture_info->texture_desc = texture_desc;
+	texture_info->texture_view_desc = texture_view_desc;
+	texture_info->is_original_texture = true;
 	texture_info->is_using_depth = is_using_depth;
-	texture_info->mip_level_count = mip_level_count;
 
 	return TextureID(texture_info);
 }
@@ -360,9 +379,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	// HACK: We need to account for the fact that some texture formats may not support the usages of the
 	// The vulkan driver does a check then unflags certain usages, but we don't have that ability.
 	// Note that on wgpu vulkan, this will fail old versions of the the api (1.0 with minimal extensions).
-	WGPUTextureUsage texture_view_usage = texture_info->usage;
+	WGPUTextureUsage texture_view_usage = texture_info->texture_desc.usage;
 	if (p_view.format == DATA_FORMAT_R8G8B8A8_SRGB) {
-		if (texture_info->usage & WGPUTextureUsage_StorageBinding) {
+		if (texture_info->texture_desc.usage & WGPUTextureUsage_StorageBinding) {
 			texture_view_usage &= (~WGPUTextureUsage_StorageBinding);
 		}
 	}
@@ -383,8 +402,8 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = webgpu_texture_format_from_rd(p_view.format),
-		.mipLevelCount = texture_info->mip_level_count,
-		.arrayLayerCount = texture_info->is_using_depth ? 1 : texture_info->depth_or_array,
+		.mipLevelCount = texture_info->texture_view_desc.mipLevelCount,
+		.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount,
 		.usage = texture_view_usage,
 	};
 
@@ -394,6 +413,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	*new_texture_info = *texture_info;
 	new_texture_info->view = view;
 	new_texture_info->is_original_texture = false;
+	new_texture_info->texture_view_desc = texture_view_desc;
 
 	return TextureID(new_texture_info);
 }
@@ -414,13 +434,17 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		},
 	};
 
+	WGPUTextureFormat format = webgpu_texture_format_from_rd(p_view.format);
+	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
-		.format = webgpu_texture_format_from_rd(p_view.format),
+		.format = format,
+		.dimension = texture_info->texture_view_desc.dimension,
 		.baseMipLevel = p_mipmap,
 		.mipLevelCount = p_mipmaps,
 		.baseArrayLayer = p_layer,
 		.arrayLayerCount = p_layers,
+		.aspect = aspect,
 	};
 
 	switch (p_slice_type) {
@@ -431,7 +455,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 			texture_view_desc.dimension = WGPUTextureViewDimension_Cube;
 			break;
 		case RenderingDeviceCommons::TEXTURE_SLICE_3D:
-			texture_view_desc.dimension = WGPUTextureViewDimension_2D;
+			texture_view_desc.dimension = WGPUTextureViewDimension_3D;
 			break;
 		case RenderingDeviceCommons::TEXTURE_SLICE_2D_ARRAY:
 			texture_view_desc.dimension = WGPUTextureViewDimension_2DArray;
@@ -446,6 +470,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	*new_texture_info = *texture_info;
 	new_texture_info->view = view;
 	new_texture_info->is_original_texture = false;
+	new_texture_info->texture_view_desc = texture_view_desc;
 
 	return TextureID(new_texture_info);
 }
@@ -464,7 +489,19 @@ uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_te
 	return 1;
 }
 
-void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) {}
+void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) {
+	TextureInfo *texture_info = (TextureInfo *)p_texture.id;
+
+	uint32_t block_size = webgpu_texture_format_block_copy_size(texture_info->texture_desc.format, webgpu_texture_aspect_from_rd((TextureAspectBits)(1 << p_subresource.aspect)));
+
+	// TODO: Account for mipmaps and maybe compressed formats too.
+	r_layout->offset = 0;
+	r_layout->row_pitch = STEPIFY(block_size * texture_info->texture_desc.size.width, 256);
+	r_layout->size = r_layout->row_pitch * texture_info->texture_desc.size.height * texture_info->texture_desc.size.depthOrArrayLayers;
+	r_layout->depth_pitch = r_layout->size / texture_info->texture_desc.size.depthOrArrayLayers;
+	r_layout->layer_pitch = r_layout->size / texture_info->texture_desc.size.depthOrArrayLayers;
+}
+
 uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
 	return nullptr;
 }
@@ -475,7 +512,7 @@ BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::t
 	BitField<RDD::TextureUsageBits> supported = INT64_MAX;
 
 	// HACK: Here are the formats we dislike.
-	if (p_format == DATA_FORMAT_ASTC_4x4_SRGB_BLOCK) {
+	if (p_format == DATA_FORMAT_ASTC_4x4_SRGB_BLOCK || p_format == DATA_FORMAT_R32G32B32_SFLOAT || p_format == DATA_FORMAT_BC1_RGB_UNORM_BLOCK) {
 		return 0;
 	}
 
@@ -946,7 +983,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	for (uint32_t i = 0; i < spirv.size(); i++) {
 		smolv::ByteArray smolv;
 		if (!smolv::Encode(spirv[i].spirv.ptr(), spirv[i].spirv.size(), smolv, strip_debug ? smolv::kEncodeFlagStripDebugInfo : 0)) {
-			ERR_FAIL_V_MSG(Vector<uint8_t>(), "Error compressing shader stage :" + String(SHADER_STAGE_NAMES[spirv[i].shader_stage]));
+			ERR_FAIL_V_MSG(Vector<uint8_t>(), "Error compressing shader stage :" + String::utf8(SHADER_STAGE_NAMES[spirv[i].shader_stage]));
 		} else {
 			smolv_size.push_back(smolv.size());
 			// zstd.
@@ -1101,7 +1138,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
 
-	for (uint32_t i = 0; i < binary_data.set_count; i++) {
+	for (uint32_t set_idx = 0; set_idx < binary_data.set_count; set_idx++) {
 		ERR_FAIL_COND_V(read_offset + sizeof(uint32_t) >= binsize, ShaderID());
 		uint32_t binding_count = decode_uint32(binptr + read_offset);
 		read_offset += sizeof(uint32_t);
@@ -1159,7 +1196,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.multisampled = info.texture_is_multisample,
 					};
 
-					bind_group_layout_entries.write[i].push_back(texture_layout_entry);
+					bind_group_layout_entries.write[set_idx].push_back(texture_layout_entry);
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Comparison
 					};
@@ -1235,8 +1272,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				}
 			}
 
-			r_shader_desc.uniform_sets.write[i].push_back(info);
-			bind_group_layout_entries.write[i].push_back(layout_entry);
+			r_shader_desc.uniform_sets.write[set_idx].push_back(info);
+			bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 		}
 
 		read_offset += binding_size;
@@ -1252,10 +1289,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		sc.constant_id = src_sc.constant_id;
 		sc.int_value = src_sc.int_value;
 		sc.stages = src_sc.stage_flags;
-		sc.name = String((char *)src_sc.value_name);
+		sc.name = String::utf8((char *)src_sc.value_name);
 		r_shader_desc.specialization_constants.write[i] = sc;
 
-		shader_info->override_keys[sc.constant_id] = sc.name;
+		shader_info->override_keys[sc.constant_id] = String::utf8((char *)src_sc.value_name);
 
 		read_offset += sizeof(ShaderBinary::SpecializationConstant);
 	}
@@ -1293,7 +1330,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		uint32_t spirv_size = smolv::GetDecodedBufferSize(src_smolv, smolv_size);
 		spirv.resize(spirv_size);
 		if (!smolv::Decode(src_smolv, smolv_size, spirv.ptrw(), spirv_size)) {
-			ERR_FAIL_V_MSG(ShaderID(), "Malformed smolv input uncompressing shader stage:" + String(SHADER_STAGE_NAMES[stage]));
+			ERR_FAIL_V_MSG(ShaderID(), "Malformed smolv input uncompressing shader stage:" + String::utf8(SHADER_STAGE_NAMES[stage]));
 		}
 
 		r_shader_desc.stages.set(i, ShaderStage(stage));
@@ -1338,10 +1375,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	}
 
 	DEV_ASSERT((uint32_t)vk_set_bindings.size() == binary_data.set_count);
-	for (uint32_t i = 0; i < binary_data.set_count; i++) {
+	for (uint32_t set_idx = 0; set_idx < binary_data.set_count; set_idx++) {
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
-			.entryCount = (size_t)bind_group_layout_entries[i].size(),
-			.entries = bind_group_layout_entries[i].ptr(),
+			.entryCount = (size_t)bind_group_layout_entries[set_idx].size(),
+			.entries = bind_group_layout_entries[set_idx].ptr(),
 		};
 
 		WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
@@ -1400,8 +1437,8 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 
 	Vector<WGPUBindGroupEntry> entries;
 
+	uint32_t binding_offset = 0;
 	for (int i = 0; i < p_uniforms.size(); i++) {
-		uint32_t binding_offset = 0;
 		const BoundUniform &uniform = p_uniforms[i];
 
 		switch (uniform.type) {
@@ -1567,6 +1604,10 @@ void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buf
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
 	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
+
+	if (buffer_info->is_transfer_first_map) {
+		this->buffer_unmap(p_buffer);
+	}
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {
@@ -1579,7 +1620,11 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 
 	for (int i = 0; i < p_regions.size(); i++) {
 		BufferCopyRegion region = p_regions[i];
-		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, region.size);
+		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 256));
+	}
+
+	if (dst_buffer_info->is_transfer_first_map) {
+		this->buffer_unmap(p_dst_buffer);
 	}
 }
 
@@ -1639,16 +1684,18 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	TextureInfo *dst_texture_info = (TextureInfo *)p_dst_texture.id;
 
+	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(dst_texture_info->texture_view_desc.format);
+
 	for (int i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];
 
-		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(dst_texture_info->format);
+		uint32_t block_copy_size = webgpu_texture_format_block_copy_size(dst_texture_info->texture_desc.format, dst_texture_info->texture_view_desc.aspect);
 
 		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
 			.layout = (WGPUTexelCopyBufferLayout){
 					.offset = region.buffer_offset,
-					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
-					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
+					.bytesPerRow = ((region.texture_region_size.x * block_copy_size) / block_dimensions.block_dim_x + 255) & ~255,
+					.rowsPerImage = region.texture_region_size.z > 1 ? region.texture_region_size.y / block_dimensions.block_dim_y : WGPU_COPY_STRIDE_UNDEFINED,
 			},
 			.buffer = src_buffer_info->buffer,
 		};
@@ -1671,6 +1718,10 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
 	}
+
+	if (src_buffer_info->is_transfer_first_map) {
+		this->buffer_unmap(p_src_buffer);
+	}
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID p_cmd_buffer, TextureID p_src_texture, TextureLayout p_src_texture_layout, BufferID p_dst_buffer, VectorView<BufferTextureCopyRegion> p_regions) {
@@ -1680,10 +1731,13 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 
 	TextureInfo *src_texture_info = (TextureInfo *)p_src_texture.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
+
+	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(src_texture_info->texture_view_desc.format);
+
 	for (int i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];
 
-		ImageBufferLayoutInfo layout_info = webgpu_image_buffer_layout_from_format(src_texture_info->format);
+		uint32_t block_copy_size = webgpu_texture_format_block_copy_size(src_texture_info->texture_desc.format, src_texture_info->texture_view_desc.aspect);
 
 		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = src_texture_info->texture,
@@ -1699,8 +1753,9 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
 			.layout = (WGPUTexelCopyBufferLayout){
 					.offset = region.buffer_offset,
-					.bytesPerRow = (region.texture_region_size.x * layout_info.bytes_per_block + 255) & ~255,
-					.rowsPerImage = (uint32_t)(layout_info.pixels_per_block_y != 1 ? region.texture_region_size.y / layout_info.pixels_per_block_y : WGPU_COPY_STRIDE_UNDEFINED),
+					.bytesPerRow = ((region.texture_region_size.x * block_copy_size) / block_dimensions.block_dim_x + 255) & ~255,
+					.rowsPerImage = region.texture_region_size.z > 1 ? region.texture_region_size.y / block_dimensions.block_dim_y : WGPU_COPY_STRIDE_UNDEFINED,
+
 			},
 			.buffer = dst_buffer_info->buffer,
 		};
@@ -1712,6 +1767,10 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 		};
 
 		wgpuCommandEncoderCopyTextureToBuffer(command_buffer_info->encoder, &cp_texture, &cp_buffer, &cp_size);
+	}
+
+	if (dst_buffer_info->is_transfer_first_map) {
+		this->buffer_unmap(p_dst_buffer);
 	}
 }
 
@@ -1789,6 +1848,12 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 			.store_op = webgpu_store_op_from_rd(attachment.store_op),
 			.stencil_load_op = webgpu_load_op_from_rd(attachment.stencil_load_op),
 			.stencil_store_op = webgpu_store_op_from_rd(attachment.stencil_store_op),
+			.is_depth_stencil =
+					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+			.is_depth_stencil_read_only =
+					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+
 		};
 		render_pass_info->attachments.push_back(attachment_info);
 	}
@@ -1817,50 +1882,67 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
 
 	WGPUTextureView maybe_surface_texture_view = nullptr;
+	Pair<WGPURenderPassDepthStencilAttachment, bool> maybe_depth_stencil_attachment = Pair((WGPURenderPassDepthStencilAttachment){}, false);
+
 	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
 		RenderPassAttachmentInfo attachment = render_pass_info->attachments[i];
 
-		WGPUTextureView view;
-		if (framebuffer_info->maybe_swapchain) {
-			SwapChainInfo *swapchain_info = (SwapChainInfo *)framebuffer_info->maybe_swapchain.id;
-			RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
-
-			DEV_ASSERT(render_pass_info.attachments.size() == 0);
-
-			WGPUSurfaceTexture surface_texture;
-			wgpuSurfaceGetCurrentTexture(surface->surface, &surface_texture);
-
-			WGPUTextureView surface_texture_view = wgpuTextureCreateView(surface_texture.texture, nullptr);
-			maybe_surface_texture_view = surface_texture_view;
-
-			view = surface_texture_view;
-		} else {
+		if (attachment.is_depth_stencil) {
 			TextureID attachment_texture_id = framebuffer_info->attachments[i];
-
 			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
-			view = attachment_texture->view;
+			maybe_depth_stencil_attachment.first = (WGPURenderPassDepthStencilAttachment){
+				.view = attachment_texture->view,
+				.depthLoadOp = attachment.load_op,
+				.depthStoreOp = attachment.store_op,
+				.depthClearValue = p_clear_values[i].depth,
+				.depthReadOnly = attachment.is_depth_stencil_read_only,
+				.stencilLoadOp = attachment.stencil_load_op,
+				.stencilStoreOp = attachment.stencil_store_op,
+				.stencilClearValue = p_clear_values[i].stencil,
+				.stencilReadOnly = attachment.is_depth_stencil_read_only,
+			};
+			maybe_depth_stencil_attachment.second = true;
+		} else {
+			WGPUTextureView view;
+			if (framebuffer_info->maybe_swapchain) {
+				SwapChainInfo *swapchain_info = (SwapChainInfo *)framebuffer_info->maybe_swapchain.id;
+				RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
+				DEV_ASSERT(render_pass_info.attachments.size() == 0);
+
+				WGPUSurfaceTexture surface_texture;
+				wgpuSurfaceGetCurrentTexture(surface->surface, &surface_texture);
+
+				WGPUTextureView surface_texture_view = wgpuTextureCreateView(surface_texture.texture, nullptr);
+				maybe_surface_texture_view = surface_texture_view;
+
+				view = surface_texture_view;
+			} else {
+				TextureID attachment_texture_id = framebuffer_info->attachments[i];
+				TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
+				view = attachment_texture->view;
+			}
+
+			color_attachments.push_back((WGPURenderPassColorAttachment){
+					.view = view,
+					.loadOp = attachment.load_op,
+					.storeOp = attachment.store_op,
+					.clearValue = (WGPUColor){
+							.r = p_clear_values[i].color.r,
+							.g = p_clear_values[i].color.g,
+							.b = p_clear_values[i].color.b,
+							.a = p_clear_values[i].color.a,
+					},
+			});
 		}
 
-		color_attachments.push_back((WGPURenderPassColorAttachment){
-				.view = view,
-				.loadOp = attachment.load_op,
-				.storeOp = attachment.store_op,
-				.clearValue = (WGPUColor){
-						.r = p_clear_values[i].color.r,
-						.g = p_clear_values[i].color.g,
-						.b = p_clear_values[i].color.b,
-						.a = p_clear_values[i].color.a,
-				},
-		});
+		command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
+			.color_attachments = color_attachments,
+			.depth_stencil_attachment = maybe_depth_stencil_attachment,
+			.commands = Vector<RenderPassEncoderCommand>({}),
+			.maybe_surface_texture_view = maybe_surface_texture_view,
+		};
+		command_buffer_info->is_render_pass_active = true;
 	}
-
-	command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
-		.color_attachments = color_attachments,
-		.depth_stencil_attachment = Pair((WGPURenderPassDepthStencilAttachment){}, false),
-		.commands = Vector<RenderPassEncoderCommand>({}),
-		.maybe_surface_texture_view = maybe_surface_texture_view,
-	};
-	command_buffer_info->is_render_pass_active = true;
 }
 
 void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_buffer) {
@@ -2249,12 +2331,14 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	// pipeline_descriptor.vertex
 	WGPUConstantEntry *constants = ALLOCA_ARRAY(WGPUConstantEntry, p_specialization_constants.size());
+	Vector<CharString> constant_keys;
+	constant_keys.resize(p_specialization_constants.size());
 
 	for (int i = 0; i < p_specialization_constants.size(); i++) {
 		PipelineSpecializationConstant constant = p_specialization_constants[i];
-		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
+		constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
 		WGPUConstantEntry entry = (WGPUConstantEntry){
-			.key = { key_name.ptr(), WGPU_STRLEN },
+			.key = { constant_keys[i].get_data(), WGPU_STRLEN },
 		};
 
 		if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
@@ -2544,11 +2628,13 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 	ERR_FAIL_COND_V_MSG(!shader_info->compute_shader, PipelineID(), "Compute pipeline shader null.");
 
 	Vector<WGPUConstantEntry> constants;
+	Vector<CharString> constant_keys;
+	constant_keys.resize(p_specialization_constants.size());
 	for (int i = 0; i < p_specialization_constants.size(); i++) {
 		PipelineSpecializationConstant constant = p_specialization_constants[i];
-		CharString key_name = shader_info->override_keys[constant.constant_id].ascii();
+		constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
 		WGPUConstantEntry entry = (WGPUConstantEntry){
-			.key = { key_name.ptr(), WGPU_STRLEN },
+			.key = { constant_keys[i].get_data(), WGPU_STRLEN },
 		};
 
 		if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
@@ -2684,7 +2770,7 @@ const RenderingDeviceDriver::FragmentShadingRateCapabilities &RenderingDeviceDri
 
 const RenderingDeviceDriver::FragmentDensityMapCapabilities &RenderingDeviceDriverWebGpu::get_fragment_density_map_capabilities() {
 	return fdm_capabilities;
-};
+}
 
 String RenderingDeviceDriverWebGpu::get_api_name() const {
 	return "WebGpu";

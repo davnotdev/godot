@@ -192,7 +192,7 @@ private:
 	};
 
 	Buffer *_get_buffer_from_owner(RID p_buffer);
-	Error _buffer_initialize(Buffer *p_buffer, const uint8_t *p_data, size_t p_data_size, uint32_t p_required_align = 32);
+	Error _buffer_initialize(Buffer *p_buffer, const uint8_t *p_data, size_t p_data_size);
 
 	void update_perf_report();
 	// Flag for batching descriptor sets.
