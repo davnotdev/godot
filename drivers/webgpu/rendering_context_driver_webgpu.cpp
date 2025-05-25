@@ -182,7 +182,7 @@ void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGP
 				this->rd_format = RDD::DATA_FORMAT_R8G8B8A8_UNORM;
 				break;
 			default:
-				DEV_ASSERT(false && "No supported surface formats.");
+				break;
 		}
 	}
 

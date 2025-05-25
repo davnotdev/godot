@@ -58,12 +58,12 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	uint32_t magic_number = in_spv[SPV_HEADER_MAGIC_NUM_OFFSET];
 
 	Vector<uint32_t> spv_header;
-	for (int i = 0; i < SPV_HEADER_LENGTH; i++) {
+	for (uint32_t i = 0; i < SPV_HEADER_LENGTH; i++) {
 		spv_header.push_back(in_spv[i]);
 	}
 
 	Vector<uint32_t> spv;
-	for (int i = SPV_HEADER_LENGTH; i < in_spv.size(); i++) {
+	for (uint32_t i = SPV_HEADER_LENGTH; i < in_spv.size(); i++) {
 		spv.push_back(in_spv[i]);
 	}
 
@@ -195,10 +195,10 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	// 3. OpTypePointer
 	Vector<Pair<uint32_t, uint32_t>> type_pointer_res_ids;
 
-	for (int i = 0; i < op_type_pointer_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_type_pointer_idxs.size(); i++) {
 		uint32_t tp_idx = op_type_pointer_idxs[i];
 
-		for (int j = 0; j < op_type_sampled_image_idxs.size(); ++j) {
+		for (uint32_t j = 0; j < op_type_sampled_image_idxs.size(); ++j) {
 			uint32_t ts_idx = op_type_sampled_image_idxs[j];
 
 			// - Find OpTypePointers that ref OpTypeSampledImage
@@ -220,10 +220,10 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	Vector<Pair<Pair<uint32_t, uint32_t>, uint32_t>>
 			variable_res_ids;
 
-	for (int i = 0; i < op_variable_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_variable_idxs.size(); i++) {
 		uint32_t v_idx = op_variable_idxs[i];
 
-		for (int j = 0; j < type_pointer_res_ids.size(); ++j) {
+		for (uint32_t j = 0; j < type_pointer_res_ids.size(); ++j) {
 			uint32_t tp_res_id = type_pointer_res_ids[j].first;
 			uint32_t underlying_image_id = type_pointer_res_ids[j].second;
 
@@ -258,7 +258,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	HashSet<uint32_t> descriptor_sets_to_correct;
 
 	// - Find the current binding and descriptor set pair for each combimgsamp
-	for (int i = 0; i < op_decorate_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_decorate_idxs.size(); i++) {
 		uint32_t d_idx = op_decorate_idxs[i];
 
 		for (const auto &[v_res_id_and_sampler_v_res_id, _] : variable_res_ids) {
@@ -344,7 +344,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	}
 
 	// 6. OpTypeFunction
-	for (int i = 0; i < op_type_function_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_type_function_idxs.size(); i++) {
 		uint32_t tf_idx = op_type_function_idxs[i];
 
 		// - Append a sampler OpTypePointer to OpTypeFunctions when an underlying image OpTypePointer
@@ -352,7 +352,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		for (const auto &[image_type_pointer, _] : type_pointer_res_ids) {
 			uint16_t word_count = hiword(spv[tf_idx]);
 
-			for (int j = 0; j < word_count - 3; ++j) {
+			for (uint32_t j = 0; j < word_count - 3; ++j) {
 				uint32_t ty_idx = tf_idx + 3 + j;
 
 				if (spv[ty_idx] == image_type_pointer) {
@@ -367,7 +367,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	// 7. OpFunctionParameter
 	HashMap<uint32_t, Pair<uint32_t, uint32_t>> parameter_res_ids;
 
-	for (int i = 0; i < op_function_parameter_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_function_parameter_idxs.size(); i++) {
 		uint32_t fp_idx = op_function_parameter_idxs[i];
 
 		for (const auto &[image_type_pointer, underlying_image_id] : type_pointer_res_ids) {
@@ -393,10 +393,10 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	}
 
 	// 8. OpLoad
-	for (int i = 0; i < op_loads_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_loads_idxs.size(); i++) {
 		uint32_t l_idx = op_loads_idxs[i];
 
-		for (int j = 0; j < variable_res_ids.size(); ++j) {
+		for (uint32_t j = 0; j < variable_res_ids.size(); ++j) {
 			uint32_t v_res_id = variable_res_ids[j].first.first;
 			uint32_t sampler_v_res_id = variable_res_ids[j].first.second;
 			uint32_t underlying_image_id = variable_res_ids[j].second;
@@ -431,7 +431,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 	}
 
 	// TODO: This code is not very DRY!
-	for (int i = 0; i < op_loads_idxs.size(); i++) {
+	for (uint32_t i = 0; i < op_loads_idxs.size(); i++) {
 		uint32_t l_idx = op_loads_idxs[i];
 
 		for (const auto &[image_res_id, sampler_data] : parameter_res_ids) {
@@ -556,7 +556,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			const InstructionInsert &new_instruction = *it.instruction;
 			uint16_t offset = hiword(spv[new_instruction.previous_spv_idx]);
 
-			for (int i = 0; i < new_instruction.instruction.size(); i++) {
+			for (uint32_t i = 0; i < new_instruction.instruction.size(); i++) {
 				new_spv.insert(new_instruction.previous_spv_idx +
 								offset + i,
 						new_instruction.instruction[i]);
@@ -631,7 +631,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 			if (binding == static_cast<uint32_t>(prev_binding)) {
 				increment += 1;
 
-				if (prev_id <= this_id) {
+				if (prev_id <= (int32_t)this_id) {
 					new_spv[static_cast<uint32_t>(prev_d_idx) + 3];
 					new_spv.write[d_idx + 3] -= 1;
 				}
@@ -652,7 +652,7 @@ Vector<uint32_t> combimgsampsplitter(const Vector<uint32_t> &in_spv) {
 		uint16_t instruction = loword(op);
 
 		if (instruction == SPV_INSTRUCTION_OP_NOP) {
-			for (int i = 0; i < word_count; i++) {
+			for (uint32_t i = 0; i < word_count; i++) {
 				new_spv.remove_at(i_idx);
 			}
 		} else {

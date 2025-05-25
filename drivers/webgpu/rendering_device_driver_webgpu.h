@@ -418,7 +418,7 @@ private:
 		};
 
 		struct SpecializationConstant {
-			static const size_t OVERRIDE_CONSTANT_STRLEN = 48;
+			static const uint32_t OVERRIDE_CONSTANT_STRLEN = 48;
 			// NOTE: This is based on the current longest override variable at 39 characters.
 			// char[48] = uint32_t[12]
 			char value_name[OVERRIDE_CONSTANT_STRLEN] = { 0 };
