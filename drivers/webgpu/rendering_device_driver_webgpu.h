@@ -53,15 +53,16 @@ private:
 	struct TextureInfo {
 	public:
 		WGPUTexture texture;
-		WGPUTextureFormat format;
-		WGPUTextureUsage usage;
-		bool is_original_texture;
 		WGPUTextureView view;
-		uint32_t width;
-		uint32_t height;
-		uint32_t depth_or_array;
+
+		// TODO: nextInChain is not preserved.
+		WGPUTextureDescriptor texture_desc;
+		WGPUTextureViewDescriptor texture_view_desc;
+
+		RDD::DataFormat rd_texture_format;
+
+		bool is_original_texture;
 		bool is_using_depth;
-		uint32_t mip_level_count;
 	};
 
 	// Keep track of existing mirror textures to ensure we don't write to a deleted texture.
@@ -341,7 +342,6 @@ private:
 		};
 
 		Vector<uint8_t> push_constant_data;
-
 	};
 
 	struct ComputePassEncoderInfo {
@@ -349,14 +349,13 @@ private:
 	};
 
 	struct CommandBufferInfo {
-		WGPUCommandEncoder encoder;
-		bool is_render_pass_active;
-		RenderPassEncoderInfo active_render_pass_info;
-		ComputePassEncoderInfo active_compute_pass_info;
+		WGPUCommandEncoder encoder = nullptr;
+		bool is_render_pass_active = false;
+		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
+		ComputePassEncoderInfo active_compute_pass_info = ComputePassEncoderInfo();
 	};
 
 public:
-
 	virtual CommandBufferID command_buffer_create(CommandPoolID p_cmd_pool) override final;
 	virtual bool command_buffer_begin(CommandBufferID p_cmd_buffer) override final;
 	virtual bool command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) override final;
@@ -520,6 +519,8 @@ private:
 		WGPUStoreOp store_op;
 		WGPULoadOp stencil_load_op;
 		WGPUStoreOp stencil_store_op;
+		bool is_depth_stencil;
+		bool is_depth_stencil_read_only;
 	};
 
 	struct RenderPassInfo {
