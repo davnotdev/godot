@@ -180,7 +180,7 @@ private:
 	};
 
 	Buffer *_get_buffer_from_owner(RID p_buffer);
-	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data, uint32_t p_required_align = 32);
+	Error _buffer_initialize(Buffer *p_buffer, Span<uint8_t> p_data);
 
 	void update_perf_report();
 	// Flag for batching descriptor sets.
