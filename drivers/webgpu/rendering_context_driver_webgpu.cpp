@@ -20,7 +20,7 @@ static void handle_request_adapter(WGPURequestAdapterStatus status,
 
 	RenderingContextDriver::Device device;
 	device.name = String(info.device.data);
-	device.vendor = (RenderingContextDriver::Vendor)info.vendorID;
+	device.vendor = info.vendorID;
 	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
 
 	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)userdata;

@@ -569,9 +569,11 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 			return UINT64_MAX;
 		case RenderingDeviceCommons::LIMIT_SUBGROUP_OPERATIONS:
 			return UINT64_MAX;
-		case RenderingDeviceCommons::LIMIT_VRS_TEXEL_WIDTH:
+		case RenderingDeviceCommons::LIMIT_METALFX_TEMPORAL_SCALER_MIN_SCALE:
 			return UINT64_MAX;
-		case RenderingDeviceCommons::LIMIT_VRS_TEXEL_HEIGHT:
+		case RenderingDeviceCommons::LIMIT_METALFX_TEMPORAL_SCALER_MAX_SCALE:
+			return UINT64_MAX;
+		case RenderingDeviceCommons::LIMIT_MAX_SHADER_VARYINGS:
 			return UINT64_MAX;
 	}
 }
