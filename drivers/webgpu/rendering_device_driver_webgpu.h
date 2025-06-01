@@ -448,6 +448,7 @@ private:
 		WGPU_NULLABLE WGPUShaderModule compute_shader;
 
 		WGPUShaderStage stage_flags;
+		WGPUShaderStage push_constant_stage_flags;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		// Maps `constant_id` to override key name
