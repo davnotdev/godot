@@ -335,11 +335,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		},
 	};
 
-	// HACK: You cannot have a Depth24PlusStencil8 or Depth32FloatStencil8 texture view.
+	// HACK: You cannot have a Depth24PlusStencil8 or Depth32FloatStencil8 texture view be bound.
 	if (view_format == WGPUTextureFormat_Depth24PlusStencil8) {
 		view_format = WGPUTextureFormat_Depth24Plus;
 		aspect = WGPUTextureAspect_DepthOnly;
-
 	} else if (view_format == WGPUTextureFormat_Depth32FloatStencil8) {
 		view_format = WGPUTextureFormat_Depth32Float;
 		aspect = WGPUTextureAspect_DepthOnly;
@@ -1397,6 +1396,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			.end = binary_data.push_constant_size,
 		};
 	}
+	shader_info->push_constant_stage_flags = binary_data.push_constant_stages;
 
 	WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
 		.chain = (WGPUChainedStruct){
@@ -1794,18 +1794,18 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 	data.resize(byte_size);
 	memcpy(data.ptrw(), p_data.ptr(), byte_size);
 
-	if (shader_info->stage_flags & WGPUShaderStage_Compute) {
+	if (shader_info->push_constant_stage_flags & WGPUShaderStage_Compute) {
 		command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 				.type = ComputePassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
 				.set_push_constants = (ComputePassEncoderCommand::SetPushConstants){
 						.offset = p_first_index },
 				.push_constant_data = data,
 		});
-	} else if (shader_info->stage_flags & WGPUShaderStage_Vertex || shader_info->stage_flags & WGPUShaderStage_Fragment) {
+	} else if (shader_info->push_constant_stage_flags & WGPUShaderStage_Vertex || shader_info->push_constant_stage_flags & WGPUShaderStage_Fragment) {
 		command_buffer_info->active_render_pass_info.commands.push_back((RenderPassEncoderCommand){
 				.type = RenderPassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
 				.set_push_constants = (RenderPassEncoderCommand::SetPushConstants){
-						.stages = shader_info->stage_flags,
+						.stages = shader_info->push_constant_stage_flags,
 						.offset = p_first_index },
 				.push_constant_data = data });
 	}
@@ -1887,7 +1887,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
 		RenderPassAttachmentInfo attachment = render_pass_info->attachments[i];
 
-		if (attachment.is_depth_stencil) {
+		if (attachment.is_depth_stencil || attachment.is_depth_stencil_read_only) {
 			TextureID attachment_texture_id = framebuffer_info->attachments[i];
 			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
 			maybe_depth_stencil_attachment.first = (WGPURenderPassDepthStencilAttachment){
@@ -2491,9 +2491,22 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	pipeline_descriptor.primitive = primitive_state;
 
 	// pipeline_descriptor.depth_stencil
-	// HACK: This behavior isn't accurate?
-	if (p_depth_stencil_state.enable_depth_write) {
-		WGPUDepthStencilState depth_stencil_state = (WGPUDepthStencilState){
+	WGPUDepthStencilState depth_stencil_state;
+
+	// HACK: Whether a depth stencil state should be attached isn't always reported, so let's walk the render pass'
+	// attachments to double check.
+	bool use_depth = p_depth_stencil_state.enable_depth_write || p_depth_stencil_state.enable_depth_test || p_depth_stencil_state.enable_depth_range || p_depth_stencil_state.enable_stencil;
+
+	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
+		const RenderPassAttachmentInfo &attachment = render_pass_info->attachments[i];
+		if (attachment.is_depth_stencil || attachment.is_depth_stencil_read_only) {
+			use_depth = true;
+			break;
+		}
+	}
+
+	if (use_depth) {
+		depth_stencil_state = (WGPUDepthStencilState){
 			// TODO: We do not have info on depth target format.
 			.format = WGPUTextureFormat_Depth32Float,
 			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write ? WGPUOptionalBool_True : WGPUOptionalBool_False,
@@ -2781,7 +2794,10 @@ String RenderingDeviceDriverWebGpu::get_api_version() const {
 	return "v24.0.0 (wgpu)";
 }
 
-String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {}
+String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
+	// TODO: impl
+	return "webgpu";
+}
 
 const RenderingDeviceDriver::Capabilities &RenderingDeviceDriverWebGpu::get_capabilities() const {
 	return capabilties;
