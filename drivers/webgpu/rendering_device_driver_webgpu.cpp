@@ -837,13 +837,19 @@ Error RenderingDeviceDriverWebGpu::swap_chain_resize(CommandQueueID _p_cmd_queue
 	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
 
 	surface->configure(this->adapter, this->device);
+	context_driver->surface_set_needs_resize(swapchain_info->surface, false);
 
 	return OK;
 }
 
 RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) {
-	FramebufferInfo *framebuffer_info = memnew(FramebufferInfo);
+	SwapChainInfo *swapchain_info = (SwapChainInfo *)p_swap_chain.id;
+	if (context_driver->surface_get_needs_resize(swapchain_info->surface)) {
+		r_resize_required = true;
+		return FramebufferID();
+	}
 
+	FramebufferInfo *framebuffer_info = memnew(FramebufferInfo);
 	framebuffer_info->maybe_swapchain = p_swap_chain;
 
 	return FramebufferID(framebuffer_info);
@@ -1172,7 +1178,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				.chain = (WGPUChainedStruct){
 						.sType = (WGPUSType)WGPUSType_BindGroupLayoutEntryExtras,
 				},
-				.count = set_ptr[j].length
+				.count = 1
 			};
 
 			layout_entry.nextInChain = (const WGPUChainedStruct *)layout_entry_extras;
@@ -1183,6 +1189,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Comparison
 					};
+					layout_entry_extras->count = set_ptr[j].length;
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 					WGPUBindGroupLayoutEntry texture_layout_entry = layout_entry;
@@ -1199,9 +1206,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Comparison
 					};
+					// TODO: Figure our array of combined image samplers.
+
 					layout_entry.binding += 1;
 					wgpu_binding_offset += 1;
-
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
@@ -1210,6 +1218,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
+					layout_entry_extras->count = set_ptr[j].length;
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
 					WGPUStorageTextureAccess access;
@@ -1238,6 +1247,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						/* .viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type), */
 						.viewDimension = viewDimension,
 					};
+					layout_entry_extras->count = set_ptr[j].length;
 				} break;
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
@@ -1440,7 +1450,6 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 	uint32_t binding_offset = 0;
 	for (int i = 0; i < p_uniforms.size(); i++) {
 		const BoundUniform &uniform = p_uniforms[i];
-
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
 				WGPUBindGroupEntry entry = { nullptr };
@@ -2105,7 +2114,6 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 	DEV_ASSERT(command_buffer_info->is_render_pass_active != true);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
-
 	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_BIND_GROUP,
 
@@ -2426,7 +2434,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)p_specialization_constants.size(),
 		.constants = constants,
-		.targetCount = p_color_attachments.size(),
+		.targetCount = p_color_attachments.size() - render_pass_attachments_offset,
 		.targets = targets,
 	};
 	pipeline_descriptor.fragment = &fragment_state;
@@ -2495,7 +2503,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	// HACK: Whether a depth stencil state should be attached isn't always reported, so let's walk the render pass'
 	// attachments to double check.
-	bool use_depth = p_depth_stencil_state.enable_depth_write || p_depth_stencil_state.enable_depth_test || p_depth_stencil_state.enable_depth_range || p_depth_stencil_state.enable_stencil;
+	bool use_depth = p_depth_stencil_state.enable_depth_write || p_depth_stencil_state.enable_stencil;
 
 	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
 		const RenderPassAttachmentInfo &attachment = render_pass_info->attachments[i];
