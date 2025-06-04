@@ -39,16 +39,24 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 
+		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
+		// Need to implement shader translation (via naga or tint)
 		(WGPUFeatureName)WGPUNativeFeature_SpirvShaderPassthrough,
+		// Need changes in Godot (default textures use 16bit I believe)
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
+		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
+
+		// Needs SPIRV workaround
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
-		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
-		(WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
-		(WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
+
+		// Currently avoidable
+		// (WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
+		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
+		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
 
 	// NOTE: These tweaks are ONLY REQUIRED FOR FORWARD+.
@@ -1266,7 +1274,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_STORAGE_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
-						.type = WGPUBufferBindingType_Storage,
+						// TODO: Investigate this further.
+						// .type = info.writable ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
+						.type = (layout_entry.visibility & WGPUShaderStage_Vertex) ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
 					};
@@ -1997,18 +2007,22 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 				wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
 			} break;
 			case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT: {
+				CRASH_NOW_MSG("NO MULTIDRAW INDIRECT");
 				RenderPassEncoderCommand::MultiDrawIndirect data = command.multi_draw_indirect;
 				wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
 			} break;
 			case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT_COUNT: {
+				CRASH_NOW_MSG("NO MULTIDRAW INDIRECT COUNT");
 				RenderPassEncoderCommand::MultiDrawIndirectCount data = command.multi_draw_indirect_count;
 				wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
 			} break;
 			case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT: {
+				CRASH_NOW_MSG("NO MULTIDRAW INDIRECT");
 				RenderPassEncoderCommand::MultiDrawIndexedIndirect data = command.multi_draw_indexed_indirect;
 				wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
 			} break;
 			case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
+				CRASH_NOW_MSG("NO MULTIDRAW INDIRECT COUNT");
 				RenderPassEncoderCommand::MultiDrawIndexedIndirectCount data = command.multi_draw_indexed_indirect_count;
 				wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
 			} break;
