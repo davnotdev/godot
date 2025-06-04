@@ -145,8 +145,8 @@ void RenderingContextDriverWebGpu::surface_destroy(SurfaceID p_surface) {
 	memdelete(surface);
 }
 bool RenderingContextDriverWebGpu::is_debug_utils_enabled() const {
-	//  Although there is a flag to enable validation in WGPU, the spec doesn't support this.
-	//  See: https://docs.rs/wgpu/latest/wgpu/struct.InstanceFlags.html#associatedconstant.DEBUG
+	// Although there is a flag to enable validation in WGPU, the spec doesn't support this.
+	// See: https://docs.rs/wgpu/latest/wgpu/struct.InstanceFlags.html#associatedconstant.DEBUG
 	return false;
 }
 
