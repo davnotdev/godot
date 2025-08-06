@@ -27,10 +27,10 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
 #ifdef WGPU_LOG
-	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
-		print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
-	},
-			nullptr);
+	// wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
+	// 	print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
+	// },
+	// 		nullptr);
 #endif
 
 	adapter = context_driver->adapter_get(p_device_index);
@@ -223,7 +223,7 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 		};
 		wgpuBufferMapAsync(
 				buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
-		wgpuDevicePoll(device, true, nullptr);
+		// wgpuDevicePoll(device, true, nullptr);
 	} else {
 		buffer_info->is_transfer_first_map = false;
 	}
@@ -785,8 +785,8 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.index, data.bind_group, 0, nullptr);
 				} break;
 				case ComputePassEncoderCommand::CommandType::SET_PUSH_CONSTANTS: {
-					ComputePassEncoderCommand::SetPushConstants data = command.set_push_constants;
-					wgpuComputePassEncoderSetPushConstants(compute_encoder, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
+					// ComputePassEncoderCommand::SetPushConstants data = command.set_push_constants;
+					// wgpuComputePassEncoderSetPushConstants(compute_encoder, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
 
 				} break;
 				case ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS: {
@@ -1113,7 +1113,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
 	ShaderInfo *shader_info = memnew(ShaderInfo);
-	*shader_info = { };
+	*shader_info = {};
 
 	const uint8_t *binptr = p_shader_binary.ptr();
 	uint32_t binsize = p_shader_binary.size();
@@ -1367,30 +1367,30 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			.source = (const uint32_t *)stages_spirv[i].ptr(),
 		};
 
-		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSpirV(device, &shader_module_spirv_desc);
-		ERR_FAIL_COND_V(!shader_module, ShaderID());
+		// WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSpirV(device, &shader_module_spirv_desc);
+		// ERR_FAIL_COND_V(!shader_module, ShaderID());
 
-		ShaderStage stage = r_shader_desc.stages[i];
-		switch (stage) {
-			case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
-				ERR_FAIL_COND_V_MSG(shader_info->vertex_shader, ShaderID(), "More than one vertex stage in one shader.");
-				shader_info->vertex_shader = shader_module;
-				shader_info->stage_flags |= WGPUShaderStage_Vertex;
-				break;
-			case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
-				ERR_FAIL_COND_V_MSG(shader_info->fragment_shader, ShaderID(), "More than one fragment stage in one shader.");
-				shader_info->fragment_shader = shader_module;
-				shader_info->stage_flags |= WGPUShaderStage_Fragment;
-				break;
-			case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
-				ERR_FAIL_COND_V_MSG(shader_info->compute_shader, ShaderID(), "More than one compute stage in one shader.");
-				shader_info->compute_shader = shader_module;
-				shader_info->stage_flags |= WGPUShaderStage_Compute;
-				break;
-			default:
-				ERR_FAIL_V_MSG(ShaderID(), vformat("WebGpu shader stage %d not supported", stage));
-				break;
-		}
+		// ShaderStage stage = r_shader_desc.stages[i];
+		// switch (stage) {
+		// 	case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
+		// 		ERR_FAIL_COND_V_MSG(shader_info->vertex_shader, ShaderID(), "More than one vertex stage in one shader.");
+		// 		shader_info->vertex_shader = shader_module;
+		// 		shader_info->stage_flags |= WGPUShaderStage_Vertex;
+		// 		break;
+		// 	case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
+		// 		ERR_FAIL_COND_V_MSG(shader_info->fragment_shader, ShaderID(), "More than one fragment stage in one shader.");
+		// 		shader_info->fragment_shader = shader_module;
+		// 		shader_info->stage_flags |= WGPUShaderStage_Fragment;
+		// 		break;
+		// 	case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
+		// 		ERR_FAIL_COND_V_MSG(shader_info->compute_shader, ShaderID(), "More than one compute stage in one shader.");
+		// 		shader_info->compute_shader = shader_module;
+		// 		shader_info->stage_flags |= WGPUShaderStage_Compute;
+		// 		break;
+		// 	default:
+		// 		ERR_FAIL_V_MSG(ShaderID(), vformat("WebGpu shader stage %d not supported", stage));
+		// 		break;
+		// }
 	}
 
 	DEV_ASSERT((uint32_t)bind_group_layout_entries.size() == binary_data.set_count);
@@ -1487,12 +1487,12 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 				entries.push_back(entry);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				WGPUBindGroupEntry texture_entry = { };
+				WGPUBindGroupEntry texture_entry = {};
 				texture_entry.binding = uniform.binding + binding_offset;
 
 				binding_offset += 1;
 
-				WGPUBindGroupEntry sampler_entry = { };
+				WGPUBindGroupEntry sampler_entry = {};
 				sampler_entry.binding = uniform.binding + binding_offset;
 
 				if (uniform.ids.size() == 2) {
@@ -2038,8 +2038,8 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 				wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
 			} break;
 			case RenderPassEncoderCommand::CommandType::SET_PUSH_CONSTANTS: {
-				const RenderPassEncoderCommand::SetPushConstants &data = command.set_push_constants;
-				wgpuRenderPassEncoderSetPushConstants(render_encoder, data.stages, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
+				// const RenderPassEncoderCommand::SetPushConstants &data = command.set_push_constants;
+				// wgpuRenderPassEncoderSetPushConstants(render_encoder, data.stages, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
 			} break;
 		}
 	}
@@ -2561,7 +2561,8 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	// pipeline_descriptor.multisample
 	// NOTE: In a future version of wgpu, multisample.mask will be `u64`.
-	static_assert(sizeof(WGPUMultisampleState) == 24);
+	// HACK: Come back to this.
+	// static_assert(sizeof(WGPUMultisampleState) == 24);
 	// TODO: Assert that p_format.samples follows this behavior.
 	uint32_t sample_count = pow(2, (uint32_t)p_multisample_state.sample_count);
 	pipeline_descriptor.multisample = (WGPUMultisampleState){

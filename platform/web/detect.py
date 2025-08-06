@@ -59,6 +59,7 @@ def get_opts():
             False,
         ),
         BoolVariable("wasm_simd", "Use WebAssembly SIMD to improve CPU performance", True),
+        BoolVariable("use_webgpu", "Use WebGPU", False),
     ]
 
 
@@ -223,7 +224,7 @@ def configure(env: "SConsEnvironment"):
     env.Prepend(CPPPATH=["#platform/web"])
     env.Append(CPPDEFINES=["WEB_ENABLED", "UNIX_ENABLED", "UNIX_SOCKET_UNAVAILABLE"])
 
-    if env["opengl3"]:
+    if env["opengl3"] and not env["use_webgpu"]:
         env.AppendUnique(CPPDEFINES=["GLES3_ENABLED"])
         # This setting just makes WebGL 2 APIs available, it does NOT disable WebGL 1.
         env.Append(LINKFLAGS=["-sMAX_WEBGL_VERSION=2"])
@@ -232,6 +233,10 @@ def configure(env: "SConsEnvironment"):
         # Disables the use of *glGetProcAddress() which is inefficient.
         # See https://emscripten.org/docs/tools_reference/settings_reference.html#gl-enable-get-proc-address
         env.Append(LINKFLAGS=["-sGL_ENABLE_GET_PROC_ADDRESS=0"])
+
+    if env["webgpu"] and env["use_webgpu"]:
+        env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+        env.Append(LINKFLAGS=["-sUSE_WEBGPU"])
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])

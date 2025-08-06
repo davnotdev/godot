@@ -971,6 +971,9 @@ Vector<String> DisplayServerWeb::get_rendering_drivers_func() {
 #ifdef GLES3_ENABLED
 	drivers.push_back("opengl3");
 #endif
+#ifdef WEBGPU_ENABLED
+	drivers.push_back("webgpu");
+#endif
 	return drivers;
 }
 
@@ -1096,7 +1099,7 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, WindowMode 
 	// Expose method for requesting quit.
 	godot_js_os_request_quit_cb(request_quit_callback);
 
-#ifdef GLES3_ENABLED
+#if defined(GLES3_ENABLED)
 	bool webgl2_inited = false;
 	if (godot_js_display_has_webgl(2)) {
 		EmscriptenWebGLContextAttributes attributes;
@@ -1122,6 +1125,12 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, WindowMode 
 				"Unable to initialize WebGL 2 video driver");
 		RasterizerDummy::make_current();
 	}
+#elif defined(WEBGPU_ENABLED)
+	rendering_context = memnew(RenderingContextDriverWebGpu);
+	rendering_context->initialize();
+
+	rendering_device = rendering_context->driver_create();
+	rendering_device->initialize(0, 2);
 #else
 	RasterizerDummy::make_current();
 #endif

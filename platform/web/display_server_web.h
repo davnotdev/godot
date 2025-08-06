@@ -34,6 +34,11 @@
 
 #include "godot_js.h"
 
+#ifdef WEBGPU_ENABLED
+#include "drivers/webgpu/rendering_device_driver_webgpu.h"
+#include "drivers/webgpu/rendering_context_driver_webgpu.h"
+#endif
+
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
@@ -56,6 +61,11 @@ private:
 
 #ifdef GLES3_ENABLED
 	EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webgl_ctx = 0;
+#endif
+
+#ifdef RD_ENABLED
+	RenderingContextDriver* rendering_context;
+	RenderingDeviceDriver* rendering_device;
 #endif
 
 	HashMap<int, CharString> utterance_ids;
