@@ -20,5 +20,5 @@ env.drivers_sources += driver_obj
 # Needed to force rebuilding the driver files when the thirdparty code is updated.
 env.Depends(driver_obj, thirdparty_obj)
 
-env.Prepend(LIBS=["wgpu_native"])
+# env.Prepend(LIBS=["wgpu_native"])
 env.Prepend(LIBPATH=[thirdparty_dir])

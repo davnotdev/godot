@@ -39,6 +39,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 
+		/*
 		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
 		// Need to implement shader translation (via naga or tint)
@@ -52,6 +53,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
+		*/
 
 		// Currently avoidable
 		// (WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
@@ -71,24 +73,29 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	WGPULimits required_limits =
 			(WGPULimits){
-				.nextInChain = (WGPUChainedStructOut *)&required_native_limits,
+				// .nextInChain = (WGPUChainedStructOut *)&required_native_limits,
 				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureArrayLayers = WGPU_LIMIT_U32_UNDEFINED,
-				.maxBindGroups = 5,
+				.maxBindGroups = WGPU_LIMIT_U32_UNDEFINED,
+				// .maxBindGroups = 5,
 				.maxBindGroupsPlusVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
 				.maxBindingsPerBindGroup = WGPU_LIMIT_U32_UNDEFINED,
 				.maxDynamicUniformBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
 				.maxDynamicStorageBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
-				.maxSampledTexturesPerShaderStage = 49,
+				.maxSampledTexturesPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				// .maxSampledTexturesPerShaderStage = 49,
 				.maxSamplersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
 				.maxStorageBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
-				.maxStorageTexturesPerShaderStage = 15,
+				.maxStorageTexturesPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				// .maxStorageTexturesPerShaderStage = 15,
+				.maxUniformBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
-				.maxUniformBuffersPerShaderStage = 32768 + 272,
+				// .maxUniformBuffersPerShaderStage = 32768 + 272,
 				// NOTE: This is my system's max buffer size, needed for some godot examples.
-				.maxUniformBufferBindingSize = 2147483648,
+				.maxUniformBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
+				// .maxUniformBufferBindingSize = 2147483648,
 				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
@@ -117,7 +124,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.callback = handle_request_device,
 		.userdata1 = &this->device,
 	};
-	wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
+	WGPUFutureWaitInfo request_device_future = {};
+	request_device_future.future = wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
+
+	wgpuInstanceWaitAny(this->context_driver->instance_get(), 1, &request_device_future, UINT64_MAX);
+
 	ERR_FAIL_COND_V(!this->device, FAILED);
 
 	queue = wgpuDeviceGetQueue(device);

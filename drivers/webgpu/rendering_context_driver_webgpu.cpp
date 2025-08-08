@@ -15,6 +15,7 @@ static void handle_request_adapter(WGPURequestAdapterStatus status,
 			status != WGPURequestAdapterStatus_Success, (void)0,
 			vformat("Failed to get wgpu adapter: %s", message.data));
 
+	/*
 	WGPUAdapterInfo info;
 	wgpuAdapterGetInfo(adapter, &info);
 
@@ -22,6 +23,11 @@ static void handle_request_adapter(WGPURequestAdapterStatus status,
 	device.name = String(info.device.data);
 	device.vendor = info.vendorID;
 	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
+	*/
+	RenderingContextDriver::Device device;
+	device.name = String("name");
+	device.vendor = RenderingContextDriver::Vendor::VENDOR_UNKNOWN;
+	device.type = RenderingContextDriver::DeviceType::DEVICE_TYPE_INTEGRATED_GPU;
 
 	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)userdata;
 	context->adapter_push_back(
@@ -42,7 +48,11 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 }
 
 Error RenderingContextDriverWebGpu::initialize() {
-	instance = wgpuCreateInstance(nullptr);
+	WGPUInstanceDescriptor instance_desc = (WGPUInstanceDescriptor){
+		.features = (WGPUInstanceCapabilities){
+				.timedWaitAnyEnable = true }
+	};
+	instance = wgpuCreateInstance(&instance_desc);
 
 	WGPURequestAdapterOptions adapter_options = {};
 	WGPURequestAdapterCallbackInfo adapter_callback_info = {
@@ -53,18 +63,19 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
+	WGPUFutureWaitInfo adapter_futures[2] = {};
+
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
-	wgpuInstanceRequestAdapter(instance,
+	adapter_futures[0].future = wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
 			adapter_callback_info);
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
-	wgpuInstanceRequestAdapter(instance,
-		&adapter_options,
-		adapter_callback_info);
+	adapter_futures[1].future = wgpuInstanceRequestAdapter(instance,
+			&adapter_options,
+			adapter_callback_info);
 
-	// NOTE: Currently unimplemented in wgpu.
-	// wgpuInstanceProcessEvents(instance);
+	wgpuInstanceWaitAny(instance, 2, adapter_futures, UINT64_MAX);
 
 	return OK;
 }
@@ -83,7 +94,7 @@ bool RenderingContextDriverWebGpu::device_supports_present(uint32_t p_device_ind
 	DEV_ASSERT(p_device_index < adapters.size());
 	WGPUAdapter adapter = adapters[p_device_index];
 	Surface *surface = (Surface *)p_surface;
-	WGPUSurfaceCapabilities caps;
+	WGPUSurfaceCapabilities caps = { nullptr };
 	wgpuSurfaceGetCapabilities(surface->surface, adapter, &caps);
 	return caps.formatCount != 0;
 }
@@ -97,8 +108,11 @@ void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver) 
 }
 
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(const void *p_platform_data) {
+#ifndef WEB_ENABLED
 	DEV_ASSERT(false && "Surface creation should not be called on the platform-agnostic version of the driver.");
-	return SurfaceID();
+#endif
+	// Well, it can't just be 0.
+	return SurfaceID(1);
 }
 
 void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_t p_width, uint32_t p_height) {

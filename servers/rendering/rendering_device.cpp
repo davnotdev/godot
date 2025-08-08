@@ -37,6 +37,8 @@
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 
+#include <emscripten.h>
+
 #define FORCE_SEPARATE_PRESENT_QUEUE 0
 #define PRINT_FRAMEBUFFER_FORMAT 0
 

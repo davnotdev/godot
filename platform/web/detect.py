@@ -236,7 +236,9 @@ def configure(env: "SConsEnvironment"):
 
     if env["webgpu"] and env["use_webgpu"]:
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
-        env.Append(LINKFLAGS=["-sUSE_WEBGPU"])
+        env.AppendUnique(CPPDEFINES=["EMCC_DEBUG=1"])
+        env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI"])
+        env.Append(CCFLAGS=["-g"])
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])

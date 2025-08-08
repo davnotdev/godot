@@ -35,6 +35,8 @@
 #include "godot_js.h"
 
 #ifdef WEBGPU_ENABLED
+#include "servers/rendering/rendering_device.h"
+
 #include "drivers/webgpu/rendering_device_driver_webgpu.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #endif
@@ -64,8 +66,8 @@ private:
 #endif
 
 #ifdef RD_ENABLED
-	RenderingContextDriver* rendering_context;
-	RenderingDeviceDriver* rendering_device;
+	RenderingContextDriver* rendering_context = nullptr;
+	RenderingDevice* rendering_device = nullptr;
 #endif
 
 	HashMap<int, CharString> utterance_ids;
