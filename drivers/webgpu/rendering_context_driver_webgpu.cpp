@@ -50,7 +50,7 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 Error RenderingContextDriverWebGpu::initialize() {
 	WGPUInstanceDescriptor instance_desc = (WGPUInstanceDescriptor){
 		.features = (WGPUInstanceCapabilities){
-				.timedWaitAnyEnable = true }
+				.timedWaitAnyEnable = false }
 	};
 	instance = wgpuCreateInstance(&instance_desc);
 
