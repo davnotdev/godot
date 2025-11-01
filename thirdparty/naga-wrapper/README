@@ -1,0 +1,10 @@
+So why naga and why rust directly in the source?
+
+Well, dawn requires C++20 to compile source and headers.
+That's a no go.
+
+I wish naga had some sort of C/C++ bindings but it doesn't.
+I could create a brand new repository for this, but I really don't want to.
+In the future, there should be some third-party naga-sys or libnaga crate that replaces this.
+
+Use cargo build (without --release) to compile this.
