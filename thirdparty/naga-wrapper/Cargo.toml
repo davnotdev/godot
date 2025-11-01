@@ -1,0 +1,10 @@
+[package]
+name = "naga-wrapper"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+naga = { git = "https://github.com/davnotdev/wgpu", branch = "godot-webgpu", features = ["spv-in", "wgsl-out"] }

@@ -3,12 +3,10 @@
 Import("env")
 
 thirdparty_obj = []
-thirdparty_dir = "#thirdparty/wgpu"
+thirdparty_dirs = ["#thirdparty/wgpu", "#thirdparty/naga-wrapper", "#thirdparty/naga-wrapper/target/debug/"]
 
 # Use WebGpu headers
-env.Prepend(CPPPATH=[thirdparty_dir, thirdparty_dir + "/include"])
-
-env.drivers_sources += thirdparty_obj
+env.Prepend(CPPPATH=thirdparty_dirs)
 
 # Godot source files
 
@@ -20,5 +18,5 @@ env.drivers_sources += driver_obj
 # Needed to force rebuilding the driver files when the thirdparty code is updated.
 env.Depends(driver_obj, thirdparty_obj)
 
-env.Prepend(LIBS=["wgpu_native"])
-env.Prepend(LIBPATH=[thirdparty_dir])
+env.Prepend(LIBS=["wgpu_native", "naga_wrapper"])
+env.Prepend(LIBPATH=thirdparty_dirs)
