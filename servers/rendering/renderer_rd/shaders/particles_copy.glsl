@@ -209,9 +209,12 @@ void main() {
 			txform = params.inv_emission_transform * txform;
 		}
 	} else {
-		// Set scale to zero and translate to -INF so particle will be invisible
-		// even for materials that ignore rotation/scale (i.e. billboards).
-		txform = mat4(vec4(0.0), vec4(0.0), vec4(0.0), vec4(-1.0 / 0.0, -1.0 / 0.0, -1.0 / 0.0, 0.0));
+		// HACK: I will revert e6e52f9 temporarily because webgpu doesn't like -INF in shaders!
+		//		(https://github.com/gfx-rs/wgpu/issues/5128)
+		// // Set scale to zero and translate to -INF so particle will be invisible
+		// // even for materials that ignore rotation/scale (i.e. billboards).
+		// txform = mat4(vec4(0.0), vec4(0.0), vec4(0.0), vec4(-1.0 / 0.0, -1.0 / 0.0, -1.0 / 0.0, 0.0));
+		txform = mat4(vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0)); //zero scale, becomes invisible
 	}
 	txform = transpose(txform);
 
