@@ -5,6 +5,7 @@
 #include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
+#include "nagawrapper.h"
 #include "rendering_context_driver_webgpu.h"
 #include "thirdparty/misc/smolv.h"
 #include "webgpu.h"
@@ -47,6 +48,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
+		// I'm not sure about this one
+		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
 
 		// Needs SPIRV workaround
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -88,7 +91,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
 				.maxUniformBuffersPerShaderStage = 32768 + 272,
 				// NOTE: This is my system's max buffer size, needed for some godot examples.
-				.maxUniformBufferBindingSize = 2147483648,
+				.maxUniformBufferBindingSize = 2147483647,
 				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
@@ -550,7 +553,9 @@ RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(con
 		// See https://www.w3.org/TR/webgpu/#sampler-creation
 		.lodMinClamp = p_state.min_lod < 0.0f ? 0.0f : p_state.min_lod,
 		.lodMaxClamp = p_state.max_lod,
-		.compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Always,
+		// HACK: disable comparison samplers
+		// .compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Always,
+		.compare = WGPUCompareFunction_Undefined,
 		.maxAnisotropy = p_state.use_anisotropy ? (uint16_t)p_state.anisotropy_max : (uint16_t)1,
 	};
 
@@ -1113,7 +1118,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
 	ShaderInfo *shader_info = memnew(ShaderInfo);
-	*shader_info = { };
+	*shader_info = {};
 
 	const uint8_t *binptr = p_shader_binary.ptr();
 	uint32_t binsize = p_shader_binary.size();
@@ -1195,7 +1200,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_SAMPLER: {
 					// TODO: I don't know what this means.
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
-						.type = WGPUSamplerBindingType_Comparison
+						.type = WGPUSamplerBindingType_Filtering
 					};
 					layout_entry_extras->count = set_ptr[j].length;
 				} break;
@@ -1205,14 +1210,14 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 					texture_layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
-						.sampleType = WGPUTextureSampleType_UnfilterableFloat,
+						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
 
 					bind_group_layout_entries.write[set_idx].push_back(texture_layout_entry);
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
-						.type = WGPUSamplerBindingType_Comparison
+						.type = WGPUSamplerBindingType_Filtering
 					};
 					// TODO: Figure our array of combined image samplers.
 
@@ -1222,7 +1227,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_TEXTURE: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
-						.sampleType = WGPUTextureSampleType_UnfilterableFloat,
+						.sampleType = WGPUTextureSampleType_Float,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
@@ -1362,12 +1367,63 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	ERR_FAIL_COND_V(read_offset != binsize, ShaderID());
 
 	for (uint32_t i = 0; i < r_shader_desc.stages.size(); i++) {
-		WGPUShaderModuleDescriptorSpirV shader_module_spirv_desc = (WGPUShaderModuleDescriptorSpirV){
-			.sourceSize = (uint32_t)stages_spirv[i].size() / 4,
-			.source = (const uint32_t *)stages_spirv[i].ptr(),
+		// TODO: Compile this WGSL while building the shader cache.
+		// Also skip storing specialization constants.
+
+		Vector<CharString> override_keys;
+		Vector<PipelineOverride> overrides;
+		uint32_t override_count = r_shader_desc.specialization_constants.size();
+		overrides.resize(override_count);
+		override_keys.resize(override_count);
+
+		for (uint32_t i = 0; i < override_count; i++) {
+			PipelineOverride entry = {};
+			PipelineSpecializationConstant constant = r_shader_desc.specialization_constants[i];
+			override_keys.write[i] = (shader_info->override_keys[constant.constant_id].ascii());
+
+			entry.key = override_keys[override_keys.size() - 1].ptr();
+
+			if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
+				entry.value = (double)constant.float_value;
+			} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
+				entry.value = (double)constant.int_value;
+			} else {
+				entry.value = (double)constant.bool_value;
+			}
+
+			overrides.write[i] = entry;
+		}
+
+		if (override_count != 0) {
+			print_line(overrides[0].key);
+		}
+
+		ConvertResult result = convert_spirv_to_wgsl_alloc(stages_spirv[i].ptr(), stages_spirv[i].size(), overrides.ptr(), overrides.size());
+		if (result.error_string != nullptr) {
+			print_line("[WGPU] WGSL compiliation: ", result.error_string);
+			convert_result_free(result);
+			exit(1);
+			return ShaderID();
+		}
+
+		WGPUShaderSourceWGSL source = (WGPUShaderSourceWGSL){
+			.chain = (WGPUChainedStruct){
+					.next = nullptr,
+					.sType = WGPUSType_ShaderSourceWGSL,
+			},
+			.code = (WGPUStringView){
+					.data = result.wgsl_string,
+					.length = result.wgsl_length,
+			}
 		};
 
-		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModuleSpirV(device, &shader_module_spirv_desc);
+		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
+			.nextInChain = (const WGPUChainedStruct *)&source,
+		};
+		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
+
+		convert_result_free(result);
+
 		ERR_FAIL_COND_V(!shader_module, ShaderID());
 
 		ShaderStage stage = r_shader_desc.stages[i];
@@ -1432,8 +1488,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		.bindGroupLayouts = shader_info->bind_group_layouts.ptr(),
 	};
 
-	// TODO: Implement the usage of specialization constants.
-
 	shader_info->pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &pipeline_layout_descriptor);
 	ERR_FAIL_COND_V(!shader_info->pipeline_layout, ShaderID());
 
@@ -1487,12 +1541,12 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 				entries.push_back(entry);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				WGPUBindGroupEntry texture_entry = { };
+				WGPUBindGroupEntry texture_entry = {};
 				texture_entry.binding = uniform.binding + binding_offset;
 
 				binding_offset += 1;
 
-				WGPUBindGroupEntry sampler_entry = { };
+				WGPUBindGroupEntry sampler_entry = {};
 				sampler_entry.binding = uniform.binding + binding_offset;
 
 				if (uniform.ids.size() == 2) {
@@ -2351,33 +2405,35 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	pipeline_descriptor.layout = shader_info->pipeline_layout;
 
 	// pipeline_descriptor.vertex
-	WGPUConstantEntry *constants = ALLOCA_ARRAY(WGPUConstantEntry, p_specialization_constants.size());
-	Vector<CharString> constant_keys;
-	constant_keys.resize(p_specialization_constants.size());
+	// WGPUConstantEntry *constants = ALLOCA_ARRAY(WGPUConstantEntry, p_specialization_constants.size());
+	// Vector<CharString> constant_keys;
+	// constant_keys.resize(p_specialization_constants.size());
 
-	for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
-		PipelineSpecializationConstant constant = p_specialization_constants[i];
-		constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
-		WGPUConstantEntry entry = (WGPUConstantEntry){
-			.key = { constant_keys[i].get_data(), WGPU_STRLEN },
-		};
+	// for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
+	// 	PipelineSpecializationConstant constant = p_specialization_constants[i];
+	// 	constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
+	// 	WGPUConstantEntry entry = (WGPUConstantEntry){
+	// 		.key = { constant_keys[i].get_data(), WGPU_STRLEN },
+	// 	};
 
-		if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
-			entry.value = (double)constant.float_value;
-		} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
-			entry.value = (double)constant.int_value;
-		} else {
-			entry.value = (double)constant.bool_value;
-		}
+	// 	if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
+	// 		entry.value = (double)constant.float_value;
+	// 	} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
+	// 		entry.value = (double)constant.int_value;
+	// 	} else {
+	// 		entry.value = (double)constant.bool_value;
+	// 	}
 
-		constants[i] = entry;
-	}
+	// 	constants[i] = entry;
+	// }
 
 	WGPUVertexState vertex_state = (WGPUVertexState){
 		.module = shader_info->vertex_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		.constantCount = (size_t)p_specialization_constants.size(),
-		.constants = constants,
+		// .constantCount = (size_t)p_specialization_constants.size(),
+		// .constants = constants,
+		.constantCount = 0,
+		.constants = nullptr,
 		.bufferCount = 0,
 	};
 
@@ -2445,8 +2501,10 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	WGPUFragmentState fragment_state = (WGPUFragmentState){
 		.module = shader_info->fragment_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		.constantCount = (size_t)p_specialization_constants.size(),
-		.constants = constants,
+		// .constantCount = (size_t)p_specialization_constants.size(),
+		// .constants = constants,
+		.constantCount = 0,
+		.constants = nullptr,
 		.targetCount = p_color_attachments.size() - render_pass_attachments_offset,
 		.targets = targets,
 	};
@@ -2663,30 +2721,33 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 
 	Vector<WGPUConstantEntry> constants;
 	Vector<CharString> constant_keys;
-	constant_keys.resize(p_specialization_constants.size());
-	for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
-		PipelineSpecializationConstant constant = p_specialization_constants[i];
-		constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
-		WGPUConstantEntry entry = (WGPUConstantEntry){
-			.key = { constant_keys[i].get_data(), WGPU_STRLEN },
-		};
+	// constant_keys.resize(p_specialization_constants.size());
+	// for (uint32_t i = 0; i < p_specialization_constants.size(); i++) {
+	// 	PipelineSpecializationConstant constant = p_specialization_constants[i];
+	// 	constant_keys.ptrw()[i] = shader_info->override_keys[constant.constant_id].ascii();
+	// 	WGPUConstantEntry entry = (WGPUConstantEntry){
+	// 		.key = { constant_keys[i].get_data(), WGPU_STRLEN },
+	// 	};
 
-		if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
-			entry.value = (double)constant.float_value;
-		} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
-			entry.value = (double)constant.int_value;
-		} else {
-			entry.value = (double)constant.bool_value;
-		}
+	// 	if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
+	// 		entry.value = (double)constant.float_value;
+	// 	} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
+	// 		entry.value = (double)constant.int_value;
+	// 	} else {
+	// 		entry.value = (double)constant.bool_value;
+	// 	}
 
-		constants.push_back(entry);
-	}
+	// 	constants.push_back(entry);
+	// }
+	//
 
 	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
 		.module = shader_info->compute_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		.constantCount = (size_t)constants.size(),
-		.constants = constants.ptr(),
+		// .constantCount = (size_t)constants.size(),
+		// .constants = constants.ptr(),
+		.constantCount = 0,
+		.constants = nullptr,
 	};
 
 	WGPUComputePipelineDescriptor compute_pipeline_descriptor = (WGPUComputePipelineDescriptor){
