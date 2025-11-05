@@ -7975,7 +7975,7 @@ spv::Id TGlslangToSpvTraverser::createAtomicOperation(glslang::TOperator op, spv
     case glslang::EOpAtomicExchange:
     case glslang::EOpImageAtomicExchange:
     case glslang::EOpAtomicCounterExchange:
-        if ((typeProxy == glslang::EbtFloat16) && 
+        if ((typeProxy == glslang::EbtFloat16) &&
             (opType.getVectorSize() == 2 || opType.getVectorSize() == 4)) {
                 builder.addExtension(spv::E_SPV_NV_shader_atomic_fp16_vector);
                 builder.addCapability(spv::CapabilityAtomicFloat16VectorNV);
@@ -8764,7 +8764,16 @@ spv::Id TGlslangToSpvTraverser::createMiscOperation(glslang::TOperator op, spv::
         builder.promoteScalar(precision, operands.front(), operands.back());
         break;
     case glslang::EOpModf:
-        libCall = spv::GLSLstd450Modf;
+		{
+			libCall = spv::GLSLstd450ModfStruct;
+            assert(builder.isFloatType(builder.getScalarTypeId(typeId0)));
+            int width = builder.getScalarTypeWidth(typeId0);
+            if (width == 16)
+                builder.addExtension(spv::E_SPV_AMD_gpu_shader_half_float);
+            // The returned struct has two members of the same type as the first argument
+            typeId = builder.makeStructResultType(typeId0, typeId0);
+            consumedOperands = 1;
+        }
         break;
     case glslang::EOpMax:
         if (isFloat)
@@ -9387,6 +9396,13 @@ spv::Id TGlslangToSpvTraverser::createMiscOperation(glslang::TOperator op, spv::
         builder.createStore(builder.createCompositeExtract(id, typeId0, 0), operands[3]);
         builder.createStore(builder.createCompositeExtract(id, typeId0, 1), operands[2]);
         break;
+	case glslang::EOpModf:
+		{
+			assert(operands.size() == 2);
+			builder.createStore(builder.createCompositeExtract(id, typeId0, 1), operands[1]);
+			id = builder.createCompositeExtract(id, typeId0, 0);
+		}
+		break;
     case glslang::EOpFrexp:
         {
             assert(operands.size() == 2);
