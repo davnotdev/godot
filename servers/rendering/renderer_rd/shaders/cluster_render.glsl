@@ -114,7 +114,8 @@ void main() {
 	uint aux = 0;
 
 	uint cluster_thread_group_index;
-#ifndef MOLTENVK_USED
+// WGSL does not support gl_HelperInvocation
+#if !defined(MOLTENVK_USED) && !defined(WEBGPU_USED)
 	if (!gl_HelperInvocation) {
 #else
 	{
@@ -151,7 +152,8 @@ void main() {
 	uint z_write_offset = cluster_offset + state.cluster_depth_offset + element_index;
 	uint z_write_bit = 1 << z_bit;
 
-#ifndef MOLTENVK_USED
+// WGSL does not support gl_HelperInvocation
+#if !defined(MOLTENVK_USED) && !defined(WEBGPU_USED)
 	if (!gl_HelperInvocation) {
 #else
 	{
