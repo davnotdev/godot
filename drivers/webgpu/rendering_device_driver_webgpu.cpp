@@ -48,7 +48,9 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
-		// I'm not sure about this one
+		// New to spec, waiting for proper support
+		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
+		// I haven't looked into these
 		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
 
 		// Needs SPIRV workaround
@@ -56,8 +58,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
 
-		// Currently avoidable
-		// (WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
+		// Avoidable
+		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
@@ -1280,8 +1282,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_STORAGE_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
 						// TODO: Investigate this further.
-						// .type = info.writable ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
-						.type = (layout_entry.visibility & WGPUShaderStage_Vertex) ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
+						.type = WGPUBufferBindingType_Storage,
+						// .type = info.writable ? WGPUBufferBindingType_Storage : WGPUBufferBindingType_ReadOnlyStorage,
+						// .type = (layout_entry.visibility & WGPUShaderStage_Vertex) ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
 					};
@@ -1379,9 +1382,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		for (uint32_t i = 0; i < override_count; i++) {
 			PipelineOverride entry = {};
 			PipelineSpecializationConstant constant = r_shader_desc.specialization_constants[i];
-			override_keys.write[i] = (shader_info->override_keys[constant.constant_id].ascii());
+			override_keys.write[i] = shader_info->override_keys[constant.constant_id].ascii();
 
-			entry.key = override_keys[override_keys.size() - 1].ptr();
+			entry.key = override_keys[i].ptr();
 
 			if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
 				entry.value = (double)constant.float_value;
@@ -1392,10 +1395,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			}
 
 			overrides.write[i] = entry;
-		}
-
-		if (override_count != 0) {
-			print_line(overrides[0].key);
 		}
 
 		ConvertResult result = convert_spirv_to_wgsl_alloc(stages_spirv[i].ptr(), stages_spirv[i].size(), overrides.ptr(), overrides.size());

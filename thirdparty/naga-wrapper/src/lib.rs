@@ -86,7 +86,8 @@ fn _convert_spirv_to_wgsl(
         | Capabilities::PUSH_CONSTANT
         | Capabilities::STORAGE_TEXTURE_16BIT_NORM_FORMATS
         | Capabilities::SHADER_FLOAT16_IN_FLOAT32
-        | Capabilities::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+        | Capabilities::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
+        | Capabilities::SUBGROUP;
 
     let module = front::spv::parse_u8_slice(spv, &front::spv::Options::default()).unwrap();
     let mut validator = Validator::new(ValidationFlags::default(), caps);

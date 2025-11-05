@@ -234,6 +234,9 @@ void ShaderRD::_build_variant_code(StringBuilder &builder, uint32_t p_variant, c
 				// Image atomics are supported on Metal 3.1 but no support in MoltenVK or SPIRV-Cross yet.
 				builder.append("#define NO_IMAGE_ATOMICS\n");
 #endif
+				if (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) {
+					builder.append("#define WEBGPU_USED\n");
+				}
 
 				builder.append(String("#define RENDER_DRIVER_") + OS::get_singleton()->get_current_rendering_driver_name().to_upper() + "\n");
 				builder.append("#define samplerExternalOES sampler2D\n");

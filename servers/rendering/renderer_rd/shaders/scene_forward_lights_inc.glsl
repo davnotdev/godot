@@ -1,11 +1,14 @@
 // Functions related to lighting
 
+// WGSL does not support this extension
+#ifndef WEBGPU_USED
 #extension GL_EXT_control_flow_attributes : require
+#endif
 
 // This annotation macro must be placed before any loops that rely on specialization constants as their upper bound.
 // Drivers may choose to unroll these loops based on the possible range of the value that can be deduced from the
 // spec constant, which can lead to their code generation taking a much longer time than desired.
-#ifdef UBERSHADER
+#if defined(UBERSHADER) && !defined(WEBGPU_USED)
 // Prefer to not unroll loops on the ubershader to reduce code size as much as possible.
 #define SPEC_CONSTANT_LOOP_ANNOTATION [[dont_unroll]]
 #else
@@ -977,9 +980,14 @@ float blur_shadow(float shadow) {
 #if 0
 	//disabling for now, will investigate later
 	float interp_shadow = shadow;
-	if (gl_HelperInvocation) {
+
+// WGSL does not support gl_HelperInvocation
+#ifndef WEBGPU_USED
+	if (gl_HelperInvocation)
+	{
 		interp_shadow = -4.0; // technically anything below -4 will do but just to make sure
 	}
+#endif
 
 	uvec2 fc2 = uvec2(gl_FragCoord.xy);
 	interp_shadow -= dFdx(interp_shadow) * (float(fc2.x & 1) - 0.5);
