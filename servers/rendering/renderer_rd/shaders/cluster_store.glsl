@@ -72,8 +72,8 @@ void main() {
 			//if object was written, z was written, but check just in case
 			if (z_range != 0) { //should always be > 0
 
-				uint from_z = findLSB(z_range);
-				uint to_z = findMSB(z_range) + 1;
+				uint from_z = uint(findLSB(z_range));
+				uint to_z = uint(findMSB(z_range)) + 1;
 
 				if (render_elements.data[index].touches_near) {
 					from_z = 0;
