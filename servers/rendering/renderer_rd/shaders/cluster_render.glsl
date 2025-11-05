@@ -118,7 +118,11 @@ void main() {
 	uint aux = 0;
 
 	uint cluster_thread_group_index;
-	if (!sc_use_helper_check || !gl_HelperInvocation) {
+// WGSL does not support gl_HelperInvocation
+#if !defined(MOLTENVK_USED) && !defined(WEBGPU_USED)
+	if (!sc_use_helper_check || !gl_HelperInvocation)
+#endif
+	{
 		//https://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
 
 		uvec4 mask;
@@ -151,7 +155,11 @@ void main() {
 	uint z_write_offset = cluster_offset + state.cluster_depth_offset + element_index;
 	uint z_write_bit = 1 << z_bit;
 
-	if (!sc_use_helper_check || !gl_HelperInvocation) {
+// WGSL does not support gl_HelperInvocation
+#if !defined(WEBGPU_USED)
+	if (!sc_use_helper_check || !gl_HelperInvocation)
+#endif
+	{
 		z_write_bit = subgroupOr(z_write_bit); //merge all Zs
 		if (cluster_thread_group_index == 0) {
 			aux = atomicOr(cluster_render.data[z_write_offset], z_write_bit);
