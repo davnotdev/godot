@@ -125,10 +125,9 @@ void main() {
 
 	uint cluster_thread_group_index;
 
-// WGSL does not support gl_HelperInvocation
+// WGSL does not support `gl_HelperInvocation` nor `subgroupBallotExclusiveBitCount`
 #ifndef WEBGPU_USED
 	if (!gl_HelperInvocation)
-#endif
 	{
 		//https://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
 
@@ -153,6 +152,7 @@ void main() {
 			aux = atomicOr(cluster_render.data[usage_write_offset], usage_write_bit);
 		}
 	}
+#endif
 #else
 // MoltenVK/Metal fails to compile shaders using gl_HelperInvocation for some GPUs
 // WGSL also does not support gl_HelperInvocation
