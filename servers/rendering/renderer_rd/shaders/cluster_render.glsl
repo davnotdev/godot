@@ -114,8 +114,9 @@ void main() {
 	uint aux = 0;
 
 	uint cluster_thread_group_index;
-// WGSL does not support gl_HelperInvocation
-#if !defined(MOLTENVK_USED) && !defined(WEBGPU_USED)
+// WGSL does not support `gl_HelperInvocation` nor `subgroupBallotExclusiveBitCount`
+#ifndef WEBGPU_USED
+#ifndef MOLTENVK_USED
 	if (!gl_HelperInvocation) {
 #else
 	{
@@ -143,6 +144,7 @@ void main() {
 			aux = atomicOr(cluster_render.data[usage_write_offset], usage_write_bit);
 		}
 	}
+#endif
 
 	//find the current element in the depth usage list and mark the current depth as used
 	float unit_depth = depth_interp * state.inv_z_far;
