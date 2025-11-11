@@ -889,6 +889,9 @@ float h1(float a) {
 	return 1.0 + w3(a) / (w2(a) + w3(a));
 }
 
+// HACK: WGSL translators cannot parse array indexed texture arguments, so we need to inline this.
+#ifndef WEBGPU_USED
+
 vec4 textureArray_bicubic(texture2DArray tex, vec3 uv, vec2 texture_size) {
 	vec2 texel_size = vec2(1.0) / texture_size;
 
@@ -912,6 +915,29 @@ vec4 textureArray_bicubic(texture2DArray tex, vec3 uv, vec2 texture_size) {
 	return (g0(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p0, uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p1, uv.z)))) +
 			(g1(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p2, uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p3, uv.z))));
 }
+
+#else
+
+#define TEXTURE_ARRAY_BICUBIC_INLINED(tex, uv, texture_size) \
+	vec2 texel_size = vec2(1.0) / texture_size; \
+	vec3 _uv = uv; \
+	_uv.xy = _uv.xy * texture_size + vec2(0.5); \
+	vec2 iuv = floor(_uv.xy); \
+	vec2 fuv = fract(_uv.xy); \
+	float g0x = g0(fuv.x); \
+	float g1x = g1(fuv.x); \
+	float h0x = h0(fuv.x); \
+	float h1x = h1(fuv.x); \
+	float h0y = h0(fuv.y); \
+	float h1y = h1(fuv.y); \
+	vec2 p0 = (vec2(iuv.x + h0x, iuv.y + h0y) - vec2(0.5)) * texel_size; \
+	vec2 p1 = (vec2(iuv.x + h1x, iuv.y + h0y) - vec2(0.5)) * texel_size; \
+	vec2 p2 = (vec2(iuv.x + h0x, iuv.y + h1y) - vec2(0.5)) * texel_size; \
+	vec2 p3 = (vec2(iuv.x + h1x, iuv.y + h1y) - vec2(0.5)) * texel_size; \
+	vec4 textureArray_bicubic_out = (g0(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p0, _uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p1, _uv.z)))) + \
+			(g1(fuv.y) * (g0x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p2, _uv.z)) + g1x * texture(sampler2DArray(tex, SAMPLER_LINEAR_CLAMP), vec3(p3, _uv.z)))); \
+
+#endif
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1725,10 +1751,22 @@ void fragment_shader(in SceneData scene_data) {
 			vec3 lm_light_l1p1;
 
 			if (sc_use_lightmap_bicubic_filter()) {
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
 				lm_light_l0 = textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
 				lm_light_l1n1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
 				lm_light_l1_0 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
 				lm_light_l1p1 = (textureArray_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
+#else
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l0 = textureArray_bicubic_out.rgb;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1n1 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1_0 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size)
+				lm_light_l1p1 = (textureArray_bicubic_out.rgb - vec3(0.5)) * 2.0;
+#endif
 			} else {
 				lm_light_l0 = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
 				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
@@ -1746,7 +1784,13 @@ void fragment_shader(in SceneData scene_data) {
 
 		} else {
 			if (sc_use_lightmap_bicubic_filter()) {
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
 				ambient_light += textureArray_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
+#else
+				TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size)
+				ambient_light += textureArray_bicubic_out.rgb * lightmaps.data[ofs].exposure_normalization;
+#endif
 			} else {
 				ambient_light += textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization;
 			}
@@ -2120,7 +2164,13 @@ void fragment_shader(in SceneData scene_data) {
 				const vec3 uvw = vec3(scaled_uv, float(slice));
 
 				if (sc_use_lightmap_bicubic_filter()) {
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
 					shadowmask = textureArray_bicubic(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size).x;
+#else
+					TEXTURE_ARRAY_BICUBIC_INLINED(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], uvw, lightmaps.data[ofs].light_texture_size)
+					shadowmask = textureArray_bicubic_out.x;
+#endif
 				} else {
 					shadowmask = textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES + ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).x;
 				}

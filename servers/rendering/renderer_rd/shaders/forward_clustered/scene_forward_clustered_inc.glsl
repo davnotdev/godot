@@ -159,7 +159,7 @@ float sc_luminance_multiplier() {
 
 #include "../light_data_inc.glsl"
 
-layout(set = 0, binding = 2) uniform sampler shadow_sampler;
+layout(set = 0, binding = 2) uniform samplerShadow shadow_sampler;
 
 #define INSTANCE_FLAGS_DYNAMIC (1 << 3)
 #define INSTANCE_FLAGS_NON_UNIFORM_SCALE (1 << 4)

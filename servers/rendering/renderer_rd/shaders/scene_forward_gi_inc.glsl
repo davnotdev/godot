@@ -1,5 +1,8 @@
 // Functions related to gi/sdfgi for our forward renderer
 
+// HACK: WGSL translators cannot parse array indexed texture arguments, so we need to inline this.
+#ifndef WEBGPU_USED
+
 //standard voxel cone trace
 vec4 voxel_cone_trace(texture3D probe, vec3 cell_size, vec3 pos, vec3 direction, float tan_half_angle, float max_distance, float p_bias) {
 	float dist = p_bias;
@@ -21,6 +24,29 @@ vec4 voxel_cone_trace(texture3D probe, vec3 cell_size, vec3 pos, vec3 direction,
 
 	return color;
 }
+
+#else
+
+#define VOXEL_CONE_TRACE_INLINED(probe, cell_size, pos, direction, tan_half_angle, max_distance, p_bias) \
+	float dist = p_bias; \
+	vec4 voxel_cone_trace_out = vec4(0.0); \
+	while (dist < max_distance && voxel_cone_trace_out.a < 0.95) { \
+		float diameter = max(1.0, 2.0 * tan_half_angle * dist); \
+		vec3 uvw_pos = (pos + dist * direction) * cell_size; \
+		float half_diameter = diameter * 0.5; \
+		if (any(greaterThan(abs(uvw_pos - 0.5), vec3(0.5f + half_diameter * cell_size)))) { \
+			break; \
+		} \
+		vec4 scolor = textureLod(sampler3D(probe, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), uvw_pos, log2(diameter)); \
+		float a = (1.0 - voxel_cone_trace_out.a); \
+		voxel_cone_trace_out += a * scolor; \
+		dist += half_diameter; \
+	} \
+
+#endif
+
+// HACK: WGSL translators cannot parse array indexed texture arguments, so we need to inline this.
+#ifndef WEBGPU_USED
 
 vec4 voxel_cone_trace_45_degrees(texture3D probe, vec3 cell_size, vec3 pos, vec3 direction, float tan_half_angle, float max_distance, float p_bias) {
 	float dist = p_bias;
@@ -47,6 +73,30 @@ vec4 voxel_cone_trace_45_degrees(texture3D probe, vec3 cell_size, vec3 pos, vec3
 
 	return color;
 }
+
+#else
+
+#define VOXEL_CONE_TRACE_45_DEGREES_INLINED(probe, cell_size, pos, direction, tan_half_angle, max_distance, p_bias) \
+	float dist = p_bias; \
+	vec4 voxel_cone_trace_45_degrees_out = vec4(0.0); \
+	float radius = max(0.5, tan_half_angle * dist); \
+	float lod_level = log2(radius * 2.0); \
+	while (dist < max_distance && voxel_cone_trace_45_degrees_out.a < 0.95) { \
+		vec3 uvw_pos = (pos + dist * direction) * cell_size; \
+		if (any(greaterThan(abs(uvw_pos - 0.5), vec3(0.5f + radius * cell_size)))) { \
+			break; \
+		} \
+		vec4 scolor = textureLod(sampler3D(probe, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), uvw_pos, lod_level); \
+		lod_level += 1.0; \
+		float a = (1.0 - voxel_cone_trace_45_degrees_out.a); \
+		scolor *= a; \
+		voxel_cone_trace_45_degrees_out += scolor; \
+		dist += radius; \
+		radius = max(0.5, tan_half_angle * dist); \
+	} \
+
+
+#endif
 
 void voxel_gi_compute(uint index, vec3 position, vec3 normal, vec3 ref_vec, mat3 normal_xform, float roughness, vec3 ambient, vec3 environment, inout vec4 out_spec, inout vec4 out_diff) {
 	position = (voxel_gi_instances.data[index].xform * vec4(position, 1.0)).xyz;
@@ -85,7 +135,13 @@ void voxel_gi_compute(uint index, vec3 position, vec3 normal, vec3 ref_vec, mat3
 	for (int i = 0; i < MAX_CONE_DIRS; i++) {
 		vec3 dir = normalize((voxel_gi_instances.data[index].xform * vec4(normal_xform * cone_dirs[i], 0.0)).xyz);
 
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
 		vec4 cone_light = voxel_cone_trace_45_degrees(voxel_gi_textures[index], cell_size, position, dir, cone_angle_tan, max_distance, voxel_gi_instances.data[index].bias);
+#else
+		VOXEL_CONE_TRACE_45_DEGREES_INLINED(voxel_gi_textures[index], cell_size, position, dir, cone_angle_tan, max_distance, voxel_gi_instances.data[index].bias)
+		vec4 cone_light = voxel_cone_trace_45_degrees_out;
+#endif
 
 		if (voxel_gi_instances.data[index].blend_ambient) {
 			cone_light.rgb = mix(ambient, cone_light.rgb, min(1.0, cone_light.a / 0.95));
@@ -98,7 +154,13 @@ void voxel_gi_compute(uint index, vec3 position, vec3 normal, vec3 ref_vec, mat3
 	out_diff += vec4(light * blend, blend);
 
 	//irradiance
+// See function definition, TLDR: we have to inline this for WGSL translation.
+#ifndef WEBGPU_USED
 	vec4 irr_light = voxel_cone_trace(voxel_gi_textures[index], cell_size, position, ref_vec, tan(roughness * 0.5 * M_PI * 0.99), max_distance, voxel_gi_instances.data[index].bias);
+#else
+	VOXEL_CONE_TRACE_INLINED(voxel_gi_textures[index], cell_size, position, ref_vec, tan(roughness * 0.5 * M_PI * 0.99), max_distance, voxel_gi_instances.data[index].bias)
+	vec4 irr_light = voxel_cone_trace_out;
+#endif
 	if (voxel_gi_instances.data[index].blend_ambient) {
 		irr_light.rgb = mix(environment, irr_light.rgb, min(1.0, irr_light.a / 0.95));
 	}
