@@ -1135,7 +1135,9 @@ vec4 fog_process(vec3 vertex) {
 		float mip_level = mix(1.0 / MAX_ROUGHNESS_LOD, 1.0, 1.0 - (abs(vertex.z) - scene_data_block.data.z_near) / (scene_data_block.data.z_far - scene_data_block.data.z_near));
 #ifdef USE_RADIANCE_OCTMAP_ARRAY
 		float roughness_lod, blend;
-		blend = modf(mip_level * MAX_ROUGHNESS_LOD, roughness_lod);
+		modfStruct modfResult = modfStruct(mip_level * MAX_ROUGHNESS_LOD);
+		blend = modfResult.fract;
+		roughness_lod = modfResult.whole;
 		float cube_lod = vec3_to_oct_lod(dFdx(cube_view), dFdy(cube_view), scene_data_block.data.radiance_pixel_size);
 		vec2 cube_uv = vec3_to_oct_with_border(cube_view, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
 		vec3 sky_sample_a = textureLod(sampler2DArray(radiance_octmap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cube_uv, roughness_lod), cube_lod).rgb;
@@ -1731,7 +1733,9 @@ void fragment_shader(in SceneData scene_data) {
 
 		float roughness_lod, blend;
 
-		blend = modf(sqrt(roughness) * MAX_ROUGHNESS_LOD, roughness_lod);
+		modfStruct modfResult = modfStruct(sqrt(roughness) * MAX_ROUGHNESS_LOD);
+		blend = modfResult.fract;
+		roughness_lod = modfResult.whole;
 
 		float ref_lod = vec3_to_oct_lod(dFdx(ref_vec), dFdy(ref_vec), scene_data_block.data.radiance_pixel_size);
 		vec2 ref_uv = vec3_to_oct_with_border(ref_vec, vec2(scene_data_block.data.radiance_border_size, 1.0 - scene_data_block.data.radiance_border_size * 2.0));
