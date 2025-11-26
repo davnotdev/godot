@@ -411,7 +411,6 @@ WGPUTextureAspect webgpu_texture_aspect_from_rd_format(RDD::DataFormat p_data_fo
 	}
 }
 
-
 WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_operation) {
 	switch (p_blend_operation) {
 		case RenderingDeviceCommons::BLEND_OP_ADD:
@@ -608,6 +607,20 @@ WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle
 			return WGPUTextureComponentSwizzle_A;
 		default:
 			return WGPUTextureComponentSwizzle_Identity;
+	}
+}
+
+WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type) {
+	switch (p_texture_sample_type) {
+		case RenderingDeviceCommons::ShaderUniform::Float:
+			return WGPUTextureSampleType_Float;
+		case RenderingDeviceCommons::ShaderUniform::Int:
+			return WGPUTextureSampleType_Sint;
+		case RenderingDeviceCommons::ShaderUniform::UInt:
+			return WGPUTextureSampleType_Uint;
+		case RenderingDeviceCommons::ShaderUniform::Depth:
+			return WGPUTextureSampleType_Depth;
+			break;
 	}
 }
 

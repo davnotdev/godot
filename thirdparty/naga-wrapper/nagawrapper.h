@@ -1,3 +1,6 @@
+#ifndef NAGA_WRAPPER_H
+#define NAGA_WRAPPER_H
+
 #include <cstdarg>
 #include <cstdint>
 #include <cstdlib>
@@ -22,3 +25,5 @@ extern "C" {
 	void convert_result_free(ConvertResult result);
 
 } // extern "C"
+
+#endif
