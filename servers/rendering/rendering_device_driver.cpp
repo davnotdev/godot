@@ -90,6 +90,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 					bool need_image_format = false;
 					bool need_image_access = false;
 					bool need_texture_image_type = false;
+					bool need_texture_sample_type = false;
 
 					switch (binding.descriptor_type) {
 						case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER: {
@@ -101,12 +102,14 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 							need_array_dimensions = true;
 							need_texture_is_multisample = true;
 							need_texture_image_type = true;
+							need_texture_sample_type = true;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
 							uniform.type = UNIFORM_TYPE_TEXTURE;
 							need_array_dimensions = true;
 							need_texture_is_multisample = true;
 							need_texture_image_type = true;
+							need_texture_sample_type = false;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE: {
 							uniform.type = UNIFORM_TYPE_IMAGE;
@@ -115,6 +118,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 							need_image_format = true;
 							need_image_access = true;
 							need_texture_image_type = true;
+							need_texture_sample_type = false;
 						} break;
 						case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER: {
 							uniform.type = UNIFORM_TYPE_TEXTURE_BUFFER;
@@ -344,6 +348,22 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 							case SpvDimMax:
 								print_error("Only 1D, 2D, 3D, Cube images and their array equivalents supported");
 								break;
+						}
+					}
+
+					if (need_texture_sample_type) {
+						if (binding.image.depth) {
+							uniform.texture_sample_type = ShaderUniform::TextureSampleType::Depth;
+						} else if (binding.type_description->type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT) {
+							uniform.texture_sample_type = ShaderUniform::TextureSampleType::Float;
+						} else if (binding.type_description->type_flags & SPV_REFLECT_TYPE_FLAG_INT) {
+							if (binding.type_description->traits.numeric.scalar.signedness == 0) {
+								uniform.texture_sample_type = ShaderUniform::TextureSampleType::UInt;
+							} else {
+								uniform.texture_sample_type = ShaderUniform::TextureSampleType::Int;
+							}
+						} else {
+							print_error("Unsupported texture sample type");
 						}
 					}
 

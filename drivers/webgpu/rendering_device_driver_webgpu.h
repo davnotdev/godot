@@ -414,6 +414,7 @@ private:
 			uint32_t image_format = 0;
 			uint32_t image_access = 0;
 			uint32_t texture_image_type = 0;
+			uint32_t texture_sample_type = 0;
 			uint32_t texture_is_multisample = 0;
 		};
 
@@ -451,6 +452,7 @@ private:
 		WGPUShaderStage push_constant_stage_flags;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
+		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
 		// Maps `constant_id` to override key name
 		HashMap<uint32_t, String> override_keys;
 		WGPUPipelineLayout pipeline_layout;

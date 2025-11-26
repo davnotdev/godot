@@ -1,5 +1,4 @@
 #include "rendering_device_driver_webgpu.h"
-#include "combimgsamplersplitter.h"
 #include "core/error/error_macros.h"
 #include "core/io/marshalls.h"
 #include "core/os/memory.h"
@@ -11,6 +10,7 @@
 #include "webgpu.h"
 #include "webgpu_conv.h"
 
+#include <spirv_webgpu_transform.h>
 #include <wgpu.h>
 #include <cstdint>
 #include <cstring>
@@ -924,12 +924,26 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		Vector<uint32_t> in_spirv;
 		in_spirv.resize(p_spirv[i].spirv.size() / 4);
 		memcpy(in_spirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
-		Vector<uint32_t> out_spirv = combimgsampsplitter(in_spirv);
 
-		spirv.push_back((ShaderStageSPIRVData){
-				.shader_stage = p_spirv[i].shader_stage,
-				.spirv = out_spirv.to_byte_array(),
-		});
+		{
+			uint32_t *combimg_out_spv, combimg_out_count;
+			combimgsampsplitter_alloc(in_spirv.ptrw(), in_spirv.size(), &combimg_out_spv, &combimg_out_count);
+
+			uint32_t *dref_out_spv, dref_out_count;
+			dreftexturesplitter_alloc(combimg_out_spv, combimg_out_count, &dref_out_spv, &dref_out_count);
+
+			Vector<uint8_t> out_spirv = Vector<uint8_t>();
+			out_spirv.resize_zeroed(dref_out_count * 4);
+			memcpy((uint8_t *)out_spirv.ptrw(), (uint8_t *)dref_out_spv, dref_out_count * 4);
+
+			spirv.push_back((ShaderStageSPIRVData){
+					.shader_stage = p_spirv[i].shader_stage,
+					.spirv = out_spirv,
+			});
+
+			combimgsampsplitter_free(combimg_out_spv);
+			combimgsampsplitter_free(dref_out_spv);
+		}
 	}
 
 	// This code is mostly taken from the vulkan device driver.
@@ -971,6 +985,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 				binding.image_format = uniform_refl.image_format;
 				binding.image_access = uniform_refl.image_access;
 				binding.texture_image_type = uniform_refl.texture_image_type;
+				binding.texture_sample_type = uniform_refl.texture_sample_type;
 
 				set_bindings.push_back(binding);
 			}
@@ -1179,6 +1194,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			info.image_format = (DataFormat)set_ptr[j].image_format;
 			info.image_access = (ShaderUniform::ImageAccess)set_ptr[j].image_access;
 			info.texture_image_type = (TextureType)set_ptr[j].texture_image_type;
+			info.texture_sample_type = (ShaderUniform::TextureSampleType)set_ptr[j].texture_sample_type;
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
 			layout_entry.binding = set_ptr[j].binding + wgpu_binding_offset;
@@ -1210,9 +1226,15 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					WGPUBindGroupLayoutEntry texture_layout_entry = layout_entry;
 					texture_layout_entry.binding = set_ptr[j].binding + wgpu_binding_offset;
 
+					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+
+					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
+						sampleType = WGPUTextureSampleType_UnfilterableFloat;
+					}
+
 					texture_layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
-						.sampleType = WGPUTextureSampleType_Float,
+						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
@@ -1227,9 +1249,15 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					wgpu_binding_offset += 1;
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
+					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+
+					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
+						sampleType = WGPUTextureSampleType_UnfilterableFloat;
+					}
+
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
-						.sampleType = WGPUTextureSampleType_Float,
+						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
@@ -1460,6 +1488,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		ERR_FAIL_COND_V(!bind_group_layout, ShaderID());
 
 		shader_info->bind_group_layouts.push_back(bind_group_layout);
+		shader_info->bind_group_layout_descs.push_back(bind_group_layout_desc);
 	}
 
 	WGPUPushConstantRange push_constant_range;

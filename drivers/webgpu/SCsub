@@ -3,7 +3,8 @@
 Import("env")
 
 thirdparty_obj = []
-thirdparty_dirs = ["#thirdparty/wgpu", "#thirdparty/naga-wrapper", "#thirdparty/naga-wrapper/target/debug/"]
+thirdparty_dirs = ["#thirdparty/wgpu", "#thirdparty/naga-wrapper", "#thirdparty/naga-wrapper/target/debug/",
+                   "#thirdparty/spirv-webgpu-transform"]
 
 # Use WebGpu headers
 env.Prepend(CPPPATH=thirdparty_dirs)
@@ -18,5 +19,5 @@ env.drivers_sources += driver_obj
 # Needed to force rebuilding the driver files when the thirdparty code is updated.
 env.Depends(driver_obj, thirdparty_obj)
 
-env.Prepend(LIBS=["wgpu_native", "naga_wrapper"])
+env.Prepend(LIBS=["wgpu_native", "naga_wrapper", "libspirv_webgpu_transform_ffi"])
 env.Prepend(LIBPATH=thirdparty_dirs)

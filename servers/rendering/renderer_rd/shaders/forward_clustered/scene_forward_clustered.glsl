@@ -1070,7 +1070,9 @@ vec4 fog_process(vec3 vertex) {
 		float mip_level = mix(1.0 / MAX_ROUGHNESS_LOD, 1.0, 1.0 - (abs(vertex.z) - scene_data_block.data.z_near) / (scene_data_block.data.z_far - scene_data_block.data.z_near));
 #ifdef USE_RADIANCE_CUBEMAP_ARRAY
 		float lod, blend;
-		blend = modf(mip_level * MAX_ROUGHNESS_LOD, lod);
+		modfStruct modfResult = modfStruct(mip_level * MAX_ROUGHNESS_LOD);
+		blend = modfResult.fract;
+		lod = modfResult.whole;
 		sky_fog_color = texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(cube_view, lod)).rgb;
 		sky_fog_color = mix(sky_fog_color, texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(cube_view, lod + 1)).rgb, blend);
 #else
@@ -1631,7 +1633,9 @@ void fragment_shader(in SceneData scene_data) {
 
 		float lod, blend;
 
-		blend = modf(sqrt(roughness) * MAX_ROUGHNESS_LOD, lod);
+		modfStruct modfResult = modfStruct(sqrt(roughness) * MAX_ROUGHNESS_LOD);
+		blend = modfResult.fract;
+		lod = modfResult.whole;
 		indirect_specular_light = texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(ref_vec, lod)).rgb;
 		indirect_specular_light = mix(indirect_specular_light, texture(samplerCubeArray(radiance_cubemap, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec4(ref_vec, lod + 1)).rgb, blend);
 

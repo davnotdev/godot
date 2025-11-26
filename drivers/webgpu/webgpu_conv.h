@@ -22,6 +22,7 @@ WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_op
 WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor);
 WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_stencil_operation);
 WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
+WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type);
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits);
 

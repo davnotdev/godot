@@ -974,6 +974,16 @@ public:
 		// For texture and image uniform types.
 		TextureType texture_image_type = TEXTURE_TYPE_2D;
 
+		// For texture and image uniform types
+		// NOTE: This is only used in WebGpu and roughly corresponds with [`TextureSampleType`](https://docs.rs/wgpu/latest/wgpu/enum.TextureSampleType.html)
+		enum TextureSampleType {
+			Float,
+			Int,
+			UInt,
+			Depth,
+		};
+		TextureSampleType texture_sample_type = TextureSampleType::Float;
+
 		// NOTE: This is only used in WebGpu and is simply an extended `writable`.
 		enum ImageAccess {
 			ReadWrite,
