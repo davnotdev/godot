@@ -926,11 +926,13 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		memcpy(in_spirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
 
 		{
+			TransformCorrectionMap map = SPIRV_WEBGPU_TRANFORM_CORRECTION_MAP_NULL;
 			uint32_t *combimg_out_spv, combimg_out_count;
-			combimgsampsplitter_alloc(in_spirv.ptrw(), in_spirv.size(), &combimg_out_spv, &combimg_out_count);
+			spirv_webgpu_transform_combimgsampsplitter_alloc(
+					in_spirv.ptrw(), in_spirv.size(), &combimg_out_spv, &combimg_out_count, &map);
 
 			uint32_t *dref_out_spv, dref_out_count;
-			dreftexturesplitter_alloc(combimg_out_spv, combimg_out_count, &dref_out_spv, &dref_out_count);
+			spirv_webgpu_transform_drefsplitter_alloc(combimg_out_spv, combimg_out_count, &dref_out_spv, &dref_out_count, &map);
 
 			Vector<uint8_t> out_spirv = Vector<uint8_t>();
 			out_spirv.resize_zeroed(dref_out_count * 4);
@@ -941,8 +943,9 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 					.spirv = out_spirv,
 			});
 
-			combimgsampsplitter_free(combimg_out_spv);
-			combimgsampsplitter_free(dref_out_spv);
+			spirv_webgpu_transform_combimgsampsplitter_free(combimg_out_spv);
+			spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
+			spirv_webgpu_transform_correction_map_free(map);
 		}
 	}
 
