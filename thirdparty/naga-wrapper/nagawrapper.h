@@ -20,9 +20,9 @@ struct PipelineOverride {
 };
 
 extern "C" {
-	ConvertResult convert_spirv_to_wgsl_alloc(const uint8_t *spv, uint32_t spv_count, const PipelineOverride *overrides, uint32_t override_count);
 
-	void convert_result_free(ConvertResult result);
+ConvertResult convert_spirv_to_wgsl_alloc(const uint8_t *spv, uint32_t spv_count, const PipelineOverride *overrides, uint32_t override_count);
+void convert_result_free(ConvertResult result);
 
 } // extern "C"
 
