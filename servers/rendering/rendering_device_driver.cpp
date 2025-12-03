@@ -434,7 +434,7 @@ Error RenderingDeviceDriver::_reflect_spirv(VectorView<ShaderStageSPIRVData> p_s
 						SpvReflectSpecializationConstant *spc = spec_constants[j];
 
 						sconst.constant_id = spc->constant_id;
-						sconst.name = String(spc->name);
+						sconst.name = String(spc->name).utf8();
 						sconst.int_value = 0; // Clear previous value JIC.
 						switch (spc->constant_type) {
 							case SPV_REFLECT_SPECIALIZATION_CONSTANT_BOOL: {

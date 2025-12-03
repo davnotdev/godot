@@ -400,49 +400,6 @@ public:
 	/****************/
 
 private:
-	struct ShaderBinary {
-		// Version 1: initial.
-		static const uint32_t VERSION = 1;
-
-		struct DataBinding {
-			uint32_t type = 0;
-			uint32_t binding = 0;
-			uint32_t stages = 0;
-			uint32_t length = 0; // Size of arrays (in total elements), or UBOs (in bytes * total elements).
-			uint32_t writable = 0;
-
-			uint32_t image_format = 0;
-			uint32_t image_access = 0;
-			uint32_t texture_image_type = 0;
-			uint32_t texture_sample_type = 0;
-			uint32_t texture_is_multisample = 0;
-		};
-
-		struct SpecializationConstant {
-			static const uint32_t OVERRIDE_CONSTANT_STRLEN = 48;
-			// NOTE: This is based on the current longest override variable at 39 characters.
-			// char[48] = uint32_t[12]
-			char value_name[OVERRIDE_CONSTANT_STRLEN] = { 0 };
-			uint32_t type = 0;
-			uint32_t constant_id = 0;
-			uint32_t int_value = 0;
-			uint32_t stage_flags = 0;
-		};
-
-		struct Data {
-			uint64_t vertex_input_mask = 0;
-			uint32_t fragment_output_mask = 0;
-			uint32_t specialization_constants_count = 0;
-			uint32_t is_compute = 0;
-			uint32_t compute_local_size[3] = {};
-			uint32_t set_count = 0;
-			uint32_t push_constant_size = 0;
-			uint32_t push_constant_stages = 0;
-			uint32_t stage_count = 0;
-			uint32_t shader_name_len = 0;
-		};
-	};
-
 	struct ShaderInfo {
 		WGPU_NULLABLE WGPUShaderModule vertex_shader;
 		WGPU_NULLABLE WGPUShaderModule fragment_shader;

@@ -1,12 +1,11 @@
 #include "rendering_device_driver_webgpu.h"
 #include "core/error/error_macros.h"
-#include "core/io/marshalls.h"
 #include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
 #include "nagawrapper.h"
 #include "rendering_context_driver_webgpu.h"
-#include "thirdparty/misc/smolv.h"
+#include "shader_binary_webgpu.h"
 #include "webgpu.h"
 #include "webgpu_conv.h"
 
@@ -914,11 +913,39 @@ void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) 
 
 String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 	// TODO
-	return "";
+	return "WebGPU-testing";
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
+	ShaderReflection shader_refl;
+	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
+		return Vector<uint8_t>();
+	}
+
+	// Fill `ShaderBinaryWebGpu::Data`
+	ShaderBinaryWebGpu::Data binary_data;
+	binary_data.vertex_input_mask = shader_refl.vertex_input_mask;
+	binary_data.fragment_output_mask = shader_refl.fragment_output_mask;
+	binary_data.is_compute = shader_refl.is_compute;
+	binary_data.compute_local_size[0] = shader_refl.compute_local_size[0];
+	binary_data.compute_local_size[1] = shader_refl.compute_local_size[1];
+	binary_data.compute_local_size[2] = shader_refl.compute_local_size[2];
+	binary_data.set_count = shader_refl.uniform_sets.size();
+	binary_data.push_constant_size = shader_refl.push_constant_size;
+	for (uint32_t i = 0; i < SHADER_STAGE_MAX; i++) {
+		if (shader_refl.push_constant_stages.has_flag((ShaderStage)(1 << i))) {
+			binary_data.push_constant_stages |= webgpu_shader_stage_from_rd((ShaderStage)i);
+		}
+	}
+
+	CharString shader_name = p_shader_name.utf8();
+	binary_data.shader_name_len = shader_name.length();
+	binary_data.set_count = shader_refl.uniform_sets.size();
+	binary_data.stages_count = p_spirv.size();
+
+	// Perform appropriate SPIR-V WebGPU Transforms
 	Vector<ShaderStageSPIRVData> spirv;
+	HashMap<ShaderStage, TransformCorrectionMap> stage_to_correction_maps;
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Vector<uint32_t> in_spirv;
@@ -945,230 +972,136 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 			spirv_webgpu_transform_combimgsampsplitter_free(combimg_out_spv);
 			spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
-			spirv_webgpu_transform_correction_map_free(map);
 		}
 	}
 
-	// This code is mostly taken from the vulkan device driver.
-	ShaderReflection shader_refl;
-	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
-		return Vector<uint8_t>();
-	}
+	// Fill `ShaderBinaryWebGpu::DataBindingInput`
+	Vector<Vector<ShaderBinaryWebGpu::DataBindingInput>> binary_sets;
+	for (int set_idx = 0; set_idx < shader_refl.uniform_sets.size(); set_idx++) {
+		const Vector<ShaderUniform> &set_refl = shader_refl.uniform_sets[set_idx];
+		Vector<ShaderBinaryWebGpu::DataBindingInput> bindings;
+		for (const ShaderUniform &uniform_refl : set_refl) {
+			ShaderBinaryWebGpu::DataBinding binding;
+			binding.type = (uint32_t)uniform_refl.type;
+			binding.binding = uniform_refl.binding;
+			binding.stages = (uint32_t)uniform_refl.stages;
+			binding.length = uniform_refl.length;
+			binding.writable = (uint32_t)uniform_refl.writable;
 
-	ShaderBinary::Data binary_data;
-	Vector<Vector<ShaderBinary::DataBinding>> uniforms; // Set bindings.
-	Vector<ShaderBinary::SpecializationConstant> specialization_constants;
-	{
-		binary_data.vertex_input_mask = shader_refl.vertex_input_mask;
-		binary_data.fragment_output_mask = shader_refl.fragment_output_mask;
-		binary_data.specialization_constants_count = shader_refl.specialization_constants.size();
-		binary_data.is_compute = shader_refl.is_compute;
-		binary_data.compute_local_size[0] = shader_refl.compute_local_size[0];
-		binary_data.compute_local_size[1] = shader_refl.compute_local_size[1];
-		binary_data.compute_local_size[2] = shader_refl.compute_local_size[2];
-		binary_data.set_count = shader_refl.uniform_sets.size();
-		binary_data.push_constant_size = shader_refl.push_constant_size;
-		for (uint32_t i = 0; i < SHADER_STAGE_MAX; i++) {
-			if (shader_refl.push_constant_stages.has_flag((ShaderStage)(1 << i))) {
-				binary_data.push_constant_stages |= webgpu_shader_stage_from_rd((ShaderStage)i);
-			}
-		}
+			binding.image_format = uniform_refl.image_format;
+			binding.image_access = uniform_refl.image_access;
+			binding.texture_image_type = uniform_refl.texture_image_type;
+			binding.texture_sample_type = uniform_refl.texture_sample_type;
+			binding.texture_is_multisample = uniform_refl.texture_is_multisample;
 
-		for (const Vector<ShaderUniform> &set_refl : shader_refl.uniform_sets) {
-			Vector<ShaderBinary::DataBinding> set_bindings;
-			for (const ShaderUniform &uniform_refl : set_refl) {
-				ShaderBinary::DataBinding binding;
-				binding.type = (uint32_t)uniform_refl.type;
-				binding.binding = uniform_refl.binding;
-				binding.stages = (uint32_t)uniform_refl.stages;
-				binding.length = uniform_refl.length;
-				binding.writable = (uint32_t)uniform_refl.writable;
-
-				binding.texture_is_multisample = uniform_refl.texture_is_multisample;
-				binding.image_format = uniform_refl.image_format;
-				binding.image_access = uniform_refl.image_access;
-				binding.texture_image_type = uniform_refl.texture_image_type;
-				binding.texture_sample_type = uniform_refl.texture_sample_type;
-
-				set_bindings.push_back(binding);
-			}
-			uniforms.push_back(set_bindings);
-		}
-
-		for (const ShaderSpecializationConstant &refl_sc : shader_refl.specialization_constants) {
-			ShaderBinary::SpecializationConstant spec_constant;
-			spec_constant.type = refl_sc.type;
-			spec_constant.constant_id = refl_sc.constant_id;
-			spec_constant.int_value = refl_sc.int_value;
-			spec_constant.stage_flags = refl_sc.stages;
-
-			CharString ascii_name = refl_sc.name.ascii();
-			ERR_FAIL_COND_V((uint32_t)ascii_name.size() > ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN, Vector<uint8_t>());
-			strncpy(spec_constant.value_name, ascii_name.ptr(), ShaderBinary::SpecializationConstant::OVERRIDE_CONSTANT_STRLEN);
-
-			specialization_constants.push_back(spec_constant);
-		}
-	}
-
-	Vector<Vector<uint8_t>> compressed_stages;
-	Vector<uint32_t> smolv_size;
-	Vector<uint32_t> zstd_size;
-
-	uint32_t stages_binary_size = 0;
-
-	bool strip_debug = false;
-
-	for (uint32_t i = 0; i < spirv.size(); i++) {
-		smolv::ByteArray smolv;
-		if (!smolv::Encode(spirv[i].spirv.ptr(), spirv[i].spirv.size(), smolv, strip_debug ? smolv::kEncodeFlagStripDebugInfo : 0)) {
-			ERR_FAIL_V_MSG(Vector<uint8_t>(), "Error compressing shader stage :" + String::utf8(SHADER_STAGE_NAMES[spirv[i].shader_stage]));
-		} else {
-			smolv_size.push_back(smolv.size());
-			// zstd.
-			{
-				Vector<uint8_t> zstd;
-				zstd.resize(Compression::get_max_compressed_buffer_size(smolv.size(), Compression::MODE_ZSTD));
-				int dst_size = Compression::compress(zstd.ptrw(), &smolv[0], smolv.size(), Compression::MODE_ZSTD);
-
-				if (dst_size > 0 && (uint32_t)dst_size < smolv.size()) {
-					zstd_size.push_back(dst_size);
-					zstd.resize(dst_size);
-					compressed_stages.push_back(zstd);
-				} else {
-					Vector<uint8_t> smv;
-					smv.resize(smolv.size());
-					memcpy(smv.ptrw(), &smolv[0], smolv.size());
-					// Not using zstd.
-					zstd_size.push_back(0);
-					compressed_stages.push_back(smv);
+			HashMap<uint32_t, Vector<uint32_t>> stages_to_corrections;
+			uint32_t correction_stages_count = 0;
+			for (uint32_t i = 0; i < SHADER_STAGE_MAX; i++) {
+				ShaderStage stage = (ShaderStage)(1 << i);
+				if (uniform_refl.stages.has_flag(stage) && stage_to_correction_maps.has(stage)) {
+					TransformCorrectionMap map = stage_to_correction_maps.get(stage);
+					uint16_t *corrections = nullptr;
+					uint32_t correction_count = 0;
+					TransformCorrectionStatus status = spirv_webgpu_transform_correction_map_index(map, set_idx, uniform_refl.binding, &corrections, &correction_count);
+					if (status == SPIRV_WEBGPU_TRANSFORM_CORRECTION_STATUS_SOME) {
+						Vector<uint32_t> corrections;
+						corrections.resize_zeroed(correction_count);
+						for (int i = 0; i < correction_count; i++) {
+							corrections.write[i] = corrections[i];
+						}
+						correction_stages_count += 1;
+					}
 				}
 			}
+			binding.correction_stages_count = correction_stages_count;
+
+			ShaderBinaryWebGpu::DataBindingInput binding_input;
+			binding_input.binding = binding;
+			binding_input.correction_stage_map = stages_to_corrections;
+			bindings.push_back(binding_input);
 		}
-		uint32_t s = compressed_stages[i].size();
-		stages_binary_size += STEPIFY(s, 4);
+		binary_sets.push_back(bindings);
 	}
 
-	binary_data.specialization_constants_count = specialization_constants.size();
-	binary_data.set_count = uniforms.size();
-	binary_data.stage_count = spirv.size();
-
-	CharString shader_name_utf = p_shader_name.utf8();
-
-	binary_data.shader_name_len = shader_name_utf.length();
-
-	// Header + version + main datasize;.
-	uint32_t total_size = sizeof(uint32_t) * 3;
-
-	total_size += sizeof(ShaderBinary::Data);
-
-	total_size += STEPIFY(binary_data.shader_name_len, 4);
-	for (uint32_t i = 0; i < uniforms.size(); i++) {
-		total_size += sizeof(uint32_t);
-		total_size += uniforms[i].size() * sizeof(ShaderBinary::DataBinding);
+	// Free transform corrections
+	for (const KeyValue<ShaderStage, TransformCorrectionMap> &it : stage_to_correction_maps) {
+		spirv_webgpu_transform_correction_map_free(it.value);
 	}
 
-	total_size += sizeof(ShaderBinary::SpecializationConstant) * specialization_constants.size();
-	total_size += compressed_stages.size() * sizeof(uint32_t) * 3; // Sizes.
-	total_size += stages_binary_size;
-
-	Vector<uint8_t> ret;
-	ret.resize(total_size);
-	{
-		uint32_t offset = 0;
-		uint8_t *binptr = ret.ptrw();
-		binptr[0] = 'G';
-		binptr[1] = 'S';
-		binptr[2] = 'B';
-		binptr[3] = 'D';
-		offset += 4;
-		encode_uint32(ShaderBinary::VERSION, binptr + offset);
-		offset += sizeof(uint32_t);
-		encode_uint32(sizeof(ShaderBinary::Data), binptr + offset);
-		offset += sizeof(uint32_t);
-		memcpy(binptr + offset, &binary_data, sizeof(ShaderBinary::Data));
-		offset += sizeof(ShaderBinary::Data);
-
-#define ADVANCE_OFFSET_WITH_ALIGNMENT(m_bytes)                         \
-	{                                                                  \
-		offset += m_bytes;                                             \
-		uint32_t padding = STEPIFY(m_bytes, 4) - m_bytes;              \
-		memset(binptr + offset, 0, padding); /* Avoid garbage data. */ \
-		offset += padding;                                             \
+	// Fill out specialization constants for naga
+	Vector<PipelineOverride> overrides;
+	for (const ShaderSpecializationConstant &refl_sc : shader_refl.specialization_constants) {
+		PipelineOverride override = {};
+		override.key = refl_sc.name.ptr();
+		if (refl_sc.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
+			override.value = (double)refl_sc.float_value;
+		} else if (refl_sc.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
+			override.value = (double)refl_sc.int_value;
+		} else {
+			override.value = (double)refl_sc.bool_value;
+		}
+		overrides.push_back(override);
 	}
 
-		if (binary_data.shader_name_len > 0) {
-			memcpy(binptr + offset, shader_name_utf.ptr(), binary_data.shader_name_len);
-			ADVANCE_OFFSET_WITH_ALIGNMENT(binary_data.shader_name_len);
+	// Translate SPIR-V to WGSL and patch specialization constants
+	Vector<CharString> wgsl_sources;
+	for (int i = 0; i < spirv.size(); i++) {
+		const ShaderStageSPIRVData &data = spirv[i];
+		ConvertResult result = convert_spirv_to_wgsl_alloc(data.spirv.ptr(), data.spirv.size(), overrides.ptr(), overrides.size());
+		if (result.error_string != nullptr) {
+			print_line("[WGPU] WGSL compiliation: ", result.error_string);
+			convert_result_free(result);
+			// HACK: exit so that we can debug this easier.
+			exit(1);
+			return Vector<uint8_t>();
 		}
-
-		for (uint32_t i = 0; i < uniforms.size(); i++) {
-			int count = uniforms[i].size();
-			encode_uint32(count, binptr + offset);
-			offset += sizeof(uint32_t);
-			if (count > 0) {
-				memcpy(binptr + offset, uniforms[i].ptr(), sizeof(ShaderBinary::DataBinding) * count);
-				offset += sizeof(ShaderBinary::DataBinding) * count;
-			}
-		}
-
-		if (specialization_constants.size()) {
-			memcpy(binptr + offset, specialization_constants.ptr(), sizeof(ShaderBinary::SpecializationConstant) * specialization_constants.size());
-			offset += sizeof(ShaderBinary::SpecializationConstant) * specialization_constants.size();
-		}
-
-		for (uint32_t i = 0; i < compressed_stages.size(); i++) {
-			encode_uint32(spirv[i].shader_stage, binptr + offset);
-			offset += sizeof(uint32_t);
-			encode_uint32(smolv_size[i], binptr + offset);
-			offset += sizeof(uint32_t);
-			encode_uint32(zstd_size[i], binptr + offset);
-			offset += sizeof(uint32_t);
-			memcpy(binptr + offset, compressed_stages[i].ptr(), compressed_stages[i].size());
-			ADVANCE_OFFSET_WITH_ALIGNMENT(compressed_stages[i].size());
-		}
-
-		DEV_ASSERT(offset == (uint32_t)ret.size());
+		wgsl_sources.push_back(CharString(result.wgsl_string));
 	}
 
-	return ret;
+	// Fill `ShaderBinaryWebGpu::ShaderStageInput`
+	Vector<ShaderBinaryWebGpu::ShaderStageInput> binary_stages;
+	for (int i = 0; i < wgsl_sources.size(); i++) {
+		const CharString &source = wgsl_sources[i];
+		uint32_t shader_stage = spirv[i].shader_stage;
+		ShaderBinaryWebGpu::ShaderStageInput stage_input = ShaderBinaryWebGpu::compress_source_into_input(source, shader_stage);
+		binary_stages.push_back(stage_input);
+	}
+
+	ShaderBinaryWebGpu::DataInput input = (ShaderBinaryWebGpu::DataInput){
+		.data = binary_data,
+		.shader_name = shader_name,
+		.sets = binary_sets,
+		.stages = binary_stages,
+	};
+
+	ShaderBinaryWebGpu shader_binary_serializer = ShaderBinaryWebGpu(input);
+	Vector<uint8_t> shader_binary = shader_binary_serializer.to_byte_array();
+
+	return shader_binary;
 }
 
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	r_shader_desc = {};
 
-	// TODO: We allocate memory and call wgpuDeviceCreate*. Perhaps, we should free that memory if we fail.
+	ShaderBinaryWebGpu::DataOutput out = ShaderBinaryWebGpu::parse_input_from_bytes(p_shader_binary);
+	ERR_FAIL_COND_V(out.error, ShaderID());
+	const ShaderBinaryWebGpu::DataInput &data = out.data;
+	const ShaderBinaryWebGpu::Data &binary_data = data.data;
+
+	// TODO: Free this if anything goes wrong
 	ShaderInfo *shader_info = memnew(ShaderInfo);
 	*shader_info = {};
 
-	const uint8_t *binptr = p_shader_binary.ptr();
-	uint32_t binsize = p_shader_binary.size();
-
-	uint32_t read_offset = 0;
-
-	// Consistency check.
-	ERR_FAIL_COND_V(binsize < sizeof(uint32_t) * 3 + sizeof(ShaderBinary::Data), ShaderID());
-	ERR_FAIL_COND_V(binptr[0] != 'G' || binptr[1] != 'S' || binptr[2] != 'B' || binptr[3] != 'D', ShaderID());
-	uint32_t bin_version = decode_uint32(binptr + 4);
-	ERR_FAIL_COND_V(bin_version != ShaderBinary::VERSION, ShaderID());
-
-	uint32_t bin_data_size = decode_uint32(binptr + 8);
-	const ShaderBinary::Data &binary_data = *(reinterpret_cast<const ShaderBinary::Data *>(binptr + 12));
-
 	r_shader_desc.push_constant_size = binary_data.push_constant_size;
-
 	r_shader_desc.vertex_input_mask = binary_data.vertex_input_mask;
 	r_shader_desc.fragment_output_mask = binary_data.fragment_output_mask;
-
 	r_shader_desc.is_compute = binary_data.is_compute;
 	r_shader_desc.compute_local_size[0] = binary_data.compute_local_size[0];
 	r_shader_desc.compute_local_size[1] = binary_data.compute_local_size[1];
 	r_shader_desc.compute_local_size[2] = binary_data.compute_local_size[2];
 
-	read_offset += sizeof(uint32_t) * 3 + bin_data_size;
-
 	if (binary_data.shader_name_len) {
-		r_name = String::utf8((const char *)(binptr + read_offset), binary_data.shader_name_len);
-		read_offset += STEPIFY(binary_data.shader_name_len, 4);
+		r_name = String::utf8(data.shader_name);
 	}
 
 	Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
@@ -1176,33 +1109,30 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
 
-	for (uint32_t set_idx = 0; set_idx < binary_data.set_count; set_idx++) {
-		ERR_FAIL_COND_V(read_offset + sizeof(uint32_t) >= binsize, ShaderID());
-		uint32_t binding_count = decode_uint32(binptr + read_offset);
-		read_offset += sizeof(uint32_t);
-		const ShaderBinary::DataBinding *set_ptr = reinterpret_cast<const ShaderBinary::DataBinding *>(binptr + read_offset);
-		uint32_t binding_size = binding_count * sizeof(ShaderBinary::DataBinding);
-		ERR_FAIL_COND_V(read_offset + binding_size >= binsize, ShaderID());
-
+	for (uint32_t set_idx = 0; set_idx < data.sets.size(); set_idx++) {
+		const Vector<ShaderBinaryWebGpu::DataBindingInput> bindings = data.sets[set_idx];
 		uint32_t wgpu_binding_offset = 0;
 
-		for (uint32_t j = 0; j < binding_count; j++) {
+		for (uint32_t binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
+			const ShaderBinaryWebGpu::DataBindingInput &binding_input = bindings[binding_idx];
+			const ShaderBinaryWebGpu::DataBinding binding = binding_input.binding;
+
 			ShaderUniform info;
-			info.type = UniformType(set_ptr[j].type);
-			info.writable = set_ptr[j].writable;
-			info.length = set_ptr[j].length;
-			info.binding = set_ptr[j].binding;
-			info.stages = set_ptr[j].stages;
-			info.texture_is_multisample = set_ptr[j].texture_is_multisample;
-			info.image_format = (DataFormat)set_ptr[j].image_format;
-			info.image_access = (ShaderUniform::ImageAccess)set_ptr[j].image_access;
-			info.texture_image_type = (TextureType)set_ptr[j].texture_image_type;
-			info.texture_sample_type = (ShaderUniform::TextureSampleType)set_ptr[j].texture_sample_type;
+			info.type = UniformType(binding.type);
+			info.writable = binding.writable;
+			info.length = binding.length;
+			info.binding = binding.binding;
+			info.stages = binding.stages;
+			info.texture_is_multisample = binding.texture_is_multisample;
+			info.image_format = (DataFormat)binding.image_format;
+			info.image_access = (ShaderUniform::ImageAccess)binding.image_access;
+			info.texture_image_type = (TextureType)binding.texture_image_type;
+			info.texture_sample_type = (ShaderUniform::TextureSampleType)binding.texture_sample_type;
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
-			layout_entry.binding = set_ptr[j].binding + wgpu_binding_offset;
+			layout_entry.binding = binding.binding + wgpu_binding_offset;
 			for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
-				if ((set_ptr[j].stages & (1 << k))) {
+				if ((binding.stages & (1 << k))) {
 					layout_entry.visibility |= webgpu_shader_stage_from_rd((ShaderStage)k);
 				}
 			}
@@ -1223,11 +1153,11 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Filtering
 					};
-					layout_entry_extras->count = set_ptr[j].length;
+					layout_entry_extras->count = binding.length;
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 					WGPUBindGroupLayoutEntry texture_layout_entry = layout_entry;
-					texture_layout_entry.binding = set_ptr[j].binding + wgpu_binding_offset;
+					texture_layout_entry.binding = binding.binding + wgpu_binding_offset;
 
 					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
 
@@ -1264,7 +1194,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
-					layout_entry_extras->count = set_ptr[j].length;
+					layout_entry_extras->count = binding.length;
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
 					WGPUStorageTextureAccess access;
@@ -1293,7 +1223,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						/* .viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type), */
 						.viewDimension = viewDimension,
 					};
-					layout_entry_extras->count = set_ptr[j].length;
+					layout_entry_extras->count = binding.length;
 				} break;
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
@@ -1333,108 +1263,17 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			r_shader_desc.uniform_sets.write[set_idx].push_back(info);
 			bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 		}
-
-		read_offset += binding_size;
 	}
 
-	ERR_FAIL_COND_V(read_offset + binary_data.specialization_constants_count * sizeof(ShaderBinary::SpecializationConstant) >= binsize, ShaderID());
+	// We have already patched in our specialization constants in WGSL-land, no need for more.
+	r_shader_desc.specialization_constants = Vector<ShaderSpecializationConstant>();
 
-	r_shader_desc.specialization_constants.resize(binary_data.specialization_constants_count);
-	for (uint32_t i = 0; i < binary_data.specialization_constants_count; i++) {
-		const ShaderBinary::SpecializationConstant &src_sc = *(reinterpret_cast<const ShaderBinary::SpecializationConstant *>(binptr + read_offset));
-		ShaderSpecializationConstant sc;
-		sc.type = (PipelineSpecializationConstantType)src_sc.type;
-		sc.constant_id = src_sc.constant_id;
-		sc.int_value = src_sc.int_value;
-		sc.stages = src_sc.stage_flags;
-		sc.name = String::utf8((char *)src_sc.value_name);
-		r_shader_desc.specialization_constants.write[i] = sc;
+	for (uint32_t i = 0; i < data.stages.size(); i++) {
+		const ShaderBinaryWebGpu::ShaderStageInput &stage = data.stages[i];
+		r_shader_desc.stages.push_back(ShaderStage(stage.shader_stage));
 
-		shader_info->override_keys[sc.constant_id] = String::utf8((char *)src_sc.value_name);
-
-		read_offset += sizeof(ShaderBinary::SpecializationConstant);
-	}
-
-	Vector<Vector<uint8_t>> stages_spirv;
-	stages_spirv.resize(binary_data.stage_count);
-	r_shader_desc.stages.resize(binary_data.stage_count);
-
-	for (uint32_t i = 0; i < binary_data.stage_count; i++) {
-		ERR_FAIL_COND_V(read_offset + sizeof(uint32_t) * 3 >= binsize, ShaderID());
-
-		uint32_t stage = decode_uint32(binptr + read_offset);
-		read_offset += sizeof(uint32_t);
-		uint32_t smolv_size = decode_uint32(binptr + read_offset);
-		read_offset += sizeof(uint32_t);
-		uint32_t zstd_size = decode_uint32(binptr + read_offset);
-		read_offset += sizeof(uint32_t);
-
-		uint32_t buf_size = (zstd_size > 0) ? zstd_size : smolv_size;
-
-		Vector<uint8_t> smolv;
-		const uint8_t *src_smolv = nullptr;
-
-		if (zstd_size > 0) {
-			// Decompress to smolv.
-			smolv.resize(smolv_size);
-			int dec_smolv_size = Compression::decompress(smolv.ptrw(), smolv.size(), binptr + read_offset, zstd_size, Compression::MODE_ZSTD);
-			ERR_FAIL_COND_V(dec_smolv_size != (int32_t)smolv_size, ShaderID());
-			src_smolv = smolv.ptr();
-		} else {
-			src_smolv = binptr + read_offset;
-		}
-
-		Vector<uint8_t> &spirv = stages_spirv.ptrw()[i];
-		uint32_t spirv_size = smolv::GetDecodedBufferSize(src_smolv, smolv_size);
-		spirv.resize(spirv_size);
-		if (!smolv::Decode(src_smolv, smolv_size, spirv.ptrw(), spirv_size)) {
-			ERR_FAIL_V_MSG(ShaderID(), "Malformed smolv input uncompressing shader stage:" + String::utf8(SHADER_STAGE_NAMES[stage]));
-		}
-
-		r_shader_desc.stages.set(i, ShaderStage(stage));
-
-		buf_size = STEPIFY(buf_size, 4);
-		read_offset += buf_size;
-		ERR_FAIL_COND_V(read_offset > binsize, ShaderID());
-	}
-
-	ERR_FAIL_COND_V(read_offset != binsize, ShaderID());
-
-	for (uint32_t i = 0; i < r_shader_desc.stages.size(); i++) {
-		// TODO: Compile this WGSL while building the shader cache.
-		// Also skip storing specialization constants.
-
-		Vector<CharString> override_keys;
-		Vector<PipelineOverride> overrides;
-		uint32_t override_count = r_shader_desc.specialization_constants.size();
-		overrides.resize(override_count);
-		override_keys.resize(override_count);
-
-		for (uint32_t i = 0; i < override_count; i++) {
-			PipelineOverride entry = {};
-			PipelineSpecializationConstant constant = r_shader_desc.specialization_constants[i];
-			override_keys.write[i] = shader_info->override_keys[constant.constant_id].ascii();
-
-			entry.key = override_keys[i].ptr();
-
-			if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
-				entry.value = (double)constant.float_value;
-			} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
-				entry.value = (double)constant.int_value;
-			} else {
-				entry.value = (double)constant.bool_value;
-			}
-
-			overrides.write[i] = entry;
-		}
-
-		ConvertResult result = convert_spirv_to_wgsl_alloc(stages_spirv[i].ptr(), stages_spirv[i].size(), overrides.ptr(), overrides.size());
-		if (result.error_string != nullptr) {
-			print_line("[WGPU] WGSL compiliation: ", result.error_string);
-			convert_result_free(result);
-			exit(1);
-			return ShaderID();
-		}
+		Vector<uint8_t> source_bytes = ShaderBinaryWebGpu::decompress_source_with_input(stage);
+		ERR_FAIL_COND_V(source_bytes.size() == 0, ShaderID());
 
 		WGPUShaderSourceWGSL source = (WGPUShaderSourceWGSL){
 			.chain = (WGPUChainedStruct){
@@ -1442,8 +1281,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					.sType = WGPUSType_ShaderSourceWGSL,
 			},
 			.code = (WGPUStringView){
-					.data = result.wgsl_string,
-					.length = result.wgsl_length,
+					.data = (const char *)source_bytes.ptr(),
+					.length = strlen((char*)source_bytes.ptr()),
 			}
 		};
 
@@ -1452,12 +1291,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		};
 		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
 
-		convert_result_free(result);
-
 		ERR_FAIL_COND_V(!shader_module, ShaderID());
 
-		ShaderStage stage = r_shader_desc.stages[i];
-		switch (stage) {
+		switch (stage.shader_stage) {
 			case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
 				ERR_FAIL_COND_V_MSG(shader_info->vertex_shader, ShaderID(), "More than one vertex stage in one shader.");
 				shader_info->vertex_shader = shader_module;
@@ -1474,7 +1310,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				shader_info->stage_flags |= WGPUShaderStage_Compute;
 				break;
 			default:
-				ERR_FAIL_V_MSG(ShaderID(), vformat("WebGpu shader stage %d not supported", stage));
+				ERR_FAIL_V_MSG(ShaderID(), vformat("WebGpu shader stage %d not supported", stage.shader_stage));
 				break;
 		}
 	}

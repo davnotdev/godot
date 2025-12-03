@@ -29,10 +29,10 @@ typedef enum {
 
 // SAFETY: `corrections` invalidates when `correction_map` is written to.
 TransformCorrectionStatus spirv_webgpu_transform_correction_map_index(
-    TransformCorrectionMap correction_map, 
-    uint32_t set, 
-    uint32_t binding, 
-    uint16_t** corrections_ptr, 
+    TransformCorrectionMap correction_map,
+    uint32_t set,
+    uint32_t binding,
+    uint16_t** corrections_ptr,
     uint32_t* correction_count);
 
 void spirv_webgpu_transform_correction_map_free(TransformCorrectionMap correction_map);

@@ -1020,7 +1020,7 @@ public:
 		BitField<ShaderStage> stages = {};
 
 		// NOTE: This is only used in WebGpu.
-		String name;
+		CharString name;
 
 		bool operator<(const ShaderSpecializationConstant &p_other) const { return constant_id < p_other.constant_id; }
 	};
