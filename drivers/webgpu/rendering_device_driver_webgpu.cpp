@@ -945,7 +945,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	// Perform appropriate SPIR-V WebGPU Transforms
 	Vector<ShaderStageSPIRVData> spirv;
-	HashMap<ShaderStage, TransformCorrectionMap> stage_to_correction_maps;
+	Vector<TransformCorrectionMap> correction_maps;
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Vector<uint32_t> in_spirv;
@@ -953,7 +953,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		memcpy(in_spirv.ptrw(), p_spirv[i].spirv.ptr(), p_spirv[i].spirv.size());
 
 		{
-			TransformCorrectionMap map = SPIRV_WEBGPU_TRANFORM_CORRECTION_MAP_NULL;
+			TransformCorrectionMap map = SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 			uint32_t *combimg_out_spv, combimg_out_count;
 			spirv_webgpu_transform_combimgsampsplitter_alloc(
 					in_spirv.ptrw(), in_spirv.size(), &combimg_out_spv, &combimg_out_count, &map);
@@ -975,6 +975,42 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		}
 	}
 
+	// We have multiple correction maps (presumably for two stages)!
+	// Mirror them so that our layouts are consistent.
+	ERR_FAIL_COND_V_MSG(correction_maps.size() > 2, Vector<uint8_t>(), "Unexpected, more than 2 stages in one shader");
+	TransformCorrectionMap correction_map = SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
+	if (correction_maps.size() == 1) {
+		correction_map = correction_maps[0];
+	} else if (correction_maps.size() == 2) {
+		TransformCorrectionMap left_map = correction_maps[0];
+		TransformCorrectionMap right_map = correction_maps[1];
+
+		Vector<uint8_t> &left_spirv = spirv.write[0].spirv;
+		Vector<uint8_t> &right_spirv = spirv.write[1].spirv;
+
+		uint32_t *out_left_spirv;
+		uint32_t out_left_spirv_size;
+		uint32_t *out_right_spirv;
+		uint32_t out_right_spirv_size;
+
+		spirv_webgpu_transform_mirrorpatch_alloc(
+				(uint32_t *)left_spirv.ptr(), left_spirv.size() / 4, &left_map,
+				(uint32_t *)right_spirv.ptr(), right_spirv.size() / 4, &right_map,
+				&out_left_spirv, &out_left_spirv_size,
+				&out_right_spirv, &out_right_spirv_size);
+
+		left_spirv.resize_zeroed(out_left_spirv_size * 4);
+		memcpy((uint8_t *)left_spirv.ptrw(), (uint8_t *)out_left_spirv, out_left_spirv_size * 4);
+
+		right_spirv.resize_zeroed(out_right_spirv_size * 4);
+		memcpy((uint8_t *)right_spirv.ptrw(), (uint8_t *)out_right_spirv, out_right_spirv_size * 4);
+
+		// Now, both correction maps should be mirrored, we can use either (right is always right)
+		correction_map = right_map;
+
+		spirv_webgpu_transform_mirrorpatch_free(out_left_spirv, out_right_spirv);
+	}
+
 	// Fill `ShaderBinaryWebGpu::DataBindingInput`
 	Vector<Vector<ShaderBinaryWebGpu::DataBindingInput>> binary_sets;
 	for (int set_idx = 0; set_idx < shader_refl.uniform_sets.size(); set_idx++) {
@@ -994,38 +1030,31 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			binding.texture_sample_type = uniform_refl.texture_sample_type;
 			binding.texture_is_multisample = uniform_refl.texture_is_multisample;
 
-			HashMap<uint32_t, Vector<uint32_t>> stages_to_corrections;
-			uint32_t correction_stages_count = 0;
-			for (uint32_t i = 0; i < SHADER_STAGE_MAX; i++) {
-				ShaderStage stage = (ShaderStage)(1 << i);
-				if (uniform_refl.stages.has_flag(stage) && stage_to_correction_maps.has(stage)) {
-					TransformCorrectionMap map = stage_to_correction_maps.get(stage);
-					uint16_t *corrections = nullptr;
-					uint32_t correction_count = 0;
-					TransformCorrectionStatus status = spirv_webgpu_transform_correction_map_index(map, set_idx, uniform_refl.binding, &corrections, &correction_count);
-					if (status == SPIRV_WEBGPU_TRANSFORM_CORRECTION_STATUS_SOME) {
-						Vector<uint32_t> corrections;
-						corrections.resize_zeroed(correction_count);
-						for (int i = 0; i < correction_count; i++) {
-							corrections.write[i] = corrections[i];
-						}
-						correction_stages_count += 1;
+			ShaderBinaryWebGpu::DataBindingInput binding_input;
+
+			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
+				uint16_t *corrections = nullptr;
+				uint32_t correction_count = 0;
+				TransformCorrectionStatus status = spirv_webgpu_transform_correction_map_index(correction_map, set_idx, uniform_refl.binding, &corrections, &correction_count);
+
+				if (status == SPIRV_WEBGPU_TRANSFORM_CORRECTION_STATUS_SOME) {
+					for (int i = 0; i < correction_count; i++) {
+						binding_input.corrections.push_back((uint32_t)corrections[i]);
 					}
 				}
 			}
-			binding.correction_stages_count = correction_stages_count;
 
-			ShaderBinaryWebGpu::DataBindingInput binding_input;
 			binding_input.binding = binding;
-			binding_input.correction_stage_map = stages_to_corrections;
+			binding_input.binding.correction_count = binding_input.corrections.size();
+
 			bindings.push_back(binding_input);
 		}
 		binary_sets.push_back(bindings);
 	}
 
 	// Free transform corrections
-	for (const KeyValue<ShaderStage, TransformCorrectionMap> &it : stage_to_correction_maps) {
-		spirv_webgpu_transform_correction_map_free(it.value);
+	for (int i = 0; i < correction_maps.size(); i++) {
+		spirv_webgpu_transform_correction_map_free(correction_maps[i]);
 	}
 
 	// Fill out specialization constants for naga
@@ -1176,7 +1205,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Filtering
 					};
-					// TODO: Figure our array of combined image samplers.
+					// TODO: Figure out array of combined image samplers.
 
 					layout_entry.binding += 1;
 					wgpu_binding_offset += 1;
@@ -1282,7 +1311,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			},
 			.code = (WGPUStringView){
 					.data = (const char *)source_bytes.ptr(),
-					.length = strlen((char*)source_bytes.ptr()),
+					.length = strlen((char *)source_bytes.ptr()),
 			}
 		};
 
