@@ -19,16 +19,13 @@ Vector<uint8_t> ShaderBinaryWebGpu::to_byte_array() {
 
 	uint32_t shader_name_encoded_size = STEPIFY(input.shader_name.length(), 4);
 	uint32_t bindings_encoded_size = 0;
-	for (int i = 0; i < input.sets.size(); i++) {
-		const Vector<DataBindingInput> &bindings = input.sets[i];
+	for (int set_idx = 0; set_idx < input.sets.size(); set_idx++) {
+		const Vector<DataBindingInput> &bindings = input.sets[set_idx];
 		bindings_encoded_size += sizeof(uint32_t);
-		for (int i = 0; i < bindings.size(); i++) {
-			const DataBindingInput &binding = bindings[i];
+		for (int binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
+			const DataBindingInput &binding = bindings[binding_idx];
 			bindings_encoded_size += sizeof(DataBinding);
-			for (const KeyValue<uint32_t, Vector<uint32_t>> &stage_data_corrections : binding.correction_stage_map) {
-				bindings_encoded_size += sizeof(CorrectionStage);
-				bindings_encoded_size += sizeof(uint32_t) * stage_data_corrections.value.size();
-			}
+			bindings_encoded_size += sizeof(uint32_t) * binding.corrections.size();
 		}
 	}
 
@@ -77,18 +74,9 @@ Vector<uint8_t> ShaderBinaryWebGpu::to_byte_array() {
 			memcpy(binptr + offset, &binding.binding, binding_size);
 			offset += binding_size;
 
-			for (const KeyValue<uint32_t, Vector<uint32_t>> &stage_data_corrections : binding.correction_stage_map) {
-				CorrectionStage stage_data = (CorrectionStage{
-						.stage = stage_data_corrections.key,
-						.corrections_count = (uint32_t)stage_data_corrections.value.size(),
-				});
-				memcpy(binptr + offset, &stage_data, sizeof(CorrectionStage));
-				offset += sizeof(CorrectionStage);
-
-				uint32_t correction_size = sizeof(uint32_t) * stage_data_corrections.value.size();
-				memcpy(binptr + offset, stage_data_corrections.value.ptr(), correction_size);
-				offset += correction_size;
-			}
+			uint32_t corrections_size = sizeof(uint32_t) * binding.corrections.size();
+			memcpy(binptr + offset, binding.corrections.ptr(), corrections_size);
+			offset += corrections_size;
 		}
 	}
 	ERR_FAIL_COND_V(offset - last_offset != bindings_encoded_size, Vector<uint8_t>());
@@ -155,19 +143,11 @@ ShaderBinaryWebGpu::DataOutput ShaderBinaryWebGpu::parse_input_from_bytes(const 
 			memcpy(&binding.binding, binptr + offset, sizeof(DataBinding));
 			offset += sizeof(DataBinding);
 
-			for (int i = 0; i < binding.binding.correction_stages_count; i++) {
-				CorrectionStage stage_data = {};
-				memcpy(&stage_data, binptr + offset, sizeof(CorrectionStage));
-				offset += sizeof(CorrectionStage);
+			uint32_t corrections_size = binding.binding.correction_count * sizeof(uint32_t);
+			binding.corrections.resize_zeroed(binding.binding.correction_count);
+			memcpy(binding.corrections.ptrw(), binptr + offset, corrections_size);
+			offset += corrections_size;
 
-				Vector<uint32_t> corrections;
-				corrections.resize_zeroed(stage_data.corrections_count);
-				uint32_t correction_size = sizeof(uint32_t) * stage_data.corrections_count;
-				memcpy(corrections.ptrw(), binptr + offset, correction_size);
-				offset += correction_size;
-
-				binding.correction_stage_map.insert(stage_data.stage, corrections);
-			}
 			bindings.push_back(binding);
 		}
 		result.sets.push_back(bindings);
@@ -191,8 +171,6 @@ ShaderBinaryWebGpu::DataOutput ShaderBinaryWebGpu::parse_input_from_bytes(const 
 	}
 
 	ERR_FAIL_COND_V(offset != p_bytes.size(), (DataOutput){ .error = true });
-	if (offset != p_bytes.size()) {
-	}
 
 	return (DataOutput){
 		.error = false,

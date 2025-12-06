@@ -2,7 +2,6 @@
 #define SHADER_BINARY_WEBGPU_H
 
 #include "core/string/ustring.h"
-#include "core/templates/hash_map.h"
 #include "core/templates/vector.h"
 
 class ShaderBinaryWebGpu {
@@ -18,10 +17,7 @@ class ShaderBinaryWebGpu {
 	//			uint32_t binding_count;
 	//			struct {
 	//				DataBinding binding;
-	//				struct {
-	//					CorrectionStage stage;
-	//					uint32_t corrections[stage.corrections_count];
-	//				} correction_stage_map[bindings.correction_stages_count]
+	//				uint32_t corrections[binding.corrections_count];
 	//			} bindings[binding_count];
 	//		} sets[data.set_count]
 	//		struct {
@@ -64,18 +60,13 @@ public:
 		uint32_t texture_sample_type = 0;
 		uint32_t texture_is_multisample = 0;
 
-		uint32_t correction_stages_count;
-	};
-
-	struct CorrectionStage {
-		uint32_t stage;
-		uint32_t corrections_count;
+		uint32_t correction_count;
 	};
 
 public:
 	struct DataBindingInput {
 		DataBinding binding;
-		HashMap<uint32_t, Vector<uint32_t>> correction_stage_map;
+		Vector<uint32_t> corrections;
 	};
 
 	struct ShaderStageInput {
