@@ -135,9 +135,8 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 			ret = WGPUTextureFormat_RGBA16Sint;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM:
-			/* ret = WGPUTextureFormat_RGBA16Unorm; */
-			// HACK: Put this here to bypass errors for now.
-			ret = WGPUTextureFormat_RGBA16Sint;
+			// HACK: Native format here, careful now!
+			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_Rgba16Unorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT:
 			ret = WGPUTextureFormat_RGBA16Float;
