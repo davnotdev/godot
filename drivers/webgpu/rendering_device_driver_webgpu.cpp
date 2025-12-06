@@ -42,7 +42,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
 		// Need to implement shader translation (via naga or tint)
-		(WGPUFeatureName)WGPUNativeFeature_SpirvShaderPassthrough,
+		// (WGPUFeatureName)WGPUNativeFeature_SpirvShaderPassthrough,
 		// Need changes in Godot (default textures use 16bit I believe)
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
@@ -972,6 +972,8 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 			spirv_webgpu_transform_combimgsampsplitter_free(combimg_out_spv);
 			spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
+
+			correction_maps.push_back(map);
 		}
 	}
 
@@ -1131,6 +1133,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	if (binary_data.shader_name_len) {
 		r_name = String::utf8(data.shader_name);
+		shader_info->shader_name = r_name;
 	}
 
 	Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
@@ -1157,15 +1160,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			info.image_access = (ShaderUniform::ImageAccess)binding.image_access;
 			info.texture_image_type = (TextureType)binding.texture_image_type;
 			info.texture_sample_type = (ShaderUniform::TextureSampleType)binding.texture_sample_type;
+			r_shader_desc.uniform_sets.write[set_idx].push_back(info);
 
-			WGPUBindGroupLayoutEntry layout_entry = {};
-			layout_entry.binding = binding.binding + wgpu_binding_offset;
+			WGPUShaderStage shader_stage = 0;
 			for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
 				if ((binding.stages & (1 << k))) {
-					layout_entry.visibility |= webgpu_shader_stage_from_rd((ShaderStage)k);
+					shader_stage |= webgpu_shader_stage_from_rd((ShaderStage)k);
 				}
 			}
 
+			WGPUBindGroupLayoutEntry layout_entry = {};
+			layout_entry.binding = binding.binding + wgpu_binding_offset;
+			layout_entry.visibility = shader_stage;
 			WGPUBindGroupLayoutEntryExtras *layout_entry_extras = ALLOCA_SINGLE(WGPUBindGroupLayoutEntryExtras);
 			*layout_entry_extras = (WGPUBindGroupLayoutEntryExtras){
 				.chain = (WGPUChainedStruct){
@@ -1173,42 +1179,83 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				},
 				.count = 1
 			};
-
 			layout_entry.nextInChain = (const WGPUChainedStruct *)layout_entry_extras;
 
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
-					// TODO: I don't know what this means.
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Filtering
 					};
 					layout_entry_extras->count = binding.length;
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+
+					// Apply only dref splitting corrections
+					for (int i = 0; i < binding_input.corrections.size(); i++) {
+						const uint32_t correction = binding_input.corrections[i];
+
+						wgpu_binding_offset += 1;
+						WGPUBindGroupLayoutEntry correction_entry = layout_entry;
+						correction_entry.binding = binding.binding + wgpu_binding_offset;
+
+						switch (correction) {
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
+								correction_entry.sampler.type = WGPUSamplerBindingType_Filtering;
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
+								correction_entry.sampler.type = WGPUSamplerBindingType_Comparison;
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
+								ERR_FAIL_V_MSG(ShaderID(), "Expected sampler, got combined image sampler");
+								break;
+						}
+						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+					}
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-					WGPUBindGroupLayoutEntry texture_layout_entry = layout_entry;
-					texture_layout_entry.binding = binding.binding + wgpu_binding_offset;
-
 					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
-
 					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
 
-					texture_layout_entry.texture = (WGPUTextureBindingLayout){
+					layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
 						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 
-					bind_group_layout_entries.write[set_idx].push_back(texture_layout_entry);
-					layout_entry.sampler = (WGPUSamplerBindingLayout){
-						.type = WGPUSamplerBindingType_Filtering
+					WGPUBindGroupLayoutEntry sampler_layout = layout_entry;
+					sampler_layout.texture.sampleType = WGPUTextureSampleType_BindingNotUsed;
+					sampler_layout.sampler = (WGPUSamplerBindingLayout){
+						.type = WGPUSamplerBindingType_Filtering,
 					};
-					// TODO: Figure out array of combined image samplers.
 
-					layout_entry.binding += 1;
-					wgpu_binding_offset += 1;
+					bool corrected_combimg_sampler = false;
+					for (int i = 0; i < binding_input.corrections.size(); i++) {
+						const uint32_t correction = binding_input.corrections[i];
+
+						wgpu_binding_offset += 1;
+						WGPUBindGroupLayoutEntry correction_entry = sampler_layout;
+						correction_entry.binding = binding.binding + wgpu_binding_offset;
+
+						switch (correction) {
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
+								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot coonsider the dref split of a combined image sampler");
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
+								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot coonsider the dref split of a combined image sampler");
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
+								corrected_combimg_sampler = true;
+								break;
+						}
+						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+					}
+
+					ERR_FAIL_COND_V_MSG(!corrected_combimg_sampler, ShaderID(), "WebGpu correction for combined image sampler unexpectedly skipped");
+
+					// TODO: Figure out array of combined image samplers.
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
@@ -1224,6 +1271,28 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.multisampled = info.texture_is_multisample,
 					};
 					layout_entry_extras->count = binding.length;
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+
+					// Apply only dref splitting corrections
+					for (int i = 0; i < binding_input.corrections.size(); i++) {
+						const uint32_t correction = binding_input.corrections[i];
+
+						wgpu_binding_offset += 1;
+						WGPUBindGroupLayoutEntry correction_entry = layout_entry;
+						correction_entry.binding = binding.binding + wgpu_binding_offset;
+
+						switch (correction) {
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
+								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
+								break;
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
+								ERR_FAIL_V_MSG(ShaderID(), "Expected texture, got combined image sampler");
+								break;
+						}
+						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+					}
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
 					WGPUStorageTextureAccess access;
@@ -1253,6 +1322,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = viewDimension,
 					};
 					layout_entry_extras->count = binding.length;
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
@@ -1261,6 +1331,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = info.texture_is_multisample,
 					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
 				case UNIFORM_TYPE_UNIFORM_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
@@ -1268,6 +1339,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
 					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
 				case UNIFORM_TYPE_STORAGE_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
@@ -1278,6 +1350,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
 					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
 				case UNIFORM_TYPE_TEXTURE_BUFFER:
 				case UNIFORM_TYPE_IMAGE_BUFFER:
@@ -1288,9 +1361,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					DEV_ASSERT(false);
 				}
 			}
-
-			r_shader_desc.uniform_sets.write[set_idx].push_back(info);
-			bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 		}
 	}
 
