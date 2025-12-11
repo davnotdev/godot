@@ -237,6 +237,8 @@ void ShaderRD::_build_variant_code(StringBuilder &builder, uint32_t p_variant, c
 				}
 				if (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) {
 					builder.append("#define WEBGPU_USED\n");
+					// The storage class `Image` is not supported.
+					builder.append("#define NO_IMAGE_ATOMICS\n");
 				}
 
 

@@ -351,7 +351,14 @@ void main() {
 #ifdef MODE_JUMPFLOOD_OPTIMIZED
 	//optimized version using shared compute memory
 
-	ivec3 group_offset = ivec3(gl_WorkGroupID.xyz) % params.step_size;
+	// NOTE: Right now, this has to be written the clunky way for WebGPU
+	// ivec3 group_offset = ivec3(gl_WorkGroupID.xyz) % params.step_size;
+	ivec3 group_offset = ivec3(gl_WorkGroupID.xyz);
+	group_offset.x %= params.step_size;
+	group_offset.y %= params.step_size;
+	group_offset.z %= params.step_size;
+
+
 	ivec3 group_pos = group_offset + (ivec3(gl_WorkGroupID.xyz) / params.step_size) * ivec3(GROUP_SIZE * params.step_size);
 
 	//load data into local group memory
