@@ -355,7 +355,12 @@ void main() {
 
 	ivec2 sh_pos = (pos / OCT_SIZE) * ivec2(1, SH_SIZE);
 	ivec2 oct_pos = (pos / OCT_SIZE) * (OCT_SIZE + 2) + ivec2(1);
-	ivec2 local_pos = pos % OCT_SIZE;
+
+	// NOTE: Right now, this has to be written the clunky way for WebGPU
+	// ivec2 local_pos = pos % OCT_SIZE;
+	ivec2 local_pos = ivec2(0);
+	local_pos.x = pos.x % OCT_SIZE;
+	local_pos.y = pos.y % OCT_SIZE;
 
 	//compute the octahedral normal for this texel
 	vec3 normal = octahedron_encode(vec2(local_pos) / float(OCT_SIZE));
