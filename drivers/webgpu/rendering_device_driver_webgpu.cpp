@@ -51,6 +51,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 		// I haven't looked into these
 		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
+		(WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
 
 		// Needs SPIRV workaround
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -104,7 +105,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxColorAttachments = WGPU_LIMIT_U32_UNDEFINED,
 				.maxColorAttachmentBytesPerSample = WGPU_LIMIT_U32_UNDEFINED,
 				.maxComputeWorkgroupStorageSize = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeInvocationsPerWorkgroup = WGPU_LIMIT_U32_UNDEFINED,
+				.maxComputeInvocationsPerWorkgroup = 1024,
 				.maxComputeWorkgroupSizeX = WGPU_LIMIT_U32_UNDEFINED,
 				.maxComputeWorkgroupSizeY = WGPU_LIMIT_U32_UNDEFINED,
 				.maxComputeWorkgroupSizeZ = WGPU_LIMIT_U32_UNDEFINED,
