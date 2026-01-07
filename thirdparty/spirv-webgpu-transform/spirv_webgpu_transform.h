@@ -15,6 +15,8 @@ void spirv_webgpu_transform_combimgsampsplitter_alloc(uint32_t *in_spv, uint32_t
 void spirv_webgpu_transform_combimgsampsplitter_free(uint32_t *out_spv);
 void spirv_webgpu_transform_drefsplitter_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count, TransformCorrectionMap *correction_map);
 void spirv_webgpu_transform_drefsplitter_free(uint32_t *out_spv);
+void spirv_webgpu_transform_isnanisinfpatch_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count);
+void spirv_webgpu_transform_isnanisinfpatch_free(uint32_t *out_spv);
 
 void spirv_webgpu_transform_mirrorpatch_alloc(
 		uint32_t *in_left_spv, uint32_t in_left_count, TransformCorrectionMap *left_corrections,
