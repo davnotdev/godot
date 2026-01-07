@@ -411,11 +411,9 @@ private:
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
 
-		String shader_name;
+		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
 
-		// TODO: Remove this!
-		// Maps `constant_id` to override key name
-		HashMap<uint32_t, String> override_keys;
+		String shader_name;
 		WGPUPipelineLayout pipeline_layout;
 	};
 
