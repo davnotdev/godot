@@ -85,6 +85,13 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_1D_LUT\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n");
 
+		// HACK: WebGPU cannot compile subpasses
+#ifdef WEBGPU_ENABLED
+		for (String& mode: tonemap_modes) {
+			mode = mode.replace("\n#define SUBPASS", "");
+		}
+#endif
+
 		tonemap.shader.initialize(tonemap_modes);
 
 		if (!RendererCompositorRD::get_singleton()->is_xr_enabled()) {

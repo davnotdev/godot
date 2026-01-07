@@ -916,6 +916,12 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 }
 
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
+	// HACK: I will ignore these shaders until a better workaround is found.
+	// I doubt we actually need these shaders for 2D games.
+	if (p_shader_name.contains("CubemapDownsamplerShaderRD") || p_shader_name.contains("CubemapFilterShaderRD") || p_shader_name.contains("CubemapRoughnessShaderRD")) {
+		return Vector<uint8_t>();
+	}
+
 	ShaderReflection shader_refl;
 	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
 		return Vector<uint8_t>();
@@ -960,9 +966,14 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			uint32_t *dref_out_spv, dref_out_count;
 			spirv_webgpu_transform_drefsplitter_alloc(combimg_out_spv, combimg_out_count, &dref_out_spv, &dref_out_count, &map);
 
+			uint32_t *isnanisinf_out_spv, isnanisinf_out_count;
+			spirv_webgpu_transform_isnanisinfpatch_alloc(dref_out_spv, dref_out_count, &isnanisinf_out_spv, &isnanisinf_out_count);
+
+			uint32_t *final_spv = isnanisinf_out_spv;
+			uint32_t final_count = isnanisinf_out_count;
 			Vector<uint8_t> out_spirv = Vector<uint8_t>();
-			out_spirv.resize_zeroed(dref_out_count * 4);
-			memcpy((uint8_t *)out_spirv.ptrw(), (uint8_t *)dref_out_spv, dref_out_count * 4);
+			out_spirv.resize_zeroed(final_count * 4);
+			memcpy((uint8_t *)out_spirv.ptrw(), (uint8_t *)final_spv, final_count * 4);
 
 			spirv.push_back((ShaderStageSPIRVData){
 					.shader_stage = p_spirv[i].shader_stage,
@@ -971,6 +982,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 			spirv_webgpu_transform_combimgsampsplitter_free(combimg_out_spv);
 			spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
+			spirv_webgpu_transform_isnanisinfpatch_free(isnanisinf_out_spv);
 
 			correction_maps.push_back(map);
 		}
@@ -1134,12 +1146,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	if (binary_data.shader_name_len) {
 		r_name = String::utf8(data.shader_name);
 		shader_info->shader_name = r_name;
-	}
-
-	// HACK: I will ignore these shaders until a better workaround is found.
-	// I doubt we actually need these shaders for 2D games.
-	if (shader_info->shader_name.contains("CubemapDownsamplerShaderRD") || shader_info->shader_name.contains("CubemapFilterShaderRD") || shader_info->shader_name.contains("CubemapRoughnessShaderRD")) {
-		return ShaderID();
 	}
 
 	Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
