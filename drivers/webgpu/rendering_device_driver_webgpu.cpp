@@ -1,13 +1,15 @@
 #include "rendering_device_driver_webgpu.h"
+
 #include "core/error/error_macros.h"
 #include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
+
 #include "nagawrapper.h"
 #include "rendering_context_driver_webgpu.h"
-#include "shader_binary_webgpu.h"
 #include "webgpu.h"
 #include "webgpu_conv.h"
+#include "webgpu_shader_binary.h"
 
 #include <spirv_webgpu_transform.h>
 #include <wgpu.h>
@@ -38,6 +40,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
+		WGPUFeatureName_Float32Filterable,
 
 		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
@@ -777,6 +780,26 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 		WGPUComputePassEncoder compute_encoder = wgpuCommandEncoderBeginComputePass(
 				command_buffer_info->encoder, nullptr);
 
+		HashSet<uint32_t> bound_indices = HashSet<uint32_t>();
+		for (uint32_t i = 0; i < command_buffer_info->active_compute_pass_info.commands.size(); i++) {
+			const ComputePassEncoderCommand &command = command_buffer_info->active_compute_pass_info.commands.write[i];
+			if (command.type == ComputePassEncoderCommand::CommandType::SET_BIND_GROUP) {
+				ComputePassEncoderCommand::SetBindGroup data = command.set_bind_group;
+				bound_indices.insert(data.index);
+			}
+		}
+
+		ShaderInfo* shader_info = (ShaderInfo*)command_buffer_info->active_compute_pass_info.bind_group_shader.id;
+		if (shader_info) {
+			for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
+				const WGPUBindGroupLayoutDescriptor& desc = shader_info->bind_group_layout_descs[set_idx];
+				if (!bound_indices.has(set_idx)) {
+					WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
+					wgpuComputePassEncoderSetBindGroup(compute_encoder, set_idx, mock_group, 0, nullptr);
+				}
+			}
+		}
+
 		for (uint32_t i = 0; i < command_buffer_info->active_compute_pass_info.commands.size(); i++) {
 			ComputePassEncoderCommand &command = command_buffer_info->active_compute_pass_info.commands.write[i];
 
@@ -918,6 +941,9 @@ String RenderingDeviceDriverWebGpu::shader_get_binary_cache_key() {
 Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(VectorView<ShaderStageSPIRVData> p_spirv, const String &p_shader_name) {
 	// HACK: I will ignore these shaders until a better workaround is found.
 	// I doubt we actually need these shaders for 2D games.
+	if (p_shader_name.contains("GiShader")) {
+		return Vector<uint8_t>();
+	}
 	if (p_shader_name.contains("CubemapDownsamplerShaderRD") || p_shader_name.contains("CubemapFilterShaderRD") || p_shader_name.contains("CubemapRoughnessShaderRD")) {
 		return Vector<uint8_t>();
 	}
@@ -928,7 +954,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	}
 
 	// Fill `ShaderBinaryWebGpu::Data`
-	ShaderBinaryWebGpu::Data binary_data;
+	WebGpuShaderBinary::Data binary_data;
 	binary_data.vertex_input_mask = shader_refl.vertex_input_mask;
 	binary_data.fragment_output_mask = shader_refl.fragment_output_mask;
 	binary_data.is_compute = shader_refl.is_compute;
@@ -1025,12 +1051,12 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	}
 
 	// Fill `ShaderBinaryWebGpu::DataBindingInput`
-	Vector<Vector<ShaderBinaryWebGpu::DataBindingInput>> binary_sets;
+	Vector<Vector<WebGpuShaderBinary::DataBindingInput>> binary_sets;
 	for (int set_idx = 0; set_idx < shader_refl.uniform_sets.size(); set_idx++) {
 		const Vector<ShaderUniform> &set_refl = shader_refl.uniform_sets[set_idx];
-		Vector<ShaderBinaryWebGpu::DataBindingInput> bindings;
+		Vector<WebGpuShaderBinary::DataBindingInput> bindings;
 		for (const ShaderUniform &uniform_refl : set_refl) {
-			ShaderBinaryWebGpu::DataBinding binding;
+			WebGpuShaderBinary::DataBinding binding;
 			binding.type = (uint32_t)uniform_refl.type;
 			binding.binding = uniform_refl.binding;
 			binding.stages = (uint32_t)uniform_refl.stages;
@@ -1043,7 +1069,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			binding.texture_sample_type = uniform_refl.texture_sample_type;
 			binding.texture_is_multisample = uniform_refl.texture_is_multisample;
 
-			ShaderBinaryWebGpu::DataBindingInput binding_input;
+			WebGpuShaderBinary::DataBindingInput binding_input;
 
 			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
 				uint16_t *corrections = nullptr;
@@ -1102,34 +1128,35 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	}
 
 	// Fill `ShaderBinaryWebGpu::ShaderStageInput`
-	Vector<ShaderBinaryWebGpu::ShaderStageInput> binary_stages;
+	Vector<WebGpuShaderBinary::ShaderStageInput> binary_stages;
 	for (int i = 0; i < wgsl_sources.size(); i++) {
 		const CharString &source = wgsl_sources[i];
 		uint32_t shader_stage = spirv[i].shader_stage;
-		ShaderBinaryWebGpu::ShaderStageInput stage_input = ShaderBinaryWebGpu::compress_source_into_input(source, shader_stage);
+		WebGpuShaderBinary::ShaderStageInput stage_input = WebGpuShaderBinary::compress_source_into_input(source, shader_stage);
 		binary_stages.push_back(stage_input);
 	}
 
-	ShaderBinaryWebGpu::DataInput input = (ShaderBinaryWebGpu::DataInput){
+	WebGpuShaderBinary::DataInput input = (WebGpuShaderBinary::DataInput){
 		.data = binary_data,
 		.shader_name = shader_name,
 		.sets = binary_sets,
 		.stages = binary_stages,
 	};
 
-	ShaderBinaryWebGpu shader_binary_serializer = ShaderBinaryWebGpu(input);
+	WebGpuShaderBinary shader_binary_serializer = WebGpuShaderBinary(input);
 	Vector<uint8_t> shader_binary = shader_binary_serializer.to_byte_array();
 
 	return shader_binary;
 }
 
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name, const Vector<ImmutableSampler> &p_immutable_samplers) {
+
 	r_shader_desc = {};
 
-	ShaderBinaryWebGpu::DataOutput out = ShaderBinaryWebGpu::parse_input_from_bytes(p_shader_binary);
+	WebGpuShaderBinary::DataOutput out = WebGpuShaderBinary::parse_input_from_bytes(p_shader_binary);
 	ERR_FAIL_COND_V(out.error, ShaderID());
-	const ShaderBinaryWebGpu::DataInput &data = out.data;
-	const ShaderBinaryWebGpu::Data &binary_data = data.data;
+	const WebGpuShaderBinary::DataInput &data = out.data;
+	const WebGpuShaderBinary::Data &binary_data = data.data;
 
 	// TODO: Free this if anything goes wrong
 	ShaderInfo *shader_info = memnew(ShaderInfo);
@@ -1154,14 +1181,14 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	bind_group_layout_entries.resize(binary_data.set_count);
 
 	for (uint32_t set_idx = 0; set_idx < data.sets.size(); set_idx++) {
-		const Vector<ShaderBinaryWebGpu::DataBindingInput> bindings = data.sets[set_idx];
+		const Vector<WebGpuShaderBinary::DataBindingInput> bindings = data.sets[set_idx];
 		uint32_t wgpu_binding_offset = 0;
 
 		HashMap<uint32_t, Vector<uint32_t>> binding_corrections;
 
 		for (uint32_t binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
-			const ShaderBinaryWebGpu::DataBindingInput &binding_input = bindings[binding_idx];
-			const ShaderBinaryWebGpu::DataBinding binding = binding_input.binding;
+			const WebGpuShaderBinary::DataBindingInput &binding_input = bindings[binding_idx];
+			const WebGpuShaderBinary::DataBinding binding = binding_input.binding;
 
 			ShaderUniform info;
 			info.type = UniformType(binding.type);
@@ -1183,7 +1210,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				}
 			}
 
-			binding_corrections.insert(binding_idx, binding_input.corrections);
+			binding_corrections.insert(binding.binding, binding_input.corrections);
 
 			WGPUBindGroupLayoutEntry layout_entry = {};
 			layout_entry.binding = binding.binding + wgpu_binding_offset;
@@ -1257,10 +1284,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
-								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot coonsider the dref split of a combined image sampler");
+								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
-								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot coonsider the dref split of a combined image sampler");
+								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								corrected_combimg_sampler = true;
@@ -1275,7 +1302,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
-
 					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
@@ -1388,10 +1414,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	r_shader_desc.specialization_constants = Vector<ShaderSpecializationConstant>();
 
 	for (uint32_t i = 0; i < data.stages.size(); i++) {
-		const ShaderBinaryWebGpu::ShaderStageInput &stage = data.stages[i];
+		const WebGpuShaderBinary::ShaderStageInput &stage = data.stages[i];
 		r_shader_desc.stages.push_back(ShaderStage(stage.shader_stage));
 
-		Vector<uint8_t> source_bytes = ShaderBinaryWebGpu::decompress_source_with_input(stage);
+		Vector<uint8_t> source_bytes = WebGpuShaderBinary::decompress_source_with_input(stage);
 		ERR_FAIL_COND_V(source_bytes.size() == 0, ShaderID());
 
 		WGPUShaderSourceWGSL source = (WGPUShaderSourceWGSL){
@@ -1436,6 +1462,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	DEV_ASSERT((uint32_t)bind_group_layout_entries.size() == binary_data.set_count);
 	for (uint32_t set_idx = 0; set_idx < binary_data.set_count; set_idx++) {
+
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
 			.entryCount = (size_t)bind_group_layout_entries[set_idx].size(),
 			.entries = bind_group_layout_entries[set_idx].ptr(),
@@ -1492,23 +1519,21 @@ void RenderingDeviceDriverWebGpu::shader_destroy_modules(ShaderID p_shader) {
 /**** UNIFORM SET ****/
 /*********************/
 
-RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
-	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
-
+WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUniform> p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections) {
 	Vector<WGPUBindGroupEntry> entries;
 
 	uint32_t binding_offset = 0;
-	for (uint32_t i = 0; i < p_uniforms.size(); i++) {
-		const BoundUniform &uniform = p_uniforms[i];
+	for (uint32_t uniform_idx = 0; uniform_idx < p_uniforms.size(); uniform_idx++) {
+		const BoundUniform &uniform = p_uniforms[uniform_idx];
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
-				for (int i = -1; i < (int)shader_info->set_binding_corrections[p_set_index][uniform.binding].size(); i++) {
+				for (int i = -1; i < (int)p_set_binding_corrections[uniform.binding].size(); i++) {
 					if (i >= 0) {
-						uint32_t correction = shader_info->set_binding_corrections[p_set_index][uniform.binding][i];
+						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
 							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
 							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-							UniformSetID(),
+							nullptr,
 							"WebGPU unexpected bind group sampler correction"
 						);
 						binding_offset += 1;
@@ -1595,19 +1620,19 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
-				uint32_t correction_count = shader_info->set_binding_corrections[p_set_index][uniform.binding].size();
+				uint32_t correction_count = p_set_binding_corrections[uniform.binding].size();
 				for (int i = -1; i < (int)correction_count; i++) {
 					ERR_FAIL_COND_V(
 						uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && correction_count != 0,
-						UniformSetID()
+						nullptr
 					);
 
 					if (i >= 0) {
-						uint32_t correction = shader_info->set_binding_corrections[p_set_index][uniform.binding][i];
+						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
 							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
 							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-							UniformSetID(),
+							nullptr,
 							"WebGPU unexpected bind group sampler correction"
 						);
 						binding_offset += 1;
@@ -1663,12 +1688,181 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 	}
 
 	WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
-		.layout = shader_info->bind_group_layouts[p_set_index],
+		.layout = p_layout,
 		.entryCount = (size_t)entries.size(),
 		.entries = entries.ptr(),
 	};
 
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
+	return bind_group;
+}
+
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor& p_descriptor, WGPUBindGroupLayout p_layout) {
+	if (this->mock_bind_groups.has(p_layout)) {
+		return this->mock_bind_groups.get(p_layout);
+	} else {
+		Vector<BoundUniform> uniforms;
+
+		for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
+			const WGPUBindGroupLayoutEntry& entry = p_descriptor.entries[i];
+			RDD::ID id;
+			RDD::UniformType type;
+			if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
+				type = RDD::UniformType::UNIFORM_TYPE_SAMPLER;
+				id = this->_sampler_mock_binding_create(entry.sampler);
+			} else if (entry.texture.sampleType != WGPUTextureSampleType_BindingNotUsed) {
+				type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
+				id = this->_texture_mock_binding_create(entry.texture);
+			} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
+				id = this->_storage_texture_mock_binding_create(entry.storageTexture);
+			} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
+				id = this->_buffer_mock_binding_create(entry.buffer);
+			} else {
+				id = ID();
+			}
+			ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "");
+			uniforms.push_back((RDD::BoundUniform){
+				.type = type,
+				.binding = entry.binding,
+			});
+		}
+
+		WGPUBindGroup bind_group = this->_bind_group_create(uniforms, p_layout, HashMap<uint32_t, Vector<uint32_t>>());
+		this->mock_bind_groups.insert(p_layout, bind_group);
+		return bind_group;
+	}
+}
+
+RDD::SamplerID RenderingDeviceDriverWebGpu::_sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout) {
+	// TODO: Handle arrayed
+	SamplerState sampler_state = SamplerState();
+	return this->sampler_create(sampler_state);
+}
+
+RDD::TextureID RenderingDeviceDriverWebGpu::_texture_mock_binding_create(WGPUTextureBindingLayout p_layout) {
+	// TODO: Handle arrayed
+	TextureFormat format;
+	TextureView view;
+	format.usage_bits = TextureUsageBits::TEXTURE_USAGE_SAMPLING_BIT;
+
+	switch (p_layout.sampleType) {
+		case WGPUTextureSampleType_Undefined:
+		case WGPUTextureSampleType_Float:
+		case WGPUTextureSampleType_UnfilterableFloat:
+			format.format = DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT;
+			break;
+		case WGPUTextureSampleType_Depth:
+			format.format = DataFormat::DATA_FORMAT_D32_SFLOAT;
+			format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+			break;
+		case WGPUTextureSampleType_Sint:
+			format.format = DataFormat::DATA_FORMAT_R32G32B32A32_SINT;
+			break;
+		case WGPUTextureSampleType_Uint:
+			format.format = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT;
+			break;
+		default:
+			break;
+	}
+	view.format = format.format;
+
+	switch (p_layout.viewDimension) {
+		case WGPUTextureViewDimension_1D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_1D;
+			break;
+		case WGPUTextureViewDimension_2D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D;
+		case WGPUTextureViewDimension_2DArray:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY;
+		case WGPUTextureViewDimension_Cube:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+		case WGPUTextureViewDimension_CubeArray:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+		case WGPUTextureViewDimension_3D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
+		default:
+			break;
+	}
+
+	if (p_layout.multisampled) {
+		format.samples = RenderingDeviceCommons::TEXTURE_SAMPLES_1;
+	}
+
+	TextureID texture = this->texture_create(format, view);
+	return texture;
+}
+
+RDD::TextureID RenderingDeviceDriverWebGpu::_storage_texture_mock_binding_create(WGPUStorageTextureBindingLayout p_layout) {
+	TextureFormat format;
+	TextureView view;
+
+	format.usage_bits |= TextureUsageBits::TEXTURE_USAGE_STORAGE_BIT;
+	format.format = rd_texture_format_from_webgpu(p_layout.format);
+	view.format = format.format;
+
+	switch(p_layout.access) {
+		case WGPUStorageTextureAccess_WriteOnly:
+			format.usage_bits |=
+				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+				TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT;
+			break;
+		case WGPUStorageTextureAccess_ReadOnly:
+			format.usage_bits |= TextureUsageBits::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+			break;
+		case WGPUStorageTextureAccess_ReadWrite:
+			format.usage_bits |=
+				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+				TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT |
+				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+			break;
+		default:
+			break;
+	}
+
+	switch (p_layout.viewDimension) {
+		case WGPUTextureViewDimension_1D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_1D;
+			break;
+		case WGPUTextureViewDimension_2D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D;
+		case WGPUTextureViewDimension_2DArray:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY;
+		case WGPUTextureViewDimension_Cube:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+		case WGPUTextureViewDimension_CubeArray:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+		case WGPUTextureViewDimension_3D:
+			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
+		default:
+			break;
+	}
+
+	TextureID texture = this->texture_create(format, view);
+	return texture;
+}
+
+RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBufferBindingLayout p_layout) {
+	BitField<BufferUsageBits> usage = 0;
+	switch (p_layout.type) {
+		case WGPUBufferBindingType_Uniform:
+			usage.set_flag(RDD::BufferUsageBits::BUFFER_USAGE_UNIFORM_BIT);
+			break;
+		case WGPUBufferBindingType_Storage:
+		case WGPUBufferBindingType_ReadOnlyStorage:
+			usage.set_flag(RDD::BufferUsageBits::BUFFER_USAGE_STORAGE_BIT);
+			break;
+		default:
+			break;
+	}
+	BufferID buffer = this->buffer_create(p_layout.minBindingSize != 0 ? p_layout.minBindingSize : 1, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
+	return buffer;
+}
+
+RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+
+	WGPUBindGroup bind_group = _bind_group_create(p_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
+	ERR_FAIL_COND_V(bind_group == nullptr, UniformSetID());
 
 	return UniformSetID(bind_group);
 }
@@ -2050,6 +2244,27 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 
 	WGPURenderPassEncoder render_encoder = wgpuCommandEncoderBeginRenderPass(command_buffer_info->encoder, &render_pass_descriptor);
 
+	HashSet<uint32_t> bound_indices = HashSet<uint32_t>();
+	for (uint32_t i = 0; i < command_buffer_info->active_render_pass_info.commands.size(); i++) {
+		const RenderPassEncoderCommand &command = command_buffer_info->active_render_pass_info.commands.write[i];
+		if (command.type == RenderPassEncoderCommand::CommandType::SET_BIND_GROUP) {
+			RenderPassEncoderCommand::SetBindGroup data = command.set_bind_group;
+			bound_indices.insert(data.group_index);
+		}
+	}
+
+	ShaderInfo* shader_info = (ShaderInfo*)command_buffer_info->active_compute_pass_info.bind_group_shader.id;
+	if (shader_info) {
+		for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
+			const WGPUBindGroupLayoutDescriptor& desc = shader_info->bind_group_layout_descs[set_idx];
+			if (!bound_indices.has(set_idx)) {
+				WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
+				wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, mock_group, 0, nullptr);
+
+			}
+		}
+	}
+
 	for (uint32_t i = 0; i < command_buffer_info->active_render_pass_info.commands.size(); i++) {
 		RenderPassEncoderCommand &command = command_buffer_info->active_render_pass_info.commands.write[i];
 
@@ -2193,13 +2408,15 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 			} }));
 }
 
-void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID _p_shader, uint32_t p_set_index) {
+void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
+
+	command_buffer_info->active_compute_pass_info.bind_group_shader = p_shader;
 	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_BIND_GROUP,
 
@@ -2683,6 +2900,7 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBuffer
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 
+	command_buffer_info->active_compute_pass_info.bind_group_shader = p_shader;
 	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::SET_BIND_GROUP,
 			.set_bind_group = (ComputePassEncoderCommand::SetBindGroup){

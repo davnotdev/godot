@@ -4,15 +4,15 @@
 #include "core/io/marshalls.h"
 #include "servers/rendering/rendering_device_commons.h"
 
-#include "shader_binary_webgpu.h"
+#include "webgpu_shader_binary.h"
 
-ShaderBinaryWebGpu::ShaderBinaryWebGpu(ShaderBinaryWebGpu::DataInput input) : input(input) {
+WebGpuShaderBinary::WebGpuShaderBinary(WebGpuShaderBinary::DataInput input) : input(input) {
 }
 
-ShaderBinaryWebGpu::~ShaderBinaryWebGpu() {
+WebGpuShaderBinary::~WebGpuShaderBinary() {
 }
 
-Vector<uint8_t> ShaderBinaryWebGpu::to_byte_array() {
+Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 	Vector<uint8_t> bytes;
 
 	ERR_FAIL_COND_V(input.shader_name.length() != input.data.shader_name_len, Vector<uint8_t>());
@@ -99,7 +99,7 @@ Vector<uint8_t> ShaderBinaryWebGpu::to_byte_array() {
 	return bytes;
 }
 
-ShaderBinaryWebGpu::DataOutput ShaderBinaryWebGpu::parse_input_from_bytes(const Vector<uint8_t> &p_bytes) {
+WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const Vector<uint8_t> &p_bytes) {
 	DataInput result;
 
 	const uint8_t *binptr = p_bytes.ptr();
@@ -178,7 +178,7 @@ ShaderBinaryWebGpu::DataOutput ShaderBinaryWebGpu::parse_input_from_bytes(const 
 	};
 }
 
-ShaderBinaryWebGpu::ShaderStageInput ShaderBinaryWebGpu::compress_source_into_input(const CharString &p_source, uint32_t shader_stages) {
+WebGpuShaderBinary::ShaderStageInput WebGpuShaderBinary::compress_source_into_input(const CharString &p_source, uint32_t shader_stages) {
 	ShaderStageInput stage;
 	stage.shader_stage = shader_stages;
 	stage.original_source_size = p_source.size();
@@ -199,7 +199,7 @@ ShaderBinaryWebGpu::ShaderStageInput ShaderBinaryWebGpu::compress_source_into_in
 	return stage;
 }
 
-Vector<uint8_t> ShaderBinaryWebGpu::decompress_source_with_input(const ShaderStageInput &input) {
+Vector<uint8_t> WebGpuShaderBinary::decompress_source_with_input(const ShaderStageInput &input) {
 	if (input.zstd_size > 0) {
 		Vector<uint8_t> dec_bytes;
 		dec_bytes.resize(input.original_source_size);

@@ -296,6 +296,7 @@ private:
 		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
 		Vector<RenderPassEncoderCommand> commands;
 		WGPUTextureView maybe_surface_texture_view;
+		ShaderID bind_group_shader;
 	};
 
 	struct ComputePassEncoderCommand {
@@ -346,6 +347,7 @@ private:
 
 	struct ComputePassEncoderInfo {
 		Vector<ComputePassEncoderCommand> commands;
+		ShaderID bind_group_shader;
 	};
 
 	struct CommandBufferInfo {
@@ -427,6 +429,18 @@ public:
 	/*********************/
 	/**** UNIFORM SET ****/
 	/*********************/
+
+private:
+	WGPUBindGroup _bind_group_create(VectorView<BoundUniform> p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
+	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor& p_descriptor, WGPUBindGroupLayout p_layout);
+
+	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
+	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
+
+	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
+	TextureID _texture_mock_binding_create(WGPUTextureBindingLayout p_layout);
+	TextureID _storage_texture_mock_binding_create(WGPUStorageTextureBindingLayout p_layout);
+	BufferID _buffer_mock_binding_create(WGPUBufferBindingLayout p_layout);
 
 public:
 	virtual UniformSetID uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) override final;
