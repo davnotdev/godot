@@ -1,10 +1,10 @@
-#ifndef SHADER_BINARY_WEBGPU_H
-#define SHADER_BINARY_WEBGPU_H
+#ifndef WEBGPU_SHADER_BINARY_H
+#define WEBGPU_SHADER_BINARY_H
 
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 
-class ShaderBinaryWebGpu {
+class WebGpuShaderBinary {
 	//	An overview of the shader binary layout:
 	//	```C
 	//	struct {
@@ -88,8 +88,8 @@ public:
 		DataInput data;
 	};
 
-	ShaderBinaryWebGpu(DataInput input);
-	~ShaderBinaryWebGpu();
+	WebGpuShaderBinary(DataInput input);
+	~WebGpuShaderBinary();
 
 	Vector<uint8_t> to_byte_array();
 	static DataOutput parse_input_from_bytes(const Vector<uint8_t> &p_bytes);

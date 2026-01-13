@@ -39,7 +39,7 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 
 	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
 	// TODO: The BC, ETC2, and ASTC compressed formats have been left out.
-	// NOTE: Please also update `webgpu_bytes_per_row_from_format` alongside this.
+	// NOTE: Please also update `webgpu_bytes_per_row_from_format` and `rd_texture_format_from_webgpu` alongside this.
 	switch (p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R8_UNORM:
 			ret = WGPUTextureFormat_R8Unorm;
@@ -492,6 +492,159 @@ WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_st
 	}
 }
 
+inline RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_format);
+
+RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
+	RDD::DataFormat ret = RDD::DataFormat::DATA_FORMAT_MAX;
+
+	switch (p_format) {
+		case WGPUTextureFormat_R8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_UNORM;
+			break;
+		case WGPUTextureFormat_R8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_SNORM;
+			break;
+		case WGPUTextureFormat_R8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_UINT;
+			break;
+		case WGPUTextureFormat_R8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8_SINT;
+			break;
+
+		case WGPUTextureFormat_R16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_UINT;
+			break;
+		case WGPUTextureFormat_R16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SINT;
+			break;
+		case WGPUTextureFormat_R16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_R32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_UINT;
+			break;
+		case WGPUTextureFormat_R32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_SINT;
+			break;
+		case WGPUTextureFormat_R32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RG8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_UNORM;
+			break;
+		case WGPUTextureFormat_RG8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_SNORM;
+			break;
+		case WGPUTextureFormat_RG8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_UINT;
+			break;
+		case WGPUTextureFormat_RG8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8_SINT;
+			break;
+
+		case WGPUTextureFormat_RG16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_UINT;
+			break;
+		case WGPUTextureFormat_RG16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SINT;
+			break;
+		case WGPUTextureFormat_RG16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RGBA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UNORM;
+			break;
+		case WGPUTextureFormat_RGBA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SRGB;
+			break;
+		case WGPUTextureFormat_RGBA8Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SNORM;
+			break;
+		case WGPUTextureFormat_RGBA8Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UINT;
+			break;
+		case WGPUTextureFormat_RGBA8Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R8G8B8A8_SINT;
+			break;
+
+		case WGPUTextureFormat_BGRA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_B8G8R8A8_UNORM;
+			break;
+		case WGPUTextureFormat_BGRA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_B8G8R8A8_SRGB;
+			break;
+
+		case WGPUTextureFormat_RG32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_UINT;
+			break;
+		case WGPUTextureFormat_RG32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_SINT;
+			break;
+		case WGPUTextureFormat_RG32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RGBA16Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UINT;
+			break;
+		case WGPUTextureFormat_RGBA16Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SINT;
+			break;
+		case WGPUTextureFormat_RGBA16Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_RGBA32Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT;
+			break;
+		case WGPUTextureFormat_RGBA32Sint:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SINT;
+			break;
+		case WGPUTextureFormat_RGBA32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT;
+			break;
+
+		case WGPUTextureFormat_Stencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_S8_UINT;
+			break;
+		case WGPUTextureFormat_Depth16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_D16_UNORM;
+			break;
+		case WGPUTextureFormat_Depth24PlusStencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT;
+			break;
+		case WGPUTextureFormat_Depth32Float:
+			ret = RDD::DataFormat::DATA_FORMAT_D32_SFLOAT;
+			break;
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			ret = RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT;
+			break;
+
+		default:
+			ret = rd_texture_format_from_webgpu_native((WGPUNativeTextureFormat)p_format);
+			break;
+	}
+
+	return ret;
+}
+
+RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_format) {
+	switch(p_format) {
+		case WGPUNativeTextureFormat_R16Unorm:
+			return RDD::DataFormat::DATA_FORMAT_R16_UNORM;
+		case WGPUNativeTextureFormat_R16Snorm:
+			return RDD::DataFormat::DATA_FORMAT_R16_SNORM;
+		case WGPUNativeTextureFormat_Rgba16Unorm:
+			return RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM;
+		default:
+			return RDD::DataFormat::DATA_FORMAT_MAX;
+	}
+
+}
+
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
 	// NOTE: For limits that aren't supported, I've put the max uint64 value. This may cause issues.
 	switch (p_selected_limit) {
@@ -636,10 +789,10 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 			return 8;
 		case WGPUNativeTextureFormat_NV12:
 			/*
-			if (aspect == TextureAspect_Plane0) {
+			if (aspect == WGPUTextureAspect_Plane0) {
 				return 1;
 			}
-			if (aspect == TextureAspect_Plane1) {
+			if (aspect == WGPUTextureAspect_Plane1) {
 				return 2;
 			}
 			*/
