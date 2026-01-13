@@ -24,6 +24,7 @@ WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_st
 WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
 WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type);
 
+RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format);
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits);
 
 typedef struct {
