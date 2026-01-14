@@ -412,6 +412,7 @@ private:
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
+		Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
 
 		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
 
@@ -435,6 +436,7 @@ private:
 	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor& p_descriptor, WGPUBindGroupLayout p_layout);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
+	// TODO: deallocate these
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
 
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
