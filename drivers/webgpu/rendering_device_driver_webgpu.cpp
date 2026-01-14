@@ -1175,7 +1175,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->shader_name = r_name;
 	}
 
-	Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
+	Vector<Vector<WGPUBindGroupLayoutEntry>>& bind_group_layout_entries = shader_info->bind_group_layout_entries;
 
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
@@ -1525,9 +1525,10 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 	uint32_t binding_offset = 0;
 	for (uint32_t uniform_idx = 0; uniform_idx < p_uniforms.size(); uniform_idx++) {
 		const BoundUniform &uniform = p_uniforms[uniform_idx];
+		int binding_correction_count = (p_set_binding_corrections.has(uniform.binding) ? (int)p_set_binding_corrections[uniform.binding].size() : 0);
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
-				for (int i = -1; i < (int)p_set_binding_corrections[uniform.binding].size(); i++) {
+				for (int i = -1; i < binding_correction_count; i++) {
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
@@ -1620,10 +1621,9 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
-				uint32_t correction_count = p_set_binding_corrections[uniform.binding].size();
-				for (int i = -1; i < (int)correction_count; i++) {
+				for (int i = -1; i < binding_correction_count; i++) {
 					ERR_FAIL_COND_V(
-						uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && correction_count != 0,
+						uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && binding_correction_count != 0,
 						nullptr
 					);
 
@@ -1714,16 +1714,23 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const 
 				type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
 				id = this->_texture_mock_binding_create(entry.texture);
 			} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
+				type = RDD::UniformType::UNIFORM_TYPE_IMAGE;
 				id = this->_storage_texture_mock_binding_create(entry.storageTexture);
 			} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
+				type = RDD::UniformType::UNIFORM_TYPE_UNIFORM_BUFFER;
 				id = this->_buffer_mock_binding_create(entry.buffer);
 			} else {
 				id = ID();
 			}
-			ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "");
+			ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "Empty id in _mock_bind_group_create_or_get");
+
+			LocalVector<ID> ids;
+			ids.push_back(id);
+
 			uniforms.push_back((RDD::BoundUniform){
 				.type = type,
 				.binding = entry.binding,
+				.ids = ids
 			});
 		}
 
@@ -1772,14 +1779,19 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_texture_mock_binding_create(WGPUTex
 			break;
 		case WGPUTextureViewDimension_2D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D;
+			break;
 		case WGPUTextureViewDimension_2DArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY;
+			break;
 		case WGPUTextureViewDimension_Cube:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+			break;
 		case WGPUTextureViewDimension_CubeArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+			break;
 		case WGPUTextureViewDimension_3D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
+			break;
 		default:
 			break;
 	}
@@ -1825,14 +1837,19 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_storage_texture_mock_binding_create
 			break;
 		case WGPUTextureViewDimension_2D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D;
+			break;
 		case WGPUTextureViewDimension_2DArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_2D_ARRAY;
+			break;
 		case WGPUTextureViewDimension_Cube:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+			break;
 		case WGPUTextureViewDimension_CubeArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+			break;
 		case WGPUTextureViewDimension_3D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
+			break;
 		default:
 			break;
 	}
