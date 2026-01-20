@@ -214,13 +214,13 @@ private:
 
 		struct SetPipeline {
 			// We need additional information for mock bind groups.
-			PipelineInfo* pipeline_info;
+			PipelineInfo *pipeline_info;
 		};
 
 		struct SetBindGroup {
 			uint32_t group_index;
 			WGPUBindGroup bind_group;
-			ShaderInfo* shader_info;
+			ShaderInfo *shader_info;
 		};
 
 		struct Draw {
@@ -327,13 +327,13 @@ private:
 
 		struct SetPipeline {
 			// We need additional information for mock bind groups.
-			PipelineInfo* pipeline_info;
+			PipelineInfo *pipeline_info;
 		};
 
 		struct SetBindGroup {
 			uint32_t group_index;
 			WGPUBindGroup bind_group;
-			ShaderInfo* shader_info;
+			ShaderInfo *shader_info;
 		};
 
 		struct SetPushConstants {
@@ -461,7 +461,7 @@ public:
 
 private:
 	WGPUBindGroup _bind_group_create(VectorView<BoundUniform> p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
-	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor& p_descriptor, WGPUBindGroupLayout p_layout);
+	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these
