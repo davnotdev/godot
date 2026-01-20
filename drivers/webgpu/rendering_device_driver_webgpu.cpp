@@ -782,7 +782,7 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 		// TODO: There's another instance of this, feels ripe for refactoring.
 		// We need to bind missing bind groups before after setting the pipeline but before an "effective" command.
 		// `wgpu` skips binding most bind groups if one is missing.
-		PipelineInfo* current_pipeline = nullptr;
+		PipelineInfo *current_pipeline = nullptr;
 		HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> mock_bind_groups;
 		HashMap<uint32_t, ShaderID> bound_indices;
 		for (uint32_t i = 0; i < command_buffer_info->active_compute_pass_info.commands.size(); i++) {
@@ -803,13 +803,13 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 					}
 				}
 				if (command.is_dispatch()) {
-					ShaderInfo* shader_info = (ShaderInfo*)current_pipeline->shader_id.id;
+					ShaderInfo *shader_info = (ShaderInfo *)current_pipeline->shader_id.id;
 					if (shader_info) {
 						mock_bind_groups.insert(i, Vector<Pair<uint32_t, WGPUBindGroup>>());
-						Vector<Pair<uint32_t, WGPUBindGroup>>& groups = mock_bind_groups[i];
+						Vector<Pair<uint32_t, WGPUBindGroup>> &groups = mock_bind_groups[i];
 
 						for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
-							const WGPUBindGroupLayoutDescriptor& desc = shader_info->bind_group_layout_descs[set_idx];
+							const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
 							if (!bound_indices.has(set_idx)) {
 								WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
 								groups.push_back(Pair(set_idx, mock_group));
@@ -824,7 +824,7 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 			ComputePassEncoderCommand &command = command_buffer_info->active_compute_pass_info.commands.write[i];
 
 			if (mock_bind_groups.has(i)) {
-				const Vector<Pair<uint32_t, WGPUBindGroup>>& mock_bindings = mock_bind_groups.get(i);
+				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = mock_bind_groups.get(i);
 				for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
 					uint32_t set_idx = mock_bindings[mb_idx].first;
 					WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
@@ -1179,7 +1179,6 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 }
 
 RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_bytecode(const Vector<uint8_t> &p_shader_binary, ShaderDescription &r_shader_desc, String &r_name, const Vector<ImmutableSampler> &p_immutable_samplers) {
-
 	r_shader_desc = {};
 
 	WebGpuShaderBinary::DataOutput out = WebGpuShaderBinary::parse_input_from_bytes(p_shader_binary);
@@ -1204,7 +1203,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->shader_name = r_name;
 	}
 
-	Vector<Vector<WGPUBindGroupLayoutEntry>>& bind_group_layout_entries = shader_info->bind_group_layout_entries;
+	Vector<Vector<WGPUBindGroupLayoutEntry>> &bind_group_layout_entries = shader_info->bind_group_layout_entries;
 
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
@@ -1432,7 +1431,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					DEV_ASSERT(false);
 				}
 			}
-
 		}
 		shader_info->set_binding_corrections.insert(set_idx, binding_corrections);
 	}
@@ -1489,7 +1487,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	DEV_ASSERT((uint32_t)bind_group_layout_entries.size() == binary_data.set_count);
 	for (uint32_t set_idx = 0; set_idx < binary_data.set_count; set_idx++) {
-
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
 			.entryCount = (size_t)bind_group_layout_entries[set_idx].size(),
 			.entries = bind_group_layout_entries[set_idx].ptr(),
@@ -1560,11 +1557,10 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
-							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
-							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-							nullptr,
-							"WebGPU unexpected bind group sampler correction"
-						);
+								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
+										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
+								nullptr,
+								"WebGPU unexpected bind group sampler correction");
 						binding_offset += 1;
 					}
 
@@ -1651,18 +1647,16 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
 				for (int i = -1; i < binding_correction_count; i++) {
 					ERR_FAIL_COND_V(
-						uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && binding_correction_count != 0,
-						nullptr
-					);
+							uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && binding_correction_count != 0,
+							nullptr);
 
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
-							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
-							correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-							nullptr,
-							"WebGPU unexpected bind group sampler correction"
-						);
+								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
+										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
+								nullptr,
+								"WebGPU unexpected bind group sampler correction");
 						binding_offset += 1;
 					}
 
@@ -1725,14 +1719,14 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 	return bind_group;
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor& p_descriptor, WGPUBindGroupLayout p_layout) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout) {
 	if (this->mock_bind_groups.has(p_layout)) {
 		return this->mock_bind_groups.get(p_layout);
 	} else {
 		Vector<BoundUniform> uniforms;
 
 		for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
-			const WGPUBindGroupLayoutEntry& entry = p_descriptor.entries[i];
+			const WGPUBindGroupLayoutEntry &entry = p_descriptor.entries[i];
 			RDD::ID id;
 			RDD::UniformType type;
 			if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
@@ -1756,10 +1750,9 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const 
 			ids.push_back(id);
 
 			uniforms.push_back((RDD::BoundUniform){
-				.type = type,
-				.binding = entry.binding,
-				.ids = ids
-			});
+					.type = type,
+					.binding = entry.binding,
+					.ids = ids });
 		}
 
 		WGPUBindGroup bind_group = this->_bind_group_create(uniforms, p_layout, HashMap<uint32_t, Vector<uint32_t>>());
@@ -1840,20 +1833,20 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_storage_texture_mock_binding_create
 	format.format = rd_texture_format_from_webgpu(p_layout.format);
 	view.format = format.format;
 
-	switch(p_layout.access) {
+	switch (p_layout.access) {
 		case WGPUStorageTextureAccess_WriteOnly:
 			format.usage_bits |=
-				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
-				TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT;
+					TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+					TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT;
 			break;
 		case WGPUStorageTextureAccess_ReadOnly:
 			format.usage_bits |= TextureUsageBits::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
 			break;
 		case WGPUStorageTextureAccess_ReadWrite:
 			format.usage_bits |=
-				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
-				TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT |
-				TextureUsageBits::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+					TextureUsageBits::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+					TextureUsageBits::TEXTURE_USAGE_CAN_UPDATE_BIT |
+					TextureUsageBits::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
 			break;
 		default:
 			break;
@@ -2294,7 +2287,7 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 	// TODO: There's another instance of this, feels ripe for refactoring.
 	// We need to bind missing bind groups before after setting the pipeline but before an "effective" command.
 	// `wgpu` skips binding most bind groups if one is missing.
-	PipelineInfo* current_pipeline = nullptr;
+	PipelineInfo *current_pipeline = nullptr;
 	HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> mock_bind_groups;
 	HashMap<uint32_t, ShaderID> bound_indices;
 	for (uint32_t i = 0; i < command_buffer_info->active_render_pass_info.commands.size(); i++) {
@@ -2315,13 +2308,13 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 				}
 			}
 			if (command.is_draw_call()) {
-				ShaderInfo* shader_info = (ShaderInfo*)current_pipeline->shader_id.id;
+				ShaderInfo *shader_info = (ShaderInfo *)current_pipeline->shader_id.id;
 				if (shader_info) {
 					mock_bind_groups.insert(i, Vector<Pair<uint32_t, WGPUBindGroup>>());
-					Vector<Pair<uint32_t, WGPUBindGroup>>& groups = mock_bind_groups[i];
+					Vector<Pair<uint32_t, WGPUBindGroup>> &groups = mock_bind_groups[i];
 
 					for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
-						const WGPUBindGroupLayoutDescriptor& desc = shader_info->bind_group_layout_descs[set_idx];
+						const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
 						if (!bound_indices.has(set_idx)) {
 							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
 							groups.push_back(Pair(set_idx, mock_group));
@@ -2336,7 +2329,7 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 		RenderPassEncoderCommand &command = command_buffer_info->active_render_pass_info.commands.write[i];
 
 		if (mock_bind_groups.has(i)) {
-			const Vector<Pair<uint32_t, WGPUBindGroup>>& mock_bindings = mock_bind_groups.get(i);
+			const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = mock_bind_groups.get(i);
 			for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
 				uint32_t set_idx = mock_bindings[mb_idx].first;
 				WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
@@ -2471,7 +2464,7 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	PipelineInfo* pipeline_info = (PipelineInfo*)p_pipeline.id;
+	PipelineInfo *pipeline_info = (PipelineInfo *)p_pipeline.id;
 
 	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_PIPELINE,
@@ -2488,7 +2481,7 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
-	ShaderInfo* shader_info = (ShaderInfo*)p_shader.id;
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
 	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
 			.type = RenderPassEncoderCommand::CommandType::SET_BIND_GROUP,
@@ -2944,7 +2937,7 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID 
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	PipelineInfo* pipeline = (PipelineInfo*)p_pipeline.id;
+	PipelineInfo *pipeline = (PipelineInfo *)p_pipeline.id;
 
 	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
 			.type = ComputePassEncoderCommand::CommandType::SET_PIPELINE,
@@ -2958,7 +2951,7 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBuffer
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
-	ShaderInfo* shader_info = (ShaderInfo*)p_shader.id;
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
 	command_buffer_info->active_compute_pass_info.bind_group_shader = p_shader;
 	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
