@@ -632,7 +632,7 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 }
 
 RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_format) {
-	switch(p_format) {
+	switch (p_format) {
 		case WGPUNativeTextureFormat_R16Unorm:
 			return RDD::DataFormat::DATA_FORMAT_R16_UNORM;
 		case WGPUNativeTextureFormat_R16Snorm:
@@ -642,7 +642,6 @@ RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_f
 		default:
 			return RDD::DataFormat::DATA_FORMAT_MAX;
 	}
-
 }
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
