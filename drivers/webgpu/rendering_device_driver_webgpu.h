@@ -8,6 +8,9 @@
 #include "servers/rendering/rendering_device_driver.h"
 
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
+	struct ShaderInfo;
+	struct PipelineInfo;
+
 	WGPUDevice device = nullptr;
 	WGPUAdapter adapter = nullptr;
 	WGPUQueue queue = nullptr;
@@ -179,6 +182,19 @@ private:
 		};
 
 		CommandType type;
+		bool is_draw_call() const {
+			switch (this->type) {
+				case CommandType::DRAW:
+				case CommandType::DRAW_INDEXED:
+				case CommandType::MULTI_DRAW_INDIRECT:
+				case CommandType::MULTI_DRAW_INDIRECT_COUNT:
+				case CommandType::MULTI_DRAW_INDEXED_INDIRECT:
+				case CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT:
+					return true;
+				default:
+					return false;
+			}
+		}
 
 		struct SetViewport {
 			float x;
@@ -197,12 +213,14 @@ private:
 		};
 
 		struct SetPipeline {
-			WGPURenderPipeline pipeline;
+			// We need additional information for mock bind groups.
+			PipelineInfo* pipeline_info;
 		};
 
 		struct SetBindGroup {
 			uint32_t group_index;
 			WGPUBindGroup bind_group;
+			ShaderInfo* shader_info;
 		};
 
 		struct Draw {
@@ -296,7 +314,6 @@ private:
 		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
 		Vector<RenderPassEncoderCommand> commands;
 		WGPUTextureView maybe_surface_texture_view;
-		ShaderID bind_group_shader;
 	};
 
 	struct ComputePassEncoderCommand {
@@ -309,12 +326,14 @@ private:
 		};
 
 		struct SetPipeline {
-			WGPUComputePipeline pipeline;
+			// We need additional information for mock bind groups.
+			PipelineInfo* pipeline_info;
 		};
 
 		struct SetBindGroup {
-			uint32_t index;
+			uint32_t group_index;
 			WGPUBindGroup bind_group;
+			ShaderInfo* shader_info;
 		};
 
 		struct SetPushConstants {
@@ -333,6 +352,15 @@ private:
 		};
 
 		CommandType type;
+		bool is_dispatch() const {
+			switch (this->type) {
+				case CommandType::DISPATCH_WORKGROUPS:
+				case CommandType::DISPATCH_WORKGROUPS_INDIRECT:
+					return true;
+				default:
+					return false;
+			}
+		}
 
 		union {
 			SetBindGroup set_bind_group;
@@ -469,6 +497,25 @@ public:
 	/******************/
 	/**** PIPELINE ****/
 	/******************/
+private:
+	struct PipelineInfo {
+		enum class PipelineType {
+			RENDER,
+			COMPUTE,
+		};
+
+		PipelineType type;
+		union {
+			WGPURenderPipeline render_pipeline;
+			WGPUComputePipeline compute_pipeline;
+		};
+		union {
+			WGPURenderPipelineDescriptor render_pipeline_desc;
+			WGPUComputePipelineDescriptor compute_pipeline_desc;
+		};
+		ShaderID shader_id;
+	};
+
 public:
 	virtual void pipeline_free(PipelineID p_pipeline) override final;
 
