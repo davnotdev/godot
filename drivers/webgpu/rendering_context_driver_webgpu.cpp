@@ -60,8 +60,8 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
 	wgpuInstanceRequestAdapter(instance,
-		&adapter_options,
-		adapter_callback_info);
+			&adapter_options,
+			adapter_callback_info);
 
 	// NOTE: Currently unimplemented in wgpu.
 	// wgpuInstanceProcessEvents(instance);
