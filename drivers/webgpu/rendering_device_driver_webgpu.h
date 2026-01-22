@@ -446,6 +446,10 @@ private:
 
 		String shader_name;
 		WGPUPipelineLayout pipeline_layout;
+
+		HashMap<uint32_t, CharString> vertex_override_layout;
+		HashMap<uint32_t, CharString> fragment_override_layout;
+		HashMap<uint32_t, CharString> compute_override_layout;
 	};
 
 public:
@@ -588,6 +592,8 @@ public:
 	virtual void command_render_set_line_width(CommandBufferID p_cmd_buffer, float p_width) override final;
 
 	// ----- PIPELINE -----
+
+	Vector<WGPUConstantEntry> _get_specialization_constant_entries(const VectorView<PipelineSpecializationConstant> &p_specialization_constants, const HashMap<uint32_t, CharString> &p_override_layout);
 
 	virtual PipelineID render_pipeline_create(
 			ShaderID p_shader,

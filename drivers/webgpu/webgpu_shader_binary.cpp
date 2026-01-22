@@ -36,12 +36,21 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 		stages_encoded_size += STEPIFY(stage.source.size(), 4);
 	}
 
+	uint32_t overrides_encoded_size = 0;
+	for (int i = 0; i < input.overrides.size(); i++) {
+		const OverrideInput &override = input.overrides[i];
+		overrides_encoded_size += 4 + 4 + 4;
+		overrides_encoded_size += STEPIFY(override.key.size(), 4);
+	}
+
 	uint32_t expected_byte_count =
 			4 + 4 + // HEADER and VERSION
 			sizeof(Data) +
 			shader_name_encoded_size +
 			bindings_encoded_size +
-			stages_encoded_size;
+			stages_encoded_size +
+			overrides_encoded_size;
+
 	bytes.resize_zeroed(expected_byte_count);
 
 	uint8_t *binptr = bytes.ptrw();
@@ -94,6 +103,20 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 		offset += STEPIFY(stage.source.size(), 4);
 	}
 	ERR_FAIL_COND_V(offset - last_offset != stages_encoded_size, Vector<uint8_t>());
+
+	last_offset = offset;
+	for (int i = 0; i < input.overrides.size(); i++) {
+		const OverrideInput &override = input.overrides[i];
+		encode_uint32(override.stage_flags, binptr + offset);
+		offset += sizeof(uint32_t);
+		encode_uint32(override.constant_id, binptr + offset);
+		offset += sizeof(uint32_t);
+		encode_uint32(override.key.size(), binptr + offset);
+		offset += sizeof(uint32_t);
+		memcpy(binptr + offset, override.key.ptr(), override.key.size());
+		offset += STEPIFY(override.key.size(), 4);
+	}
+	ERR_FAIL_COND_V(offset - last_offset != overrides_encoded_size, Vector<uint8_t>());
 
 	ERR_FAIL_COND_V(expected_byte_count != offset, Vector<uint8_t>());
 	return bytes;
@@ -170,6 +193,24 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 		result.stages.push_back(stage);
 	}
 
+	for (int i = 0; i < result.data.override_count; i++) {
+		OverrideInput override;
+		override.stage_flags = decode_uint32(binptr + offset);
+		offset += sizeof(uint32_t);
+		override.constant_id = decode_uint32(binptr + offset);
+		offset += sizeof(uint32_t);
+		uint32_t key_len = decode_uint32(binptr + offset);
+		offset += sizeof(uint32_t);
+
+		char *key = (char *)memalloc(key_len + 1);
+		memcpy(key, binptr + offset, key_len);
+		key[key_len] = '\0';
+		offset += STEPIFY(key_len, 4);
+		override.key = CharString(key);
+		memfree(key);
+
+		result.overrides.push_back(override);
+	}
 	ERR_FAIL_COND_V(offset != p_bytes.size(), (DataOutput){ .error = true });
 
 	return (DataOutput){

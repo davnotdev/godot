@@ -27,6 +27,13 @@ class WebGpuShaderBinary {
 	//			// (aligned)
 	//			char source[zstd_size ? zstd_size : original_source_size];
 	//		} stages[data.stages_count];
+	//		struct {
+	//			uint32_t stage_flags;
+	//			uint32_t constant_id;
+	//			uint32_t key_len;
+	//			// (aligned)
+	//			char key[key_len];
+	//		} overrides[data.override_count];
 	//	};
 	//	```
 
@@ -45,6 +52,7 @@ public:
 		uint32_t shader_name_len = 0;
 		uint32_t set_count = 0;
 		uint32_t stages_count = 0;
+		uint32_t override_count = 0;
 	};
 
 	struct DataBinding {
@@ -76,11 +84,18 @@ public:
 		Vector<uint8_t> source;
 	};
 
+	struct OverrideInput {
+		uint32_t stage_flags;
+		uint32_t constant_id;
+		CharString key;
+	};
+
 	struct DataInput {
 		Data data;
 		CharString shader_name;
 		Vector<Vector<DataBindingInput>> sets;
 		Vector<ShaderStageInput> stages;
+		Vector<OverrideInput> overrides;
 	};
 
 	struct DataOutput {
