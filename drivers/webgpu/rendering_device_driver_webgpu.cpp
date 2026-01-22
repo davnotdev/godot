@@ -94,12 +94,13 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
 				.maxUniformBuffersPerShaderStage = 32768 + 272,
 				// NOTE: This is my system's max buffer size, needed for some godot examples.
-				.maxUniformBufferBindingSize = 2147483647,
-				.maxStorageBufferBindingSize = WGPU_LIMIT_U64_UNDEFINED,
+				.maxUniformBufferBindingSize = 1953653104,
+				.maxStorageBufferBindingSize = 1953653104,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
-				.maxBufferSize = WGPU_LIMIT_U64_UNDEFINED,
+				// NOTE: Some examples need a higher buffer size?
+				.maxBufferSize = 2147483647,
 				.maxVertexAttributes = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBufferArrayStride = WGPU_LIMIT_U32_UNDEFINED,
 				.maxInterStageShaderVariables = WGPU_LIMIT_U32_UNDEFINED,
@@ -1002,6 +1003,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	binary_data.shader_name_len = shader_name.length();
 	binary_data.set_count = shader_refl.uniform_sets.size();
 	binary_data.stages_count = p_spirv.size();
+	binary_data.override_count = shader_refl.specialization_constants.size();
 
 	// Perform appropriate SPIR-V WebGPU Transforms
 	Vector<ShaderStageSPIRVData> spirv;
@@ -1126,7 +1128,9 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	}
 
 	// Fill out specialization constants for naga
+	// Fill `ShaderBinaryWebGpu::OverrideInput`
 	Vector<PipelineOverride> overrides;
+	Vector<WebGpuShaderBinary::OverrideInput> binary_overrides;
 	for (const ShaderSpecializationConstant &refl_sc : shader_refl.specialization_constants) {
 		PipelineOverride override = {};
 		override.key = refl_sc.name.ptr();
@@ -1138,6 +1142,13 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			override.value = (double)refl_sc.bool_value;
 		}
 		overrides.push_back(override);
+
+		WebGpuShaderBinary::OverrideInput override_input = (WebGpuShaderBinary::OverrideInput){
+			.stage_flags = refl_sc.stages,
+			.constant_id = refl_sc.constant_id,
+			.key = refl_sc.name,
+		};
+		binary_overrides.push_back(override_input);
 	}
 
 	// Translate SPIR-V to WGSL and patch specialization constants
@@ -1170,6 +1181,8 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		.shader_name = shader_name,
 		.sets = binary_sets,
 		.stages = binary_stages,
+		.overrides = binary_overrides,
+
 	};
 
 	WebGpuShaderBinary shader_binary_serializer = WebGpuShaderBinary(input);
@@ -1435,8 +1448,21 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->set_binding_corrections.insert(set_idx, binding_corrections);
 	}
 
-	// We have already patched in our specialization constants in WGSL-land, no need for more.
-	r_shader_desc.specialization_constants = Vector<ShaderSpecializationConstant>();
+	for (uint32_t i = 0; i < data.overrides.size(); i++) {
+		const WebGpuShaderBinary::OverrideInput &override = data.overrides[i];
+		r_shader_desc.specialization_constants.push_back((ShaderSpecializationConstant){
+				.stages = override.stage_flags,
+				.name = override.key,
+		});
+
+		if (override.stage_flags & ShaderStage::SHADER_STAGE_VERTEX) {
+			shader_info->vertex_override_layout.insert(override.constant_id, override.key);
+		} else if (override.stage_flags & ShaderStage::SHADER_STAGE_FRAGMENT) {
+			shader_info->fragment_override_layout.insert(override.constant_id, override.key);
+		} else if (override.stage_flags & ShaderStage::SHADER_STAGE_COMPUTE) {
+			shader_info->compute_override_layout.insert(override.constant_id, override.key);
+		}
+	}
 
 	for (uint32_t i = 0; i < data.stages.size(); i++) {
 		const WebGpuShaderBinary::ShaderStageInput &stage = data.stages[i];
@@ -2688,6 +2714,32 @@ void RenderingDeviceDriverWebGpu::command_render_set_line_width(CommandBufferID 
 
 // ----- PIPELINE -----
 
+Vector<WGPUConstantEntry> RenderingDeviceDriverWebGpu::_get_specialization_constant_entries(const VectorView<PipelineSpecializationConstant> &p_specialization_constants, const HashMap<uint32_t, CharString> &p_override_layout) {
+	Vector<WGPUConstantEntry> overrides;
+	for (int i = 0; i < p_specialization_constants.size(); i++) {
+		const PipelineSpecializationConstant &constant = p_specialization_constants.ptr()[i];
+		if (p_override_layout.has(constant.constant_id)) {
+			const CharString &name = p_override_layout.get(constant.constant_id);
+			double value;
+			if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
+				value = (double)constant.float_value;
+			} else if (constant.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
+				value = (double)constant.int_value;
+			} else {
+				value = (double)constant.bool_value;
+			}
+			overrides.push_back((WGPUConstantEntry){
+					.key = (WGPUStringView){
+							.data = name.ptr(),
+							.length = WGPU_STRLEN,
+					},
+					.value = value,
+			});
+		}
+	}
+	return overrides;
+}
+
 RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_create(
 		ShaderID p_shader,
 		VertexFormatID p_vertex_format,
@@ -2708,14 +2760,12 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	pipeline_descriptor.layout = shader_info->pipeline_layout;
 
 	// pipeline_descriptor.vertex
-
+	Vector<WGPUConstantEntry> vertex_overrides = _get_specialization_constant_entries(p_specialization_constants, shader_info->vertex_override_layout);
 	WGPUVertexState vertex_state = (WGPUVertexState){
 		.module = shader_info->vertex_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		// .constantCount = (size_t)p_specialization_constants.size(),
-		// .constants = constants,
-		.constantCount = 0,
-		.constants = nullptr,
+		.constantCount = (size_t)vertex_overrides.size(),
+		.constants = vertex_overrides.ptr(),
 		.bufferCount = 0,
 	};
 
@@ -2780,13 +2830,12 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		}
 	}
 
+	Vector<WGPUConstantEntry> fragment_overrides = _get_specialization_constant_entries(p_specialization_constants, shader_info->fragment_override_layout);
 	WGPUFragmentState fragment_state = (WGPUFragmentState){
 		.module = shader_info->fragment_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		// .constantCount = (size_t)p_specialization_constants.size(),
-		// .constants = constants,
-		.constantCount = 0,
-		.constants = nullptr,
+		.constantCount = (size_t)fragment_overrides.size(),
+		.constants = fragment_overrides.ptr(),
 		.targetCount = p_color_attachments.size() - render_pass_attachments_offset,
 		.targets = targets,
 	};
@@ -3010,11 +3059,13 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 
 	ERR_FAIL_COND_V_MSG(!shader_info->compute_shader, PipelineID(), "Compute pipeline shader null.");
 
+	Vector<WGPUConstantEntry> overrides = _get_specialization_constant_entries(p_specialization_constants, shader_info->compute_override_layout);
+
 	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
 		.module = shader_info->compute_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
-		.constantCount = 0,
-		.constants = nullptr,
+		.constantCount = (size_t)overrides.size(),
+		.constants = overrides.ptr(),
 	};
 
 	WGPUComputePipelineDescriptor compute_pipeline_descriptor = (WGPUComputePipelineDescriptor){
