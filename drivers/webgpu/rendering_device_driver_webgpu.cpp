@@ -2275,6 +2275,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 
 			color_attachments.push_back((WGPURenderPassColorAttachment){
 					.view = view,
+					.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
 					.loadOp = attachment.load_op,
 					.storeOp = attachment.store_op,
 					.clearValue = (WGPUColor){
