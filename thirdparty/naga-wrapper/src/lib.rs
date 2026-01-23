@@ -83,11 +83,13 @@ fn _convert_spirv_to_wgsl(
     overrides: Option<&PipelineConstants>,
 ) -> Result<String, String> {
     let caps = Capabilities::default()
-        | Capabilities::PUSH_CONSTANT
+        | Capabilities::IMMEDIATES
         | Capabilities::STORAGE_TEXTURE_16BIT_NORM_FORMATS
         | Capabilities::SHADER_FLOAT16_IN_FLOAT32
-        | Capabilities::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
-        | Capabilities::STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
+        | Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY
+        | Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+        | Capabilities::STORAGE_TEXTURE_BINDING_ARRAY
+        | Capabilities::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
         | Capabilities::SUBGROUP;
 
     let module = front::spv::parse_u8_slice(spv, &front::spv::Options::default()).unwrap();

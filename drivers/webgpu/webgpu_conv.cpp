@@ -796,6 +796,10 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 			}
 			*/
 			return UINT32_MAX;
+		// TODO: New format I know nothing about
+		case WGPUNativeTextureFormat_P010:
+			CRASH_NOW_MSG("TODO");
+			break;
 	}
 
 	switch (format) {
@@ -945,6 +949,10 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUNativeTextureFormat_Rgba16Snorm:
 		case WGPUNativeTextureFormat_NV12:
 			return (FormatBlockDimension){ 1, 1 };
+		// TODO: New format I know nothing about
+		case WGPUNativeTextureFormat_P010:
+			CRASH_NOW_MSG("TODO");
+			break;
 	}
 
 	switch (format) {
