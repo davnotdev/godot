@@ -8,4 +8,4 @@ crate-type = ["staticlib"]
 
 [dependencies]
 # We need spv-out purely to enable pipeline override functionality
-naga = { git = "https://github.com/davnotdev/wgpu", branch = "trunk-naga-patches", features = ["spv-in", "spv-out", "wgsl-out"] }
+naga = { git = "https://github.com/davnotdev/wgpu", branch = "trunk-naga-patches-wgpu-28", features = ["spv-in", "spv-out", "wgsl-out"] }
