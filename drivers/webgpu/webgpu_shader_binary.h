@@ -30,9 +30,6 @@ class WebGpuShaderBinary {
 	//		struct {
 	//			uint32_t stage_flags;
 	//			uint32_t constant_id;
-	//			uint32_t key_len;
-	//			// (aligned)
-	//			char key[key_len];
 	//		} overrides[data.override_count];
 	//	};
 	//	```
@@ -87,7 +84,6 @@ public:
 	struct OverrideInput {
 		uint32_t stage_flags;
 		uint32_t constant_id;
-		CharString key;
 	};
 
 	struct DataInput {

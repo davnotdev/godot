@@ -141,7 +141,7 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 [[package]]
 name = "naga"
 version = "28.0.0"
-source = "git+https://github.com/davnotdev/wgpu?branch=trunk-naga-patches-wgpu-28#49b636a0901cc9bf55006cb3f50b092dae47df0c"
+source = "git+https://github.com/davnotdev/wgpu?branch=trunk-naga-patches-wgpu-28#29854d771e8dc16f91d52a2a9b52b5b89488464d"
 dependencies = [
  "arrayvec",
  "bit-set",
