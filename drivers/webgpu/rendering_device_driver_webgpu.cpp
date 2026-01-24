@@ -30,7 +30,8 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
 #ifdef WGPU_LOG
 	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
-		print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
+		String message = String::utf8(p_message.data, p_message.length);
+		print_line("[WGPU]", message);
 	},
 			nullptr);
 #endif
@@ -1129,24 +1130,11 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	// Fill out specialization constants for naga
 	// Fill `ShaderBinaryWebGpu::OverrideInput`
-	Vector<PipelineOverride> overrides;
 	Vector<WebGpuShaderBinary::OverrideInput> binary_overrides;
 	for (const ShaderSpecializationConstant &refl_sc : shader_refl.specialization_constants) {
-		PipelineOverride override = {};
-		override.key = refl_sc.name.ptr();
-		if (refl_sc.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_FLOAT) {
-			override.value = (double)refl_sc.float_value;
-		} else if (refl_sc.type == PipelineSpecializationConstantType::PIPELINE_SPECIALIZATION_CONSTANT_TYPE_INT) {
-			override.value = (double)refl_sc.int_value;
-		} else {
-			override.value = (double)refl_sc.bool_value;
-		}
-		overrides.push_back(override);
-
 		WebGpuShaderBinary::OverrideInput override_input = (WebGpuShaderBinary::OverrideInput){
 			.stage_flags = refl_sc.stages,
 			.constant_id = refl_sc.constant_id,
-			.key = refl_sc.name,
 		};
 		binary_overrides.push_back(override_input);
 	}
@@ -1155,7 +1143,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	Vector<CharString> wgsl_sources;
 	for (int i = 0; i < spirv.size(); i++) {
 		const ShaderStageSPIRVData &data = spirv[i];
-		ConvertResult result = convert_spirv_to_wgsl_alloc(data.spirv.ptr(), data.spirv.size(), overrides.ptr(), overrides.size());
+		ConvertResult result = convert_spirv_to_wgsl_alloc(data.spirv.ptr(), data.spirv.size());
 		if (result.error_string != nullptr) {
 			print_line("[WGPU] WGSL compiliation: ", result.error_string);
 			convert_result_free(result);
@@ -1450,17 +1438,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 	for (uint32_t i = 0; i < data.overrides.size(); i++) {
 		const WebGpuShaderBinary::OverrideInput &override = data.overrides[i];
+		CharString key = uitos(override.constant_id).ascii();
 		r_shader_desc.specialization_constants.push_back((ShaderSpecializationConstant){
 				.stages = override.stage_flags,
-				.name = override.key,
+				.name = key,
 		});
 
 		if (override.stage_flags & ShaderStage::SHADER_STAGE_VERTEX) {
-			shader_info->vertex_override_layout.insert(override.constant_id, override.key);
+			shader_info->vertex_override_layout.insert(override.constant_id, key);
 		} else if (override.stage_flags & ShaderStage::SHADER_STAGE_FRAGMENT) {
-			shader_info->fragment_override_layout.insert(override.constant_id, override.key);
+			shader_info->fragment_override_layout.insert(override.constant_id, key);
 		} else if (override.stage_flags & ShaderStage::SHADER_STAGE_COMPUTE) {
-			shader_info->compute_override_layout.insert(override.constant_id, override.key);
+			shader_info->compute_override_layout.insert(override.constant_id, key);
 		}
 	}
 
@@ -3201,7 +3190,7 @@ String RenderingDeviceDriverWebGpu::get_api_name() const {
 
 String RenderingDeviceDriverWebGpu::get_api_version() const {
 	// TODO: We should compile this in based on the wgpu / dawn version
-	return "v24.0.0 (wgpu)";
+	return "v28.0.0 (wgpu)";
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
