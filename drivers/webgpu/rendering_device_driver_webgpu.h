@@ -385,6 +385,9 @@ private:
 		ComputePassEncoderInfo active_compute_pass_info = ComputePassEncoderInfo();
 	};
 
+	void _flush_active_render_pass(CommandBufferInfo& p_command_info);
+	void _flush_active_compute_pass(CommandBufferInfo& p_command_info);
+
 public:
 	virtual CommandBufferID command_buffer_create(CommandPoolID p_cmd_pool) override final;
 	virtual bool command_buffer_begin(CommandBufferID p_cmd_buffer) override final;
