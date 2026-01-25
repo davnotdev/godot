@@ -1117,6 +1117,12 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		return Vector<uint8_t>();
 	}
 
+	// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
+	// Since this is presumably just for debug, we will skip this.
+	if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
+		return Vector<uint8_t>();
+	}
+
 	ShaderReflection shader_refl;
 	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
 		return Vector<uint8_t>();
@@ -1547,6 +1553,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.type = WGPUBufferBindingType_Uniform,
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
+						.minBindingSize = binding.length
 					};
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
@@ -1558,6 +1565,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						// .type = (layout_entry.visibility & WGPUShaderStage_Vertex) ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage,
 						// Godot doesn't support dynamic offset
 						.hasDynamicOffset = false,
+						.minBindingSize = binding.length
 					};
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
@@ -2045,7 +2053,13 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 		default:
 			break;
 	}
-	BufferID buffer = this->buffer_create(p_layout.minBindingSize != 0 ? p_layout.minBindingSize : 1, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
+
+	// HACK: At layout time, we cannot know the size of all mock SSBO's.
+	// If all else fails, we use this hardcoded, big-ish number.
+	// Internally, `wgpu` checks this size using data at draw / dispatch time.
+	// We could also use this "late" data for this purpose (among other hacks) if this issue persists.
+	const uint32_t max_binding_size = 65536;
+	BufferID buffer = this->buffer_create(p_layout.minBindingSize ? p_layout.minBindingSize : max_binding_size, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
 	return buffer;
 }
 
