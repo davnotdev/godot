@@ -160,43 +160,33 @@ public:
 	// ----- BUFFER -----
 
 private:
-	// We defer beginning a render / compute pass
-	// because when we begin a pass, there is info we do not yet know.
-	struct RenderPassEncoderCommand {
-	public:
+	// We store and defer commands because we do not have enough information at the beginning of a pass.
+	struct PassEncoderCommand {
 		enum class CommandType {
-			SET_VIEWPORT,
-			SET_SCISSOR_RECT,
-			SET_PIPELINE,
-			SET_BIND_GROUP,
-			DRAW,
-			DRAW_INDEXED,
-			MULTI_DRAW_INDIRECT,
-			MULTI_DRAW_INDIRECT_COUNT,
-			MULTI_DRAW_INDEXED_INDIRECT,
-			MULTI_DRAW_INDEXED_INDIRECT_COUNT,
-			SET_VERTEX_BUFFER,
-			SET_INDEX_BUFFER,
-			SET_BLEND_CONSTANTS,
-			SET_PUSH_CONSTANTS,
+			RENDER_SET_VIEWPORT,
+			RENDER_SET_SCISSOR_RECT,
+			RENDER_SET_PIPELINE,
+			RENDER_SET_BIND_GROUP,
+			RENDER_DRAW,
+			RENDER_DRAW_INDEXED,
+			RENDER_MULTI_DRAW_INDIRECT,
+			RENDER_MULTI_DRAW_INDIRECT_COUNT,
+			RENDER_MULTI_DRAW_INDEXED_INDIRECT,
+			RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT,
+			RENDER_SET_VERTEX_BUFFER,
+			RENDER_SET_INDEX_BUFFER,
+			RENDER_SET_BLEND_CONSTANTS,
+			RENDER_SET_PUSH_CONSTANTS,
+
+			COMPUTE_SET_PIPELINE,
+			COMPUTE_SET_BIND_GROUP,
+			COMPUTE_SET_PUSH_CONSTANTS,
+			COMPUTE_DISPATCH_WORKGROUPS,
+			COMPUTE_DISPATCH_WORKGROUPS_INDIRECT,
 		};
 
 		CommandType type;
-		bool is_draw_call() const {
-			switch (this->type) {
-				case CommandType::DRAW:
-				case CommandType::DRAW_INDEXED:
-				case CommandType::MULTI_DRAW_INDIRECT:
-				case CommandType::MULTI_DRAW_INDIRECT_COUNT:
-				case CommandType::MULTI_DRAW_INDEXED_INDIRECT:
-				case CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT:
-					return true;
-				default:
-					return false;
-			}
-		}
-
-		struct SetViewport {
+		struct RenderSetViewport {
 			float x;
 			float y;
 			float width;
@@ -205,32 +195,21 @@ private:
 			float max_depth;
 		};
 
-		struct SetScissorRect {
+		struct RenderSetScissorRect {
 			uint32_t x;
 			uint32_t y;
 			uint32_t width;
 			uint32_t height;
 		};
 
-		struct SetPipeline {
-			// We need additional information for mock bind groups.
-			PipelineInfo *pipeline_info;
-		};
-
-		struct SetBindGroup {
-			uint32_t group_index;
-			WGPUBindGroup bind_group;
-			ShaderInfo *shader_info;
-		};
-
-		struct Draw {
+		struct RenderDraw {
 			uint32_t vertex_count;
 			uint32_t instance_count;
 			uint32_t first_vertex;
 			uint32_t first_instance;
 		};
 
-		struct DrawIndexed {
+		struct RenderDrawIndexed {
 			uint32_t index_count;
 			uint32_t instance_count;
 			uint32_t first_index;
@@ -238,13 +217,13 @@ private:
 			uint32_t first_instance;
 		};
 
-		struct MultiDrawIndirect {
+		struct RenderMultiDrawIndirect {
 			WGPUBuffer indirect_buffer;
 			uint64_t indirect_offset;
 			uint32_t count;
 		};
 
-		struct MultiDrawIndirectCount {
+		struct RenderMultiDrawIndirectCount {
 			WGPUBuffer indirect_buffer;
 			uint64_t indirect_offset;
 			WGPUBuffer count_buffer;
@@ -252,13 +231,13 @@ private:
 			uint32_t max_count;
 		};
 
-		struct MultiDrawIndexedIndirect {
+		struct RenderMultiDrawIndexedIndirect {
 			WGPUBuffer indirect_buffer;
 			uint64_t indirect_offset;
 			uint32_t count;
 		};
 
-		struct MultiDrawIndexedIndirectCount {
+		struct RenderMultiDrawIndexedIndirectCount {
 			WGPUBuffer indirect_buffer;
 			uint64_t indirect_offset;
 			WGPUBuffer count_buffer;
@@ -266,63 +245,42 @@ private:
 			uint32_t max_count;
 		};
 
-		struct SetVertexBuffer {
+		struct RenderSetVertexBuffer {
 			uint32_t slot;
 			WGPUBuffer buffer;
 			uint64_t offset;
 			uint64_t size;
 		};
 
-		struct SetIndexBuffer {
+		struct RenderSetIndexBuffer {
 			WGPUBuffer buffer;
 			WGPUIndexFormat format;
 			uint64_t offset;
 			uint64_t size;
 		};
 
-		struct SetBlendConstant {
+		struct RenderSetBlendConstant {
 			WGPUColor color;
 		};
 
-		struct SetPushConstants {
+		struct RenderSetPushConstants {
 			WGPUShaderStage stages;
 			uint32_t offset;
 		};
 
-		union {
-			SetViewport set_viewport;
-			SetScissorRect set_scissor_rect;
-			SetPipeline set_pipeline;
-			SetBindGroup set_bind_group;
-			Draw draw;
-			DrawIndexed draw_indexed;
-			MultiDrawIndirect multi_draw_indirect;
-			MultiDrawIndexedIndirect multi_draw_indexed_indirect;
-			MultiDrawIndirectCount multi_draw_indirect_count;
-			MultiDrawIndexedIndirectCount multi_draw_indexed_indirect_count;
-			SetVertexBuffer set_vertex_buffer;
-			SetIndexBuffer set_index_buffer;
-			SetBlendConstant set_blend_constant;
-			SetPushConstants set_push_constants;
+		struct ComputeSetPushConstants {
+			uint32_t offset;
 		};
 
-		Vector<uint8_t> push_constant_data;
-	};
+		struct ComputeDispatchWorkgroups {
+			uint32_t workgroup_count_x;
+			uint32_t workgroup_count_y;
+			uint32_t workgroup_count_z;
+		};
 
-	struct RenderPassEncoderInfo {
-		Vector<WGPURenderPassColorAttachment> color_attachments;
-		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
-		Vector<RenderPassEncoderCommand> commands;
-		WGPUTextureView maybe_surface_texture_view;
-	};
-
-	struct ComputePassEncoderCommand {
-		enum class CommandType {
-			SET_PIPELINE,
-			SET_BIND_GROUP,
-			SET_PUSH_CONSTANTS,
-			DISPATCH_WORKGROUPS,
-			DISPATCH_WORKGROUPS_INDIRECT,
+		struct ComputeDispatchWorkgroupsIndirect {
+			WGPUBuffer indirect_buffer;
+			uint64_t indirect_offset;
 		};
 
 		struct SetPipeline {
@@ -336,57 +294,61 @@ private:
 			ShaderInfo *shader_info;
 		};
 
-		struct SetPushConstants {
-			uint32_t offset;
-		};
-
-		struct DispatchWorkgroups {
-			uint32_t workgroup_count_x;
-			uint32_t workgroup_count_y;
-			uint32_t workgroup_count_z;
-		};
-
-		struct DispatchWorkgroupsIndirect {
-			WGPUBuffer indirect_buffer;
-			uint64_t indirect_offset;
-		};
-
-		CommandType type;
-		bool is_dispatch() const {
-			switch (this->type) {
-				case CommandType::DISPATCH_WORKGROUPS:
-				case CommandType::DISPATCH_WORKGROUPS_INDIRECT:
-					return true;
-				default:
-					return false;
-			}
-		}
-
 		union {
+			RenderSetViewport render_set_viewport;
+			RenderSetScissorRect render_set_scissor_rect;
+			RenderDraw render_draw;
+			RenderDrawIndexed render_draw_indexed;
+			RenderMultiDrawIndirect render_multi_draw_indirect;
+			RenderMultiDrawIndexedIndirect render_multi_draw_indexed_indirect;
+			RenderMultiDrawIndirectCount render_multi_draw_indirect_count;
+			RenderMultiDrawIndexedIndirectCount render_multi_draw_indexed_indirect_count;
+			RenderSetVertexBuffer render_set_vertex_buffer;
+			RenderSetIndexBuffer render_set_index_buffer;
+			RenderSetBlendConstant render_set_blend_constant;
+			RenderSetPushConstants render_set_push_constants;
+
+			ComputeSetPushConstants compute_set_push_constants;
+			ComputeDispatchWorkgroups compute_dispatch_workgroups;
+			ComputeDispatchWorkgroupsIndirect compute_dispatch_workgroups_indirect;
+
 			SetBindGroup set_bind_group;
 			SetPipeline set_pipeline;
-			SetPushConstants set_push_constants;
-			DispatchWorkgroups dispatch_workgroups;
-			DispatchWorkgroupsIndirect dispatch_workgroups_indirect;
 		};
 
-		Vector<uint8_t> push_constant_data;
+		Vector<uint8_t> render_push_constants;
+		Vector<uint8_t> compute_push_constants;
+
+		bool is_draw_call() const {
+			return this->type == CommandType::RENDER_DRAW ||
+					this->type == CommandType::RENDER_DRAW_INDEXED ||
+					this->type == CommandType::RENDER_MULTI_DRAW_INDIRECT ||
+					this->type == CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT ||
+					this->type == CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT ||
+					this->type == CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT;
+		}
+
+		bool is_dispatch_call() const {
+			return this->type == CommandType::COMPUTE_DISPATCH_WORKGROUPS ||
+					this->type == CommandType::COMPUTE_DISPATCH_WORKGROUPS_INDIRECT;
+		}
 	};
 
-	struct ComputePassEncoderInfo {
-		Vector<ComputePassEncoderCommand> commands;
-		ShaderID bind_group_shader;
+	struct RenderPassEncoderInfo {
+		Vector<WGPURenderPassColorAttachment> color_attachments;
+		Pair<WGPURenderPassDepthStencilAttachment, bool> depth_stencil_attachment;
+		WGPUTextureView maybe_surface_texture_view;
 	};
 
 	struct CommandBufferInfo {
 		WGPUCommandEncoder encoder = nullptr;
+		Vector<PassEncoderCommand> commands;
+		bool has_compute_commands = false;
 		bool is_render_pass_active = false;
 		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
-		ComputePassEncoderInfo active_compute_pass_info = ComputePassEncoderInfo();
 	};
 
-	void _flush_active_render_pass(CommandBufferInfo& p_command_info);
-	void _flush_active_compute_pass(CommandBufferInfo& p_command_info);
+	void _flush_active_command_pass(CommandBufferInfo &p_command_buffer_info);
 
 public:
 	virtual CommandBufferID command_buffer_create(CommandPoolID p_cmd_pool) override final;

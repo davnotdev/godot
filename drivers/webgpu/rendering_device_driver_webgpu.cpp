@@ -134,7 +134,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	capabilties = (Capabilities){
 		// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
 		.device_family = DEVICE_WEBGPU,
-		.version_major = 24,
+		.version_major = 28,
 		.version_minor = 0,
 	};
 	multiview_capabilities = (MultiviewCapabilities){
@@ -740,219 +740,113 @@ void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {
 
 // ----- BUFFER -----
 
-void RenderingDeviceDriverWebGpu::_flush_active_render_pass(CommandBufferInfo &p_command_info) {
-	CommandBufferInfo &command_buffer_info = p_command_info;
-
-	if (command_buffer_info.is_render_pass_active) {
-		WGPURenderPassDescriptor render_pass_descriptor = (WGPURenderPassDescriptor){
-			.colorAttachmentCount = (uint32_t)command_buffer_info.active_render_pass_info.color_attachments.size(),
-			.colorAttachments = command_buffer_info.active_render_pass_info.color_attachments.ptr(),
-			.depthStencilAttachment = command_buffer_info.active_render_pass_info.depth_stencil_attachment.second ? &command_buffer_info.active_render_pass_info.depth_stencil_attachment.first : nullptr,
-		};
-
-		WGPURenderPassEncoder render_encoder = wgpuCommandEncoderBeginRenderPass(command_buffer_info.encoder, &render_pass_descriptor);
-
-		// TODO: There's another instance of this, feels ripe for refactoring.
-		// We need to bind missing bind groups before after setting the pipeline but before an "effective" command.
-		// `wgpu` skips binding most bind groups if one is missing.
-		PipelineInfo *current_pipeline = nullptr;
-		HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> mock_bind_groups;
-		HashMap<uint32_t, ShaderID> bound_indices;
-		for (uint32_t i = 0; i < command_buffer_info.active_render_pass_info.commands.size(); i++) {
-			const RenderPassEncoderCommand &command = command_buffer_info.active_render_pass_info.commands.write[i];
-
-			if (command.type == RenderPassEncoderCommand::CommandType::SET_PIPELINE) {
-				bound_indices = HashMap<uint32_t, ShaderID>();
-				current_pipeline = command.set_pipeline.pipeline_info;
-			}
-
-			if (current_pipeline) {
-				if (command.type == RenderPassEncoderCommand::CommandType::SET_BIND_GROUP) {
-					const RenderPassEncoderCommand &command = command_buffer_info.active_render_pass_info.commands.write[i];
-					RenderPassEncoderCommand::SetBindGroup data = command.set_bind_group;
-
-					if (ShaderID(data.shader_info) == current_pipeline->shader_id) {
-						bound_indices.insert(data.group_index, ShaderID(data.shader_info));
-					}
-				}
-				if (command.is_draw_call()) {
-					ShaderInfo *shader_info = (ShaderInfo *)current_pipeline->shader_id.id;
-					if (shader_info) {
-						mock_bind_groups.insert(i, Vector<Pair<uint32_t, WGPUBindGroup>>());
-						Vector<Pair<uint32_t, WGPUBindGroup>> &groups = mock_bind_groups[i];
-
-						for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
-							const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
-							if (!bound_indices.has(set_idx)) {
-								WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
-								groups.push_back(Pair(set_idx, mock_group));
-							}
-						}
-					}
-				}
-			}
-		}
-
-		for (uint32_t i = 0; i < command_buffer_info.active_render_pass_info.commands.size(); i++) {
-			RenderPassEncoderCommand &command = command_buffer_info.active_render_pass_info.commands.write[i];
-
-			if (mock_bind_groups.has(i)) {
-				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = mock_bind_groups.get(i);
-				for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
-					uint32_t set_idx = mock_bindings[mb_idx].first;
-					WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
-					wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, bind_group, 0, nullptr);
-				}
-			}
-
-			switch (command.type) {
-				case RenderPassEncoderCommand::CommandType::SET_VIEWPORT: {
-					RenderPassEncoderCommand::SetViewport data = command.set_viewport;
-					wgpuRenderPassEncoderSetViewport(render_encoder, data.x, data.y, data.width, data.height, data.min_depth, data.max_depth);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_SCISSOR_RECT: {
-					RenderPassEncoderCommand::SetScissorRect data = command.set_scissor_rect;
-					wgpuRenderPassEncoderSetScissorRect(render_encoder, data.x, data.y, data.width, data.height);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_PIPELINE: {
-					RenderPassEncoderCommand::SetPipeline data = command.set_pipeline;
-					wgpuRenderPassEncoderSetPipeline(render_encoder, data.pipeline_info->render_pipeline);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_BIND_GROUP: {
-					RenderPassEncoderCommand::SetBindGroup data = command.set_bind_group;
-					wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group, 0, nullptr);
-				} break;
-				case RenderPassEncoderCommand::CommandType::DRAW: {
-					RenderPassEncoderCommand::Draw data = command.draw;
-					wgpuRenderPassEncoderDraw(render_encoder, data.vertex_count, data.instance_count, data.first_vertex, data.first_instance);
-				} break;
-				case RenderPassEncoderCommand::CommandType::DRAW_INDEXED: {
-					RenderPassEncoderCommand::DrawIndexed data = command.draw_indexed;
-					wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
-				} break;
-				case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT: {
-					RenderPassEncoderCommand::MultiDrawIndirect data = command.multi_draw_indirect;
-					wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
-				} break;
-				case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT_COUNT: {
-					RenderPassEncoderCommand::MultiDrawIndirectCount data = command.multi_draw_indirect_count;
-					wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
-				} break;
-				case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT: {
-					RenderPassEncoderCommand::MultiDrawIndexedIndirect data = command.multi_draw_indexed_indirect;
-					wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
-				} break;
-				case RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
-					RenderPassEncoderCommand::MultiDrawIndexedIndirectCount data = command.multi_draw_indexed_indirect_count;
-					wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_VERTEX_BUFFER: {
-					RenderPassEncoderCommand::SetVertexBuffer data = command.set_vertex_buffer;
-					wgpuRenderPassEncoderSetVertexBuffer(render_encoder, data.slot, data.buffer, data.offset, data.size);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_INDEX_BUFFER: {
-					RenderPassEncoderCommand::SetIndexBuffer data = command.set_index_buffer;
-					wgpuRenderPassEncoderSetIndexBuffer(render_encoder, data.buffer, data.format, data.offset, data.size);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_BLEND_CONSTANTS: {
-					const RenderPassEncoderCommand::SetBlendConstant &data = command.set_blend_constant;
-					wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
-				} break;
-				case RenderPassEncoderCommand::CommandType::SET_PUSH_CONSTANTS: {
-					const RenderPassEncoderCommand::SetPushConstants &data = command.set_push_constants;
-					wgpuRenderPassEncoderSetPushConstants(render_encoder, data.stages, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
-				} break;
-			}
-		}
-
-		command_buffer_info.is_render_pass_active = false;
-
-		wgpuRenderPassEncoderEnd(render_encoder);
-		wgpuRenderPassEncoderRelease(render_encoder);
+void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &p_command_buffer_info) {
+	WGPUComputePassEncoder compute_encoder = nullptr;
+	if (p_command_buffer_info.has_compute_commands) {
+		WGPUComputePassDescriptor compute_pass_descriptor = (WGPUComputePassDescriptor){};
+		compute_encoder = wgpuCommandEncoderBeginComputePass(p_command_buffer_info.encoder, &compute_pass_descriptor);
+		p_command_buffer_info.has_compute_commands = false;
 	}
-}
 
-void RenderingDeviceDriverWebGpu::_flush_active_compute_pass(CommandBufferInfo &p_command_info) {
-	CommandBufferInfo &command_buffer_info = p_command_info;
+	// `wgpu` skips binding most bind groups if one is missing.
+	// To remedy this, we need to bind missing bind groups before after setting the pipeline but before an "effective" command.
+	// Additionally, we need to preserve previously bound groups on compatible bind group layouts across pipelines.
 
-	if (command_buffer_info.active_compute_pass_info.commands.size() != 0) {
-		WGPUComputePassEncoder compute_encoder = wgpuCommandEncoderBeginComputePass(command_buffer_info.encoder, nullptr);
+	PipelineInfo *current_pipeline = nullptr;
+	HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> render_mock_bind_groups;
+	HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> compute_mock_bind_groups;
+	HashMap<uint32_t, WGPUBindGroupLayout> bound_layouts;
 
-		// TODO: There's another instance of this, feels ripe for refactoring.
-		// We need to bind missing bind groups before after setting the pipeline but before an "effective" command.
-		// `wgpu` skips binding most bind groups if one is missing.
-		PipelineInfo *current_pipeline = nullptr;
-		HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> mock_bind_groups;
-		HashMap<uint32_t, ShaderID> bound_indices;
-		for (uint32_t i = 0; i < command_buffer_info.active_compute_pass_info.commands.size(); i++) {
-			const ComputePassEncoderCommand &command = command_buffer_info.active_compute_pass_info.commands.write[i];
+	for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+		const PassEncoderCommand &command = p_command_buffer_info.commands[i];
 
-			if (command.type == ComputePassEncoderCommand::CommandType::SET_PIPELINE) {
-				bound_indices = HashMap<uint32_t, ShaderID>();
-				current_pipeline = command.set_pipeline.pipeline_info;
+		if (command.type == PassEncoderCommand::CommandType::RENDER_SET_PIPELINE || command.type == PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE) {
+			// Check if this pipeline has a compatible set of bind group layouts.
+			// We want to keep the pipeline if so.
+			bool clear = false;
+			for (KeyValue<uint32_t, WGPUBindGroupLayout> &kv : bound_layouts) {
+				ShaderInfo *shader_info = (ShaderInfo *)command.set_pipeline.pipeline_info->shader_id.id;
+				if (kv.key >= shader_info->bind_group_layouts.size() || shader_info->bind_group_layouts[kv.key] != kv.value) {
+					clear = true;
+					break;
+				}
 			}
 
-			if (current_pipeline) {
-				if (command.type == ComputePassEncoderCommand::CommandType::SET_BIND_GROUP) {
-					const ComputePassEncoderCommand &command = command_buffer_info.active_compute_pass_info.commands.write[i];
-					ComputePassEncoderCommand::SetBindGroup data = command.set_bind_group;
+			if (clear) {
+				bound_layouts.clear();
+			}
 
-					if (ShaderID(data.shader_info) == current_pipeline->shader_id) {
-						bound_indices.insert(data.group_index, ShaderID(data.shader_info));
-					}
+			current_pipeline = command.set_pipeline.pipeline_info;
+		}
+
+		if (current_pipeline) {
+			if (command.type == PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP || command.type == PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP) {
+				PassEncoderCommand::SetBindGroup data = command.set_bind_group;
+
+				if (ShaderID(data.shader_info) == current_pipeline->shader_id) {
+					bound_layouts.insert(data.group_index, data.shader_info->bind_group_layouts[data.group_index]);
 				}
-				if (command.is_dispatch()) {
-					ShaderInfo *shader_info = (ShaderInfo *)current_pipeline->shader_id.id;
-					if (shader_info) {
-						mock_bind_groups.insert(i, Vector<Pair<uint32_t, WGPUBindGroup>>());
-						Vector<Pair<uint32_t, WGPUBindGroup>> &groups = mock_bind_groups[i];
+			}
+			if (command.is_draw_call() || command.is_dispatch_call()) {
+				ShaderInfo *shader_info = (ShaderInfo *)current_pipeline->shader_id.id;
+				if (shader_info) {
+					HashMap<uint32_t, Vector<Pair<uint32_t, WGPUBindGroup>>> *mock_bind_groups = nullptr;
+					if (command.is_draw_call()) {
+						mock_bind_groups = &render_mock_bind_groups;
+					} else if (command.is_dispatch_call()) {
+						mock_bind_groups = &compute_mock_bind_groups;
+					}
 
-						for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
-							const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
-							if (!bound_indices.has(set_idx)) {
-								WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
-								groups.push_back(Pair(set_idx, mock_group));
-							}
+					mock_bind_groups->insert(i, Vector<Pair<uint32_t, WGPUBindGroup>>());
+					Vector<Pair<uint32_t, WGPUBindGroup>> &groups = (*mock_bind_groups)[i];
+
+					for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
+						const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
+						if (!bound_layouts.has(set_idx)) {
+							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
+							groups.push_back(Pair(set_idx, mock_group));
 						}
 					}
 				}
 			}
 		}
+	}
 
-		for (uint32_t i = 0; i < command_buffer_info.active_compute_pass_info.commands.size(); i++) {
-			ComputePassEncoderCommand &command = command_buffer_info.active_compute_pass_info.commands.write[i];
+	if (compute_encoder) {
+		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 
-			if (mock_bind_groups.has(i)) {
-				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = mock_bind_groups.get(i);
+			if (compute_mock_bind_groups.has(i)) {
+				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = compute_mock_bind_groups.get(i);
 				for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
 					uint32_t set_idx = mock_bindings[mb_idx].first;
 					WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
-
 					wgpuComputePassEncoderSetBindGroup(compute_encoder, set_idx, bind_group, 0, nullptr);
 				}
 			}
 
 			switch (command.type) {
-				case ComputePassEncoderCommand::CommandType::SET_PIPELINE: {
-					ComputePassEncoderCommand::SetPipeline data = command.set_pipeline;
+				case PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE: {
+					PassEncoderCommand::SetPipeline data = command.set_pipeline;
 					wgpuComputePassEncoderSetPipeline(compute_encoder, data.pipeline_info->compute_pipeline);
 				} break;
-				case ComputePassEncoderCommand::CommandType::SET_BIND_GROUP: {
-					ComputePassEncoderCommand::SetBindGroup data = command.set_bind_group;
+				case PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP: {
+					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
 					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.group_index, data.bind_group, 0, nullptr);
 				} break;
-				case ComputePassEncoderCommand::CommandType::SET_PUSH_CONSTANTS: {
-					ComputePassEncoderCommand::SetPushConstants data = command.set_push_constants;
-					wgpuComputePassEncoderSetPushConstants(compute_encoder, data.offset, command.push_constant_data.size(), command.push_constant_data.ptr());
+				case PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_CONSTANTS: {
+					PassEncoderCommand::ComputeSetPushConstants data = command.compute_set_push_constants;
+					wgpuComputePassEncoderSetPushConstants(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
 				} break;
-				case ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS: {
-					ComputePassEncoderCommand::DispatchWorkgroups data = command.dispatch_workgroups;
+				case PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS: {
+					PassEncoderCommand::ComputeDispatchWorkgroups data = command.compute_dispatch_workgroups;
 					wgpuComputePassEncoderDispatchWorkgroups(compute_encoder, data.workgroup_count_x, data.workgroup_count_y, data.workgroup_count_z);
 				} break;
-				case ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS_INDIRECT: {
-					ComputePassEncoderCommand::DispatchWorkgroupsIndirect data = command.dispatch_workgroups_indirect;
+				case PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS_INDIRECT: {
+					PassEncoderCommand::ComputeDispatchWorkgroupsIndirect data = command.compute_dispatch_workgroups_indirect;
 					wgpuComputePassEncoderDispatchWorkgroupsIndirect(compute_encoder, data.indirect_buffer, data.indirect_offset);
 				} break;
+				default:
 					break;
 			}
 		}
@@ -960,6 +854,99 @@ void RenderingDeviceDriverWebGpu::_flush_active_compute_pass(CommandBufferInfo &
 		wgpuComputePassEncoderEnd(compute_encoder);
 		wgpuComputePassEncoderRelease(compute_encoder);
 	}
+
+	WGPURenderPassEncoder render_encoder = nullptr;
+	if (p_command_buffer_info.is_render_pass_active) {
+		WGPURenderPassDescriptor render_pass_descriptor = (WGPURenderPassDescriptor){
+			.colorAttachmentCount = (uint32_t)p_command_buffer_info.active_render_pass_info.color_attachments.size(),
+			.colorAttachments = p_command_buffer_info.active_render_pass_info.color_attachments.ptr(),
+			.depthStencilAttachment = p_command_buffer_info.active_render_pass_info.depth_stencil_attachment.second ? &p_command_buffer_info.active_render_pass_info.depth_stencil_attachment.first : nullptr,
+		};
+		render_encoder = wgpuCommandEncoderBeginRenderPass(p_command_buffer_info.encoder, &render_pass_descriptor);
+		p_command_buffer_info.is_render_pass_active = false;
+	}
+
+	if (render_encoder) {
+		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
+
+			if (render_encoder) {
+				if (render_mock_bind_groups.has(i)) {
+					const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = render_mock_bind_groups.get(i);
+					for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
+						uint32_t set_idx = mock_bindings[mb_idx].first;
+						WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
+						wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, bind_group, 0, nullptr);
+					}
+				}
+				switch (command.type) {
+					case PassEncoderCommand::CommandType::RENDER_SET_VIEWPORT: {
+						PassEncoderCommand::RenderSetViewport data = command.render_set_viewport;
+						wgpuRenderPassEncoderSetViewport(render_encoder, data.x, data.y, data.width, data.height, data.min_depth, data.max_depth);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_SCISSOR_RECT: {
+						PassEncoderCommand::RenderSetScissorRect data = command.render_set_scissor_rect;
+						wgpuRenderPassEncoderSetScissorRect(render_encoder, data.x, data.y, data.width, data.height);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_PIPELINE: {
+						PassEncoderCommand::SetPipeline data = command.set_pipeline;
+						wgpuRenderPassEncoderSetPipeline(render_encoder, data.pipeline_info->render_pipeline);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
+						PassEncoderCommand::SetBindGroup data = command.set_bind_group;
+						wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group, 0, nullptr);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_DRAW: {
+						PassEncoderCommand::RenderDraw data = command.render_draw;
+						wgpuRenderPassEncoderDraw(render_encoder, data.vertex_count, data.instance_count, data.first_vertex, data.first_instance);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_DRAW_INDEXED: {
+						PassEncoderCommand::RenderDrawIndexed data = command.render_draw_indexed;
+						wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT: {
+						PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
+						wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT: {
+						PassEncoderCommand::RenderMultiDrawIndirectCount data = command.render_multi_draw_indirect_count;
+						wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT: {
+						PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
+						wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
+						PassEncoderCommand::RenderMultiDrawIndexedIndirectCount data = command.render_multi_draw_indexed_indirect_count;
+						wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER: {
+						PassEncoderCommand::RenderSetVertexBuffer data = command.render_set_vertex_buffer;
+						wgpuRenderPassEncoderSetVertexBuffer(render_encoder, data.slot, data.buffer, data.offset, data.size);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_INDEX_BUFFER: {
+						PassEncoderCommand::RenderSetIndexBuffer data = command.render_set_index_buffer;
+						wgpuRenderPassEncoderSetIndexBuffer(render_encoder, data.buffer, data.format, data.offset, data.size);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_BLEND_CONSTANTS: {
+						const PassEncoderCommand::RenderSetBlendConstant &data = command.render_set_blend_constant;
+						wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
+					} break;
+					case PassEncoderCommand::CommandType::RENDER_SET_PUSH_CONSTANTS: {
+						const PassEncoderCommand::RenderSetPushConstants &data = command.render_set_push_constants;
+						wgpuRenderPassEncoderSetPushConstants(render_encoder, data.stages, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
+					} break;
+					default:
+						break;
+				}
+			}
+		}
+
+		wgpuRenderPassEncoderEnd(render_encoder);
+		wgpuRenderPassEncoderRelease(render_encoder);
+	}
+
+	p_command_buffer_info.commands.clear();
 }
 
 RenderingDeviceDriver::CommandBufferID RenderingDeviceDriverWebGpu::command_buffer_create(CommandPoolID p_cmd_pool) {
@@ -981,9 +968,6 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 
 	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
 	command_buffer_info->encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
-	command_buffer_info->active_compute_pass_info = (ComputePassEncoderInfo){
-		.commands = Vector<ComputePassEncoderCommand>(),
-	};
 
 	return true;
 }
@@ -1000,7 +984,7 @@ void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffe
 
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	_flush_active_compute_pass(*command_buffer_info);
+	_flush_active_command_pass(*command_buffer_info);
 }
 
 void RenderingDeviceDriverWebGpu::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {
@@ -1457,9 +1441,11 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
+								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
+								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
@@ -1498,6 +1484,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
+								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
 								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
@@ -1718,10 +1705,10 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
-								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
+								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON &&
 										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
 								nullptr,
-								"WebGPU unexpected bind group sampler correction");
+								vformat("WebGPU unexpected bind group sampler correction, got %d", correction));
 						binding_offset += 1;
 					}
 
@@ -1814,10 +1801,10 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						ERR_FAIL_COND_V_MSG(
-								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON ||
+								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON &&
 										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
 								nullptr,
-								"WebGPU unexpected bind group sampler correction");
+								vformat("WebGPU unexpected bind group sampler correction, got %d", correction));
 						binding_offset += 1;
 					}
 
@@ -2288,19 +2275,21 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 	memcpy(data.ptrw(), p_data.ptr(), byte_size);
 
 	if (shader_info->push_constant_stage_flags & WGPUShaderStage_Compute) {
-		command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
-				.type = ComputePassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
-				.set_push_constants = (ComputePassEncoderCommand::SetPushConstants){
+		command_buffer_info->has_compute_commands = true;
+		command_buffer_info->commands.push_back((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_CONSTANTS,
+				.compute_set_push_constants = (PassEncoderCommand::ComputeSetPushConstants){
 						.offset = p_first_index },
-				.push_constant_data = data,
+				.compute_push_constants = data,
 		});
 	} else if (shader_info->push_constant_stage_flags & WGPUShaderStage_Vertex || shader_info->push_constant_stage_flags & WGPUShaderStage_Fragment) {
-		command_buffer_info->active_render_pass_info.commands.push_back((RenderPassEncoderCommand){
-				.type = RenderPassEncoderCommand::CommandType::SET_PUSH_CONSTANTS,
-				.set_push_constants = (RenderPassEncoderCommand::SetPushConstants){
+		command_buffer_info->commands.push_back((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::RENDER_SET_PUSH_CONSTANTS,
+				.render_set_push_constants = (PassEncoderCommand::RenderSetPushConstants){
 						.stages = shader_info->push_constant_stage_flags,
 						.offset = p_first_index },
-				.push_constant_data = data });
+				.render_push_constants = data,
+		});
 	}
 }
 
@@ -2431,7 +2420,6 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 		command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
 			.color_attachments = color_attachments,
 			.depth_stencil_attachment = maybe_depth_stencil_attachment,
-			.commands = Vector<RenderPassEncoderCommand>({}),
 			.maybe_surface_texture_view = maybe_surface_texture_view,
 		};
 		command_buffer_info->is_render_pass_active = true;
@@ -2445,8 +2433,7 @@ void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
 	// Flush compute pass to preserve ordering.
-	_flush_active_compute_pass(*command_buffer_info);
-	_flush_active_render_pass(*command_buffer_info);
+	_flush_active_command_pass(*command_buffer_info);
 }
 
 void RenderingDeviceDriverWebGpu::command_next_render_subpass(CommandBufferID _p_cmd_buffer, CommandBufferType _p_cmd_buffer_type) {
@@ -2462,9 +2449,9 @@ void RenderingDeviceDriverWebGpu::command_render_set_viewport(CommandBufferID p_
 	ERR_FAIL_COND_MSG(p_viewports.size() != 1, "WebGpu cannot set multiple viewports.");
 
 	for (uint32_t i = 0; i < p_viewports.size(); i++) {
-		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-				.type = RenderPassEncoderCommand::CommandType::SET_VIEWPORT,
-				.set_viewport = (RenderPassEncoderCommand::SetViewport){
+		command_buffer_info->commands.push_back(((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::RENDER_SET_VIEWPORT,
+				.render_set_viewport = (PassEncoderCommand::RenderSetViewport){
 						.x = (float)p_viewports[i].position.x,
 						.y = (float)p_viewports[i].position.y,
 						.width = (float)p_viewports[i].size.x,
@@ -2485,9 +2472,9 @@ void RenderingDeviceDriverWebGpu::command_render_set_scissor(CommandBufferID p_c
 	ERR_FAIL_COND_MSG(p_scissors.size() != 1, "WebGpu cannot set multiple scissors.");
 
 	for (uint32_t i = 0; i < p_scissors.size(); i++) {
-		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-				.type = RenderPassEncoderCommand::CommandType::SET_SCISSOR_RECT,
-				.set_scissor_rect = (RenderPassEncoderCommand::SetScissorRect){
+		command_buffer_info->commands.push_back(((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::RENDER_SET_SCISSOR_RECT,
+				.render_set_scissor_rect = (PassEncoderCommand::RenderSetScissorRect){
 						.x = (uint32_t)p_scissors[i].position.x,
 						.y = (uint32_t)p_scissors[i].position.y,
 						.width = (uint32_t)p_scissors[i].size.width,
@@ -2511,10 +2498,10 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 
 	PipelineInfo *pipeline_info = (PipelineInfo *)p_pipeline.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_PIPELINE,
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_SET_PIPELINE,
 
-			.set_pipeline = (RenderPassEncoderCommand::SetPipeline){
+			.set_pipeline = (PassEncoderCommand::SetPipeline){
 					.pipeline_info = pipeline_info,
 			} }));
 }
@@ -2528,10 +2515,10 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_BIND_GROUP,
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
 
-			.set_bind_group = (RenderPassEncoderCommand::SetBindGroup){
+			.set_bind_group = (PassEncoderCommand::SetBindGroup){
 					.group_index = p_set_index,
 					.bind_group = bind_group,
 					.shader_info = shader_info,
@@ -2539,8 +2526,6 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 }
 
 void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) {
-	// TODO: impl
-	// CRASH_NOW_MSG("TODO --> command_bind_render_uniform_sets");
 	for (uint32_t i = 0; i < p_set_count; i++) {
 		command_bind_render_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
 	}
@@ -2553,9 +2538,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw(CommandBufferID p_cmd_buff
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::DRAW,
-			.draw = (RenderPassEncoderCommand::Draw){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_DRAW,
+			.render_draw = (PassEncoderCommand::RenderDraw){
 					.vertex_count = p_vertex_count,
 					.instance_count = p_instance_count,
 					.first_vertex = p_base_vertex,
@@ -2570,9 +2555,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed(CommandBufferID p_
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::DRAW_INDEXED,
-			.draw_indexed = (RenderPassEncoderCommand::DrawIndexed){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_DRAW_INDEXED,
+			.render_draw_indexed = (PassEncoderCommand::RenderDrawIndexed){
 					.index_count = p_index_count,
 					.instance_count = p_instance_count,
 					.first_index = p_first_index,
@@ -2589,9 +2574,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indirect(CommandBufferID p
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT,
-			.multi_draw_indirect = (RenderPassEncoderCommand::MultiDrawIndirect){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT,
+			.render_multi_draw_indirect = (PassEncoderCommand::RenderMultiDrawIndirect){
 					.indirect_buffer = indirect_buffer->buffer,
 					.indirect_offset = p_offset,
 					.count = p_draw_count },
@@ -2607,9 +2592,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indirect_count(CommandBuff
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 	BufferInfo *count_buffer = (BufferInfo *)p_count_buffer.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDIRECT_COUNT,
-			.multi_draw_indirect_count = (RenderPassEncoderCommand::MultiDrawIndirectCount){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT,
+			.render_multi_draw_indirect_count = (PassEncoderCommand::RenderMultiDrawIndirectCount){
 					.indirect_buffer = indirect_buffer->buffer,
 					.indirect_offset = p_offset,
 					.count_buffer = count_buffer->buffer,
@@ -2628,9 +2613,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect(CommandBu
 
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT,
-			.multi_draw_indexed_indirect = (RenderPassEncoderCommand::MultiDrawIndexedIndirect){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT,
+			.render_multi_draw_indexed_indirect = (PassEncoderCommand::RenderMultiDrawIndexedIndirect){
 					.indirect_buffer = indirect_buffer->buffer,
 					.indirect_offset = p_offset,
 					.count = p_draw_count },
@@ -2646,9 +2631,9 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(Com
 	BufferInfo *indirect_buffer = (BufferInfo *)p_indirect_buffer.id;
 	BufferInfo *count_buffer = (BufferInfo *)p_count_buffer.id;
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::MULTI_DRAW_INDEXED_INDIRECT_COUNT,
-			.multi_draw_indexed_indirect_count = (RenderPassEncoderCommand::MultiDrawIndexedIndirectCount){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT,
+			.render_multi_draw_indexed_indirect_count = (PassEncoderCommand::RenderMultiDrawIndexedIndirectCount){
 					.indirect_buffer = indirect_buffer->buffer,
 					.indirect_offset = p_offset,
 					.count_buffer = count_buffer->buffer,
@@ -2667,9 +2652,9 @@ void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBuff
 	for (uint32_t i = 0; i < p_binding_count; i++) {
 		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
 
-		command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-				.type = RenderPassEncoderCommand::CommandType::SET_VERTEX_BUFFER,
-				.set_vertex_buffer = (RenderPassEncoderCommand::SetVertexBuffer){
+		command_buffer_info->commands.push_back(((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER,
+				.render_set_vertex_buffer = (PassEncoderCommand::RenderSetVertexBuffer){
 						.slot = i,
 						.buffer = buffer_info->buffer,
 						.offset = p_offsets[i],
@@ -2697,9 +2682,9 @@ void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBuffer
 			break;
 	}
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_INDEX_BUFFER,
-			.set_index_buffer = (RenderPassEncoderCommand::SetIndexBuffer){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_SET_INDEX_BUFFER,
+			.render_set_index_buffer = (PassEncoderCommand::RenderSetIndexBuffer){
 					.buffer = buffer_info->buffer,
 					.format = format,
 					.offset = p_offset,
@@ -2714,9 +2699,9 @@ void RenderingDeviceDriverWebGpu::command_render_set_blend_constants(CommandBuff
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	command_buffer_info->active_render_pass_info.commands.push_back(((RenderPassEncoderCommand){
-			.type = RenderPassEncoderCommand::CommandType::SET_BLEND_CONSTANTS,
-			.set_blend_constant = (RenderPassEncoderCommand::SetBlendConstant){
+	command_buffer_info->commands.push_back(((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::RENDER_SET_BLEND_CONSTANTS,
+			.render_set_blend_constant = (PassEncoderCommand::RenderSetBlendConstant){
 					.color = (WGPUColor){
 							.r = p_constants.r,
 							.g = p_constants.b,
@@ -3007,9 +2992,9 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID 
 
 	PipelineInfo *pipeline = (PipelineInfo *)p_pipeline.id;
 
-	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
-			.type = ComputePassEncoderCommand::CommandType::SET_PIPELINE,
-			.set_pipeline = (ComputePassEncoderCommand::SetPipeline){
+	command_buffer_info->commands.push_back((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE,
+			.set_pipeline = (PassEncoderCommand::SetPipeline){
 					.pipeline_info = pipeline,
 			} });
 }
@@ -3021,10 +3006,10 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBuffer
 	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	command_buffer_info->active_compute_pass_info.bind_group_shader = p_shader;
-	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
-			.type = ComputePassEncoderCommand::CommandType::SET_BIND_GROUP,
-			.set_bind_group = (ComputePassEncoderCommand::SetBindGroup){
+	command_buffer_info->has_compute_commands = true;
+	command_buffer_info->commands.push_back((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP,
+			.set_bind_group = (PassEncoderCommand::SetBindGroup){
 					.group_index = p_set_index,
 					.bind_group = bind_group,
 					.shader_info = shader_info,
@@ -3046,9 +3031,10 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch(CommandBufferID p_cmd
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
-			.type = ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS,
-			.dispatch_workgroups = (ComputePassEncoderCommand::DispatchWorkgroups){
+	command_buffer_info->has_compute_commands = true;
+	command_buffer_info->commands.push_back((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS,
+			.compute_dispatch_workgroups = (PassEncoderCommand::ComputeDispatchWorkgroups){
 					.workgroup_count_x = p_x_groups,
 					.workgroup_count_y = p_y_groups,
 					.workgroup_count_z = p_z_groups,
@@ -3062,9 +3048,10 @@ void RenderingDeviceDriverWebGpu::command_compute_dispatch_indirect(CommandBuffe
 
 	BufferInfo *buffer_info = (BufferInfo *)p_indirect_buffer.id;
 
-	command_buffer_info->active_compute_pass_info.commands.push_back((ComputePassEncoderCommand){
-			.type = ComputePassEncoderCommand::CommandType::DISPATCH_WORKGROUPS_INDIRECT,
-			.dispatch_workgroups_indirect = (ComputePassEncoderCommand::DispatchWorkgroupsIndirect){
+	command_buffer_info->has_compute_commands = true;
+	command_buffer_info->commands.push_back((PassEncoderCommand){
+			.type = PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS_INDIRECT,
+			.compute_dispatch_workgroups_indirect = (PassEncoderCommand::ComputeDispatchWorkgroupsIndirect){
 					.indirect_buffer = buffer_info->buffer,
 					.indirect_offset = p_offset,
 			},
