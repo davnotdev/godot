@@ -326,7 +326,7 @@ typedef struct WGPUTextureViewSwizzle {
 
 typedef struct WGPUTextureViewDescriptorExtras {
     WGPUChainedStruct chain;
-    WGPUTextureViewSwizzle swizzle;    
+    WGPUTextureViewSwizzle swizzle;
 } WGPUTextureViewExtras;
 
 #ifdef __cplusplus
