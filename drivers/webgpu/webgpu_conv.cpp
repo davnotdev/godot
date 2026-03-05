@@ -165,6 +165,189 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT:
 			ret = WGPUTextureFormat_Depth32FloatStencil8;
 			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC1_RGBA_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC1RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC1_RGBA_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC1RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC2_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC2RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC2_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC2RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC3_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC3RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC3_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC3RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC4RUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC4_SNORM_BLOCK:
+			ret = WGPUTextureFormat_BC4RSnorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC5RGUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC5_SNORM_BLOCK:
+			ret = WGPUTextureFormat_BC5RGSnorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC6H_UFLOAT_BLOCK:
+			ret = WGPUTextureFormat_BC6HRGBUfloat;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC6H_SFLOAT_BLOCK:
+			ret = WGPUTextureFormat_BC6HRGBFloat;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_BC7_UNORM_BLOCK:
+			ret = WGPUTextureFormat_BC7RGBAUnorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_BC7_SRGB_BLOCK:
+			ret = WGPUTextureFormat_BC7RGBAUnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8A1Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGB8A1UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGBA8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ETC2RGBA8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11_UNORM_BLOCK:
+			ret = WGPUTextureFormat_EACR11Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11_SNORM_BLOCK:
+			ret = WGPUTextureFormat_EACR11Snorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11G11_UNORM_BLOCK:
+			ret = WGPUTextureFormat_EACRG11Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_EAC_R11G11_SNORM_BLOCK:
+			ret = WGPUTextureFormat_EACRG11Snorm;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_4x4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC4x4Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_4x4_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC4x4UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x4_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x4Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x4_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x4UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_5x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC5x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_6x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC6x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_8x8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC8x8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x5_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x5Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x5_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x5UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x6_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x6Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x6_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x6UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x8_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x8Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x8_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x8UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x10_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x10Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_10x10_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC10x10UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x10_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x10Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x10_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x10UnormSrgb;
+			break;
+
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x12_UNORM_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x12Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_ASTC_12x12_SRGB_BLOCK:
+			ret = WGPUTextureFormat_ASTC12x12UnormSrgb;
+			break;
+
 		default:
 			break;
 	}

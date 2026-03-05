@@ -519,7 +519,12 @@ private:
 
 	struct RenderPassInfo {
 		Vector<RenderPassAttachmentInfo> attachments;
+		uint32_t depth_attachment_index = UINT32_MAX;
 		uint32_t view_count;
+
+		const RenderPassAttachmentInfo *get_depth_attachment() const {
+			return depth_attachment_index < attachments.size() ? attachments.ptr() + depth_attachment_index : nullptr;
+		}
 	};
 
 	virtual RenderPassID render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) override final;

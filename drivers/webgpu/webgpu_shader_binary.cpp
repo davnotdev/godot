@@ -25,6 +25,8 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 		for (int binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
 			const DataBindingInput &binding = bindings[binding_idx];
 			bindings_encoded_size += sizeof(DataBinding);
+			bindings_encoded_size += sizeof(uint32_t);
+			bindings_encoded_size += sizeof(DataBindingHint);
 			bindings_encoded_size += sizeof(uint32_t) * binding.corrections.size();
 		}
 	}
@@ -77,6 +79,12 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 			uint32_t binding_size = sizeof(DataBinding);
 			memcpy(binptr + offset, &binding.binding, binding_size);
 			offset += binding_size;
+
+			uint32_t binding_hint_size = sizeof(DataBindingHint);
+			encode_uint32(binding_hint_size, binptr + offset);
+			offset += sizeof(uint32_t);
+			memcpy(binptr + offset, &binding.binding_hint, binding_hint_size);
+			offset += binding_hint_size;
 
 			uint32_t corrections_size = sizeof(uint32_t) * binding.corrections.size();
 			memcpy(binptr + offset, binding.corrections.ptr(), corrections_size);
@@ -156,6 +164,14 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 			DataBindingInput binding;
 			memcpy(&binding.binding, binptr + offset, sizeof(DataBinding));
 			offset += sizeof(DataBinding);
+
+			binding.binding_hint_size = decode_uint32(binptr + offset);
+			offset += sizeof(uint32_t);
+			if (binding.binding_hint_size) {
+				ERR_FAIL_COND_V(binding.binding_hint_size != sizeof(DataBindingHint), (DataOutput){ .error = true });
+				memcpy(&binding.binding_hint, binptr + offset, sizeof(DataBindingHint));
+				offset += sizeof(DataBindingHint);
+			}
 
 			uint32_t corrections_size = binding.binding.correction_count * sizeof(uint32_t);
 			binding.corrections.resize_zeroed(binding.binding.correction_count);

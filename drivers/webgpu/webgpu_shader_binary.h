@@ -17,6 +17,9 @@ class WebGpuShaderBinary {
 	//			uint32_t binding_count;
 	//			struct {
 	//				DataBinding binding;
+	//				uint32_t binding_hint_size;
+	//				// (sized) via `binding_hint_size`
+	//				DataBindingHint binding_hint;
 	//				uint32_t corrections[binding.corrections_count];
 	//			} bindings[binding_count];
 	//		} sets[data.set_count]
@@ -33,6 +36,7 @@ class WebGpuShaderBinary {
 	//		} overrides[data.override_count];
 	//	};
 	//	```
+	//
 
 public:
 	// Version 1: initial.
@@ -68,9 +72,35 @@ public:
 		uint32_t correction_count;
 	};
 
+	enum class DataBindingHintType {
+		UNUSED = 0,
+		SAMPLER = 2,
+		TEXTURE = 3,
+	};
+
+	struct DataBindingSamplerHint {
+		uint32_t sampler_type = 0;
+	};
+
+	struct DataBindingTextureHint {
+		uint32_t sample_type = 0;
+		uint32_t multisampled = 0;
+	};
+
+	struct DataBindingHint {
+		DataBindingHintType type = DataBindingHintType::UNUSED;
+		union {
+			DataBindingSamplerHint sampler;
+			DataBindingTextureHint texture;
+		};
+		DataBindingHint() {}
+	};
+
 public:
 	struct DataBindingInput {
 		DataBinding binding;
+		uint32_t binding_hint_size;
+		DataBindingHint binding_hint;
 		Vector<uint32_t> corrections;
 	};
 
