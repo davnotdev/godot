@@ -5,18 +5,18 @@
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
 
-#include "nagawrapper.h"
 #include "rendering_context_driver_webgpu.h"
 #include "webgpu.h"
 #include "webgpu_conv.h"
 #include "webgpu_shader_binary.h"
+#include "webgpu_trans.h"
 
 #include <spirv_webgpu_transform.h>
 #include <wgpu.h>
 #include <cstdint>
 #include <cstring>
 
-#define WGPU_LOG
+#define WGPU_LOG_LEVEL WGPULogLevel_Error
 
 static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
@@ -28,10 +28,12 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
-#ifdef WGPU_LOG
+#ifdef WGPU_LOG_LEVEL
 	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
-		String message = String::utf8(p_message.data, p_message.length);
-		print_line("[WGPU]", message);
+		if (p_level <= WGPU_LOG_LEVEL) {
+			String message = String::utf8(p_message.data, p_message.length);
+			print_line("[WGPU]", message);
+		}
 	},
 			nullptr);
 #endif
@@ -42,6 +44,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 		WGPUFeatureName_Float32Filterable,
+		WGPUFeatureName_TextureCompressionBC,
 
 		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
 		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
@@ -257,7 +260,7 @@ uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffe
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
 	WGPUFlags usage_bits = WGPUTextureUsage_None;
-	if ((p_format.usage_bits & TEXTURE_USAGE_SAMPLING_BIT)) {
+	if (p_format.usage_bits & TEXTURE_USAGE_SAMPLING_BIT) {
 		usage_bits |= WGPUTextureUsage_TextureBinding;
 	}
 	if ((p_format.usage_bits & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ||
@@ -268,10 +271,10 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_UPDATE_BIT) || (p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_TO_BIT)) {
 		usage_bits |= WGPUTextureUsage_CopyDst;
 	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
+	if (p_format.usage_bits & TEXTURE_USAGE_CAN_COPY_FROM_BIT) {
 		usage_bits |= WGPUTextureUsage_CopySrc;
 	}
-	if ((p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
+	if (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT) {
 		usage_bits |= WGPUTextureUsage_StorageBinding;
 	}
 	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
@@ -360,10 +363,17 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		aspect = WGPUTextureAspect_DepthOnly;
 	}
 
+	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
+
+	// NOTE: `imageCube` => `image2DArray` after shader transforms.
+	if (view_dimension == WGPUTextureViewDimension_Cube && (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
+		view_dimension = WGPUTextureViewDimension_2DArray;
+	}
+
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = view_format,
-		.dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type),
+		.dimension = view_dimension,
 		.mipLevelCount = texture_desc.mipLevelCount,
 		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
 		.aspect = aspect,
@@ -504,17 +514,45 @@ uint64_t RenderingDeviceDriverWebGpu::texture_get_allocation_size(TextureID p_te
 	return 1;
 }
 
-void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(TextureID p_texture, const TextureSubresource &p_subresource, TextureCopyableLayout *r_layout) {
+void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
+		TextureID p_texture,
+		const TextureSubresource &p_subresource,
+		TextureCopyableLayout *r_layout) {
 	TextureInfo *texture_info = (TextureInfo *)p_texture.id;
 
-	uint32_t block_size = webgpu_texture_format_block_copy_size(texture_info->texture_desc.format, webgpu_texture_aspect_from_rd((TextureAspectBits)(1 << p_subresource.aspect)));
+	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(texture_info->texture_desc.format);
+	uint32_t bytes_per_block =
+			webgpu_texture_format_block_copy_size(
+					texture_info->texture_desc.format,
+					webgpu_texture_aspect_from_rd(
+							(TextureAspectBits)(1 << p_subresource.aspect)));
 
-	// TODO: Account for mipmaps and maybe compressed formats too.
+	uint32_t block_width = block_dimensions.block_dim_x;
+	uint32_t block_height = block_dimensions.block_dim_y;
+
+	uint32_t width = texture_info->texture_desc.size.width;
+	uint32_t height = texture_info->texture_desc.size.height;
+	uint32_t depth = texture_info->texture_desc.size.depthOrArrayLayers;
+
+	uint32_t blocks_per_row =
+			(width + block_width - 1) / block_width;
+
+	uint32_t blocks_per_column =
+			(height + block_height - 1) / block_height;
+
 	r_layout->offset = 0;
-	r_layout->row_pitch = STEPIFY(block_size * texture_info->texture_desc.size.width, 256);
-	r_layout->size = r_layout->row_pitch * texture_info->texture_desc.size.height * texture_info->texture_desc.size.depthOrArrayLayers;
-	r_layout->depth_pitch = r_layout->size / texture_info->texture_desc.size.depthOrArrayLayers;
-	r_layout->layer_pitch = r_layout->size / texture_info->texture_desc.size.depthOrArrayLayers;
+
+	r_layout->row_pitch =
+			STEPIFY(blocks_per_row * bytes_per_block, 256);
+
+	r_layout->depth_pitch =
+			r_layout->row_pitch * blocks_per_column;
+
+	r_layout->layer_pitch =
+			r_layout->depth_pitch;
+
+	r_layout->size =
+			r_layout->depth_pitch * depth;
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
@@ -1000,6 +1038,7 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverWebGpu::swap_chain_creat
 	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)p_surface;
 
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
+	render_pass_info->depth_attachment_index = UINT32_MAX;
 
 	surface->configure(this->adapter, this->device);
 
@@ -1095,16 +1134,13 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	// HACK: I will ignore these shaders until a better workaround is found.
 	// I doubt we actually need these shaders for 2D games.
 	if (p_shader_name.contains("GiShader")) {
-		return Vector<uint8_t>();
-	}
-	if (p_shader_name.contains("CubemapDownsamplerShaderRD") || p_shader_name.contains("CubemapFilterShaderRD") || p_shader_name.contains("CubemapRoughnessShaderRD")) {
-		return Vector<uint8_t>();
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile GiShader*");
 	}
 
 	// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
 	// Since this is presumably just for debug, we will skip this.
 	if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
-		return Vector<uint8_t>();
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ClusterDebugShaderRD*");
 	}
 
 	ShaderReflection shader_refl;
@@ -1155,8 +1191,11 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			uint32_t *isnanisinf_out_spv, isnanisinf_out_count;
 			spirv_webgpu_transform_isnanisinfpatch_alloc(dref_out_spv, dref_out_count, &isnanisinf_out_spv, &isnanisinf_out_count);
 
-			uint32_t *final_spv = isnanisinf_out_spv;
-			uint32_t final_count = isnanisinf_out_count;
+			uint32_t *storagecube_out_spv, storagecube_out_count;
+			spirv_webgpu_transform_storagecubepatch_alloc(isnanisinf_out_spv, isnanisinf_out_count, &storagecube_out_spv, &storagecube_out_count, &map);
+
+			uint32_t *final_spv = storagecube_out_spv;
+			uint32_t final_count = storagecube_out_count;
 			Vector<uint8_t> out_spirv = Vector<uint8_t>();
 			out_spirv.resize_zeroed(final_count * 4);
 			memcpy((uint8_t *)out_spirv.ptrw(), (uint8_t *)final_spv, final_count * 4);
@@ -1210,6 +1249,41 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		spirv_webgpu_transform_mirrorpatch_free(out_left_spirv, out_right_spirv);
 	}
 
+	// Translate SPIR-V to WGSL and patch specialization constants
+	Vector<CharString> wgsl_sources;
+	// We don't get enough information from SPIR-V reflection alone, so we need some hints from naga.
+	HashMap<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> merged_binding_hints;
+	for (int i = 0; i < spirv.size(); i++) {
+		const ShaderStageSPIRVData &data = spirv[i];
+		ConvertResult result = webgpu_translate_spirv_to_wgsl((uint32_t *)data.spirv.ptr(), data.spirv.size() / 4);
+		if (result.error_string != nullptr) {
+			print_line("[WGPU] WGSL compiliation ", p_shader_name, "on step", result.failure_stage, ":", result.error_string.ptr());
+			// HACK: exit so that we can debug this easier.
+			// exit(1);
+			return Vector<uint8_t>();
+		}
+
+		wgsl_sources.push_back(CharString(result.wgsl_string));
+
+		// Merge binding hints and cross check across stages.
+		for (KeyValue<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> &set_kv : result.binding_hints) {
+			if (!merged_binding_hints.has(set_kv.key)) {
+				merged_binding_hints.insert(set_kv.key, HashMap<uint32_t, WebGpuTranslateBindingLayout>());
+			}
+			HashMap<uint32_t, WebGpuTranslateBindingLayout> &bindings = merged_binding_hints.get(set_kv.key);
+			for (KeyValue<uint32_t, WebGpuTranslateBindingLayout> &binding_kv : set_kv.value) {
+				if (bindings.has(binding_kv.key)) {
+					const WebGpuTranslateBindingLayout &existing_binding = bindings.get(binding_kv.key);
+					if (!webgpu_translate_compare_binding_layout(existing_binding, binding_kv.value)) {
+						ERR_FAIL_V_MSG(Vector<uint8_t>(), vformat("Mismatched shader binding hints from binding (%d, %d) %s", set_kv.key, binding_kv.key, p_shader_name));
+					}
+				} else {
+					bindings.insert(binding_kv.key, binding_kv.value);
+				}
+			}
+		}
+	}
+
 	// Fill `ShaderBinaryWebGpu::DataBindingInput`
 	Vector<Vector<WebGpuShaderBinary::DataBindingInput>> binary_sets;
 	for (int set_idx = 0; set_idx < shader_refl.uniform_sets.size(); set_idx++) {
@@ -1230,6 +1304,33 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			binding.texture_is_multisample = uniform_refl.texture_is_multisample;
 
 			WebGpuShaderBinary::DataBindingInput binding_input;
+			binding_input.binding_hint_size = 0;
+
+			WebGpuShaderBinary::DataBindingHint binding_hint = {};
+			if (merged_binding_hints.has(set_idx)) {
+				const HashMap<uint32_t, WebGpuTranslateBindingLayout> &binding_hints_map = merged_binding_hints.get(set_idx);
+				if (binding_hints_map.has(uniform_refl.binding)) {
+					const WebGpuTranslateBindingLayout &binding_hint_entry = binding_hints_map.get(uniform_refl.binding);
+					switch (binding_hint_entry.type) {
+						case WebGpuTranslateBindingType::UNUSED:
+							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::UNUSED;
+							break;
+						case WebGpuTranslateBindingType::SAMPLER:
+							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::SAMPLER;
+							binding_hint.sampler = (WebGpuShaderBinary::DataBindingSamplerHint){
+								.sampler_type = binding_hint_entry._data.sampler.sampler_type,
+							};
+							break;
+						case WebGpuTranslateBindingType::TEXTURE:
+							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::TEXTURE;
+							binding_hint.texture = (WebGpuShaderBinary::DataBindingTextureHint){
+								.sample_type = binding_hint_entry._data.texture.sample_type,
+								.multisampled = binding_hint_entry._data.texture.multisampled,
+							};
+							break;
+					}
+				}
+			}
 
 			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
 				uint16_t *corrections = nullptr;
@@ -1244,6 +1345,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			}
 
 			binding_input.binding = binding;
+			binding_input.binding_hint = binding_hint;
 			binding_input.binding.correction_count = binding_input.corrections.size();
 
 			bindings.push_back(binding_input);
@@ -1265,22 +1367,6 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			.constant_id = refl_sc.constant_id,
 		};
 		binary_overrides.push_back(override_input);
-	}
-
-	// Translate SPIR-V to WGSL and patch specialization constants
-	Vector<CharString> wgsl_sources;
-	for (int i = 0; i < spirv.size(); i++) {
-		const ShaderStageSPIRVData &data = spirv[i];
-		ConvertResult result = convert_spirv_to_wgsl_alloc(data.spirv.ptr(), data.spirv.size());
-		if (result.error_string != nullptr) {
-			print_line("[WGPU] WGSL compiliation: ", result.error_string);
-			convert_result_free(result);
-			// HACK: exit so that we can debug this easier.
-			exit(1);
-			return Vector<uint8_t>();
-		}
-
-		wgsl_sources.push_back(CharString(result.wgsl_string));
 	}
 
 	// Fill `ShaderBinaryWebGpu::ShaderStageInput`
@@ -1514,13 +1600,14 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					// entry.storageTexture.viewDimension is not "cube" or "cube-array".
 					WGPUTextureViewDimension viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type);
 					if (viewDimension == WGPUTextureViewDimension_Cube) {
-						viewDimension = WGPUTextureViewDimension_3D;
+						viewDimension = WGPUTextureViewDimension_2DArray;
+					} else if (viewDimension == WGPUTextureViewDimension_CubeArray) {
+						ERR_FAIL_V_MSG(ShaderID(), "WebGpu storage cube arrays are not supported.");
 					}
 
 					layout_entry.storageTexture = (WGPUStorageTextureBindingLayout){
 						.access = access,
 						.format = webgpu_texture_format_from_rd(info.image_format),
-						/* .viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type), */
 						.viewDimension = viewDimension,
 					};
 					layout_entry_extras->count = binding.length;
@@ -2136,6 +2223,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 			},
 			.aspect = webgpu_texture_aspect_from_rd(region.dst_subresources.aspect),
 		};
+
 		WGPUExtent3D cp_size = (WGPUExtent3D){
 			.width = (uint32_t)region.size.x,
 			.height = (uint32_t)region.size.y,
@@ -2169,11 +2257,25 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 		uint32_t block_copy_size = webgpu_texture_format_block_copy_size(dst_texture_info->texture_desc.format, dst_texture_info->texture_view_desc.aspect);
 
-		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
-			.layout = (WGPUTexelCopyBufferLayout){
+		uint32_t block_width = block_dimensions.block_dim_x;
+		uint32_t block_height = block_dimensions.block_dim_y;
+		uint32_t bytes_per_block = block_copy_size;
+
+		uint32_t blocks_per_row =
+				(region.texture_region_size.x + block_width - 1) / block_width;
+
+		uint32_t blocks_per_column =
+				(region.texture_region_size.y + block_height - 1) / block_height;
+
+		WGPUTexelCopyBufferInfo cp_buffer = {
+			.layout = {
 					.offset = region.buffer_offset,
-					.bytesPerRow = ((region.texture_region_size.x * block_copy_size) / block_dimensions.block_dim_x + 255) & ~255,
-					.rowsPerImage = region.texture_region_size.z > 1 ? region.texture_region_size.y / block_dimensions.block_dim_y : WGPU_COPY_STRIDE_UNDEFINED,
+					.bytesPerRow =
+							(blocks_per_row * bytes_per_block + 255) & ~255,
+					.rowsPerImage =
+							region.texture_region_size.z > 1
+							? blocks_per_column
+							: WGPU_COPY_STRIDE_UNDEFINED,
 			},
 			.buffer = src_buffer_info->buffer,
 		};
@@ -2318,10 +2420,21 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {
 RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> _p_subpasses, VectorView<SubpassDependency> _p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) {
 	// WebGpu does not have subpasses so we will store this info until we create a render pipeline later.
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
+	render_pass_info->depth_attachment_index = UINT32_MAX;
 
 	render_pass_info->attachments = Vector<RenderPassAttachmentInfo>();
 	for (uint32_t i = 0; i < p_attachments.size(); i++) {
 		Attachment attachment = p_attachments[i];
+		bool is_depth_stencil =
+				attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+				attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		bool is_depth_stencil_read_only =
+				attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+		if (is_depth_stencil) {
+			render_pass_info->depth_attachment_index = i;
+		}
+
 		RenderPassAttachmentInfo attachment_info = (RenderPassAttachmentInfo){
 			.format = webgpu_texture_format_from_rd(attachment.format),
 			// TODO: Assert that p_format.samples follows this behavior.
@@ -2330,12 +2443,8 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 			.store_op = webgpu_store_op_from_rd(attachment.store_op),
 			.stencil_load_op = webgpu_load_op_from_rd(attachment.stencil_load_op),
 			.stencil_store_op = webgpu_store_op_from_rd(attachment.stencil_store_op),
-			.is_depth_stencil =
-					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
-					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-			.is_depth_stencil_read_only =
-					attachment.final_layout == TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-
+			.is_depth_stencil = is_depth_stencil,
+			.is_depth_stencil_read_only = is_depth_stencil_read_only
 		};
 		render_pass_info->attachments.push_back(attachment_info);
 	}
@@ -2907,21 +3016,10 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	// pipeline_descriptor.depth_stencil
 	WGPUDepthStencilState depth_stencil_state;
 
-	// HACK: Whether a depth stencil state should be attached isn't always reported, so let's walk the render pass'
-	// attachments to double check.
-	bool use_depth = p_depth_stencil_state.enable_depth_write || p_depth_stencil_state.enable_stencil;
-
-	for (uint32_t i = 0; i < render_pass_info->attachments.size(); i++) {
-		const RenderPassAttachmentInfo &attachment = render_pass_info->attachments[i];
-		if (attachment.is_depth_stencil || attachment.is_depth_stencil_read_only) {
-			use_depth = true;
-			break;
-		}
-	}
-
-	if (use_depth) {
+	const RenderPassAttachmentInfo *depth_attachment = render_pass_info->get_depth_attachment();
+	if (depth_attachment) {
 		depth_stencil_state = (WGPUDepthStencilState){
-			// TODO: We do not have info on depth target format.
+			// .format = depth_attachment->format,
 			.format = WGPUTextureFormat_Depth32Float,
 			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write ? WGPUOptionalBool_True : WGPUOptionalBool_False,
 			.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
