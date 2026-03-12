@@ -277,17 +277,22 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	if (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT) {
 		usage_bits |= WGPUTextureUsage_StorageBinding;
 	}
+
 	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
-	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
+	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format, true);
 	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_format.format);
+
+	if (webgpu_texture_format_is_depth_stencil(texture_format)) {
+		aspect = WGPUTextureAspect_DepthOnly;
+	}
 
 	WGPUExtent3D size;
 	size.width = p_format.width;
 	size.height = p_format.height;
 	size.depthOrArrayLayers = p_format.array_layers;
 	WGPUTextureDimension dimension;
-	bool is_using_depth = false;
+	bool uses_depth_or_array_layers = false;
 
 	if (p_format.texture_type == TEXTURE_TYPE_1D) {
 		dimension = WGPUTextureDimension_1D;
@@ -296,8 +301,8 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		dimension = WGPUTextureDimension_2D;
 	} else if (p_format.texture_type == TEXTURE_TYPE_3D) {
 		size.depthOrArrayLayers = p_format.depth;
-		is_using_depth = true;
 		dimension = WGPUTextureDimension_3D;
+		uses_depth_or_array_layers = true;
 	} else if (p_format.texture_type == TEXTURE_TYPE_1D_ARRAY) {
 		size.depthOrArrayLayers = p_format.array_layers;
 		dimension = WGPUTextureDimension_1D;
@@ -325,7 +330,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	for (uint32_t i = 0; i < p_format.shareable_formats.size(); i++) {
 		DataFormat format = p_format.shareable_formats[i];
-		view_formats.push_back(webgpu_texture_format_from_rd(format));
+		view_formats.push_back(webgpu_texture_format_from_rd(format, true));
 	}
 
 	WGPUTextureDescriptor texture_desc = (WGPUTextureDescriptor){
@@ -354,15 +359,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		},
 	};
 
-	// HACK: You cannot have a Depth24PlusStencil8 or Depth32FloatStencil8 texture view be bound.
-	if (view_format == WGPUTextureFormat_Depth24PlusStencil8) {
-		view_format = WGPUTextureFormat_Depth24Plus;
-		aspect = WGPUTextureAspect_DepthOnly;
-	} else if (view_format == WGPUTextureFormat_Depth32FloatStencil8) {
-		view_format = WGPUTextureFormat_Depth32Float;
-		aspect = WGPUTextureAspect_DepthOnly;
-	}
-
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
 
 	// NOTE: `imageCube` => `image2DArray` after shader transforms.
@@ -375,7 +371,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		.format = view_format,
 		.dimension = view_dimension,
 		.mipLevelCount = texture_desc.mipLevelCount,
-		.arrayLayerCount = is_using_depth ? 1 : texture_desc.size.depthOrArrayLayers,
+		.arrayLayerCount = uses_depth_or_array_layers ? 1 : texture_desc.size.depthOrArrayLayers,
 		.aspect = aspect,
 	};
 
@@ -388,7 +384,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	texture_info->texture_desc = texture_desc;
 	texture_info->texture_view_desc = texture_view_desc;
 	texture_info->is_original_texture = true;
-	texture_info->is_using_depth = is_using_depth;
+	texture_info->uses_depth_or_array_layers = uses_depth_or_array_layers;
 
 	return TextureID(texture_info);
 }
@@ -426,7 +422,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
-		.format = webgpu_texture_format_from_rd(p_view.format),
+		.format = webgpu_texture_format_from_rd(p_view.format, true),
 		.mipLevelCount = texture_info->texture_view_desc.mipLevelCount,
 		.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount,
 		.usage = texture_view_usage,
@@ -459,11 +455,11 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		},
 	};
 
-	WGPUTextureFormat format = webgpu_texture_format_from_rd(p_view.format);
+	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format, true);
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
-		.format = format,
+		.format = view_format,
 		.dimension = texture_info->texture_view_desc.dimension,
 		.baseMipLevel = p_mipmap,
 		.mipLevelCount = p_mipmaps,
@@ -2436,7 +2432,7 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		}
 
 		RenderPassAttachmentInfo attachment_info = (RenderPassAttachmentInfo){
-			.format = webgpu_texture_format_from_rd(attachment.format),
+			.format = webgpu_texture_format_from_rd(attachment.format, true),
 			// TODO: Assert that p_format.samples follows this behavior.
 			.sample_count = (uint32_t)pow(2, (uint32_t)attachment.samples),
 			.load_op = webgpu_load_op_from_rd(attachment.load_op),
@@ -3019,8 +3015,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	const RenderPassAttachmentInfo *depth_attachment = render_pass_info->get_depth_attachment();
 	if (depth_attachment) {
 		depth_stencil_state = (WGPUDepthStencilState){
-			// .format = depth_attachment->format,
-			.format = WGPUTextureFormat_Depth32Float,
+			.format = depth_attachment->format,
 			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write ? WGPUOptionalBool_True : WGPUOptionalBool_False,
 			.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
 			.stencilFront =
