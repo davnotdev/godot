@@ -65,7 +65,7 @@ private:
 		RDD::DataFormat rd_texture_format;
 
 		bool is_original_texture;
-		bool is_using_depth;
+		bool uses_depth_or_array_layers;
 	};
 
 	// Keep track of existing mirror textures to ensure we don't write to a deleted texture.
