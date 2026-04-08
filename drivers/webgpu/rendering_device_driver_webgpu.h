@@ -2,7 +2,9 @@
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
 #include "core/templates/hash_map.h"
+
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
+#include "drivers/webgpu/webgpu_common.h"
 
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
@@ -408,6 +410,8 @@ private:
 		Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
 
 		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
+		HashMap<uint32_t, HashMap<uint32_t, WebGpuBindingHint>> set_binding_hints;
+		HashSet<Pair<uint32_t, uint32_t>> pruned_set_bindings;
 
 		String shader_name;
 		WGPUPipelineLayout pipeline_layout;
@@ -429,8 +433,13 @@ public:
 	/*********************/
 
 private:
-	WGPUBindGroup _bind_group_create(VectorView<BoundUniform> p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
+	WGPUBindGroup _bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
+	LocalVector<BoundUniform> _prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashSet<Pair<uint32_t, uint32_t>> &p_pruned_set_bindings);
 	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout);
+
+	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
+	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
+	Vector<BoundUniform> _bind_group_replace_pruned_uniforms(VectorView<BoundUniform> p_uniforms, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these
