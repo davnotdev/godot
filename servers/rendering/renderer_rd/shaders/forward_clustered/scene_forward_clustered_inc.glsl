@@ -165,7 +165,9 @@ layout(constant_id = 2) const bool sc_emulate_point_size = false;
 
 #include "../light_data_inc.glsl"
 
-layout(set = 0, binding = 2) uniform samplerShadow shadow_sampler;
+#ifndef UNDEF_SHADOW
+layout(set = 0, binding = 50) uniform samplerShadow shadow_sampler;
+#endif
 
 #define INSTANCE_FLAGS_DYNAMIC (1 << 3)
 #define INSTANCE_FLAGS_NON_UNIFORM_SCALE (1 << 4)
@@ -375,9 +377,10 @@ layout(set = 1, binding = 3) uniform texture2D radiance_octmap;
 
 layout(set = 1, binding = 4) uniform texture2DArray reflection_atlas;
 
-layout(set = 1, binding = 5) uniform texture2D shadow_atlas;
-
-layout(set = 1, binding = 6) uniform texture2D directional_shadow_atlas;
+#ifndef UNDEF_SHADOW
+layout(set = 1, binding = 54) uniform texture2D shadow_atlas;
+layout(set = 1, binding = 56) uniform texture2D directional_shadow_atlas;
+#endif
 
 layout(set = 1, binding = 7) uniform texture2DArray lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2];
 

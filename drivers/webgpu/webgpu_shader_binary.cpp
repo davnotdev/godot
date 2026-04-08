@@ -20,14 +20,18 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 	uint32_t shader_name_encoded_size = STEPIFY(input.shader_name.length(), 4);
 	uint32_t bindings_encoded_size = 0;
 	for (int set_idx = 0; set_idx < input.sets.size(); set_idx++) {
-		const Vector<DataBindingInput> &bindings = input.sets[set_idx];
+		const Vector<DataBindingInput> &bindings = input.sets[set_idx].bindings;
 		bindings_encoded_size += sizeof(uint32_t);
 		for (int binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
 			const DataBindingInput &binding = bindings[binding_idx];
 			bindings_encoded_size += sizeof(DataBinding);
-			bindings_encoded_size += sizeof(uint32_t);
-			bindings_encoded_size += sizeof(DataBindingHint);
 			bindings_encoded_size += sizeof(uint32_t) * binding.corrections.size();
+		}
+		const HashMap<uint32_t, WebGpuBindingHint> &binding_hints = input.sets[set_idx].binding_hints;
+		bindings_encoded_size += sizeof(uint32_t);
+		for (int idx = 0; idx < binding_hints.size(); idx++) {
+			bindings_encoded_size += sizeof(uint32_t);
+			bindings_encoded_size += sizeof(WebGpuBindingHint);
 		}
 	}
 
@@ -71,7 +75,7 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 
 	last_offset = offset;
 	for (int i = 0; i < input.sets.size(); i++) {
-		const Vector<DataBindingInput> &bindings = input.sets[i];
+		const Vector<DataBindingInput> &bindings = input.sets[i].bindings;
 		encode_uint32(bindings.size(), binptr + offset);
 		offset += sizeof(uint32_t);
 		for (int i = 0; i < bindings.size(); i++) {
@@ -80,15 +84,20 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 			memcpy(binptr + offset, &binding.binding, binding_size);
 			offset += binding_size;
 
-			uint32_t binding_hint_size = sizeof(DataBindingHint);
-			encode_uint32(binding_hint_size, binptr + offset);
-			offset += sizeof(uint32_t);
-			memcpy(binptr + offset, &binding.binding_hint, binding_hint_size);
-			offset += binding_hint_size;
-
 			uint32_t corrections_size = sizeof(uint32_t) * binding.corrections.size();
 			memcpy(binptr + offset, binding.corrections.ptr(), corrections_size);
 			offset += corrections_size;
+		}
+
+		const HashMap<uint32_t, WebGpuBindingHint> &binding_hints = input.sets[i].binding_hints;
+		encode_uint32(binding_hints.size(), binptr + offset);
+		offset += sizeof(uint32_t);
+		for (KeyValue<uint32_t, WebGpuBindingHint> kv : binding_hints) {
+			encode_uint32(kv.key, binptr + offset);
+			offset += sizeof(uint32_t);
+			uint32_t binding_hint_size = sizeof(WebGpuBindingHint);
+			memcpy(binptr + offset, &kv.value, binding_hint_size);
+			offset += binding_hint_size;
 		}
 	}
 	ERR_FAIL_COND_V(offset - last_offset != bindings_encoded_size, Vector<uint8_t>());
@@ -165,14 +174,6 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 			memcpy(&binding.binding, binptr + offset, sizeof(DataBinding));
 			offset += sizeof(DataBinding);
 
-			binding.binding_hint_size = decode_uint32(binptr + offset);
-			offset += sizeof(uint32_t);
-			if (binding.binding_hint_size) {
-				ERR_FAIL_COND_V(binding.binding_hint_size != sizeof(DataBindingHint), (DataOutput){ .error = true });
-				memcpy(&binding.binding_hint, binptr + offset, sizeof(DataBindingHint));
-				offset += sizeof(DataBindingHint);
-			}
-
 			uint32_t corrections_size = binding.binding.correction_count * sizeof(uint32_t);
 			binding.corrections.resize_zeroed(binding.binding.correction_count);
 			memcpy(binding.corrections.ptrw(), binptr + offset, corrections_size);
@@ -180,7 +181,26 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 
 			bindings.push_back(binding);
 		}
-		result.sets.push_back(bindings);
+
+		HashMap<uint32_t, WebGpuBindingHint> binding_hints;
+		uint32_t binding_hint_count = decode_uint32(binptr + offset);
+		offset += sizeof(uint32_t);
+
+		for (int idx = 0; idx < binding_hint_count; idx++) {
+			uint32_t binding_idx = decode_uint32(binptr + offset);
+			offset += sizeof(uint32_t);
+
+			WebGpuBindingHint hint;
+			memcpy(&hint, binptr + offset, sizeof(WebGpuBindingHint));
+			offset += sizeof(WebGpuBindingHint);
+
+			binding_hints.insert(binding_idx, hint);
+		}
+
+		result.sets.push_back(SetInput{
+				.bindings = bindings,
+				.binding_hints = binding_hints
+		});
 	}
 
 	for (int i = 0; i < result.data.stages_count; i++) {

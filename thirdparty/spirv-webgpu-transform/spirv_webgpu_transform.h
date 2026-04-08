@@ -19,6 +19,8 @@ void spirv_webgpu_transform_isnanisinfpatch_alloc(uint32_t *in_spv, uint32_t in_
 void spirv_webgpu_transform_isnanisinfpatch_free(uint32_t *out_spv);
 void spirv_webgpu_transform_storagecubepatch_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count, TransformCorrectionMap *correction_map);
 void spirv_webgpu_transform_storagecubepatch_free(uint32_t *out_spv);
+void spirv_webgpu_transform_pruneunuseddref_alloc(uint32_t *int_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count);
+void spirv_webgpu_transform_pruneunuseddref_free(uint32_t *out_spv);
 
 void spirv_webgpu_transform_mirrorpatch_alloc(
 		uint32_t *in_left_spv, uint32_t in_left_count, TransformCorrectionMap *left_corrections,

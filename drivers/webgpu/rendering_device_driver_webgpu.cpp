@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <cstring>
 
-#define WGPU_LOG_LEVEL WGPULogLevel_Error
+#define WGPU_LOG_LEVEL WGPULogLevel_Trace
 
 static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
@@ -592,9 +592,7 @@ RenderingDeviceDriver::SamplerID RenderingDeviceDriverWebGpu::sampler_create(con
 		// See https://www.w3.org/TR/webgpu/#sampler-creation
 		.lodMinClamp = p_state.min_lod < 0.0f ? 0.0f : p_state.min_lod,
 		.lodMaxClamp = p_state.max_lod,
-		// HACK: disable comparison samplers
-		// .compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Always,
-		.compare = WGPUCompareFunction_Undefined,
+		.compare = p_state.enable_compare ? webgpu_compare_mode_from_rd(p_state.compare_op) : WGPUCompareFunction_Undefined,
 		.maxAnisotropy = p_state.use_anisotropy ? (uint16_t)p_state.anisotropy_max : (uint16_t)1,
 	};
 
@@ -1190,8 +1188,11 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			uint32_t *storagecube_out_spv, storagecube_out_count;
 			spirv_webgpu_transform_storagecubepatch_alloc(isnanisinf_out_spv, isnanisinf_out_count, &storagecube_out_spv, &storagecube_out_count, &map);
 
-			uint32_t *final_spv = storagecube_out_spv;
-			uint32_t final_count = storagecube_out_count;
+			uint32_t *pruneunuseddref_out_spv, pruneunuseddref_out_count;
+			spirv_webgpu_transform_pruneunuseddref_alloc(storagecube_out_spv, storagecube_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
+
+			uint32_t *final_spv = pruneunuseddref_out_spv;
+			uint32_t final_count = pruneunuseddref_out_count;
 			Vector<uint8_t> out_spirv = Vector<uint8_t>();
 			out_spirv.resize_zeroed(final_count * 4);
 			memcpy((uint8_t *)out_spirv.ptrw(), (uint8_t *)final_spv, final_count * 4);
@@ -1204,6 +1205,8 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			spirv_webgpu_transform_combimgsampsplitter_free(combimg_out_spv);
 			spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
 			spirv_webgpu_transform_isnanisinfpatch_free(isnanisinf_out_spv);
+			spirv_webgpu_transform_storagecubepatch_free(storagecube_out_spv);
+			spirv_webgpu_transform_pruneunuseddref_free(pruneunuseddref_out_spv);
 
 			correction_maps.push_back(map);
 		}
@@ -1261,7 +1264,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 		wgsl_sources.push_back(CharString(result.wgsl_string));
 
-		// Merge binding hints and cross check across stages.
+		// Merge binding hints and check across stages.
 		for (KeyValue<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> &set_kv : result.binding_hints) {
 			if (!merged_binding_hints.has(set_kv.key)) {
 				merged_binding_hints.insert(set_kv.key, HashMap<uint32_t, WebGpuTranslateBindingLayout>());
@@ -1281,10 +1284,12 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 	}
 
 	// Fill `ShaderBinaryWebGpu::DataBindingInput`
-	Vector<Vector<WebGpuShaderBinary::DataBindingInput>> binary_sets;
+	Vector<WebGpuShaderBinary::SetInput> binary_sets;
 	for (int set_idx = 0; set_idx < shader_refl.uniform_sets.size(); set_idx++) {
 		const Vector<ShaderUniform> &set_refl = shader_refl.uniform_sets[set_idx];
 		Vector<WebGpuShaderBinary::DataBindingInput> bindings;
+		HashMap<uint32_t, WebGpuBindingHint> binding_hints;
+
 		for (const ShaderUniform &uniform_refl : set_refl) {
 			WebGpuShaderBinary::DataBinding binding;
 			binding.type = (uint32_t)uniform_refl.type;
@@ -1302,32 +1307,6 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			WebGpuShaderBinary::DataBindingInput binding_input;
 			binding_input.binding_hint_size = 0;
 
-			WebGpuShaderBinary::DataBindingHint binding_hint = {};
-			if (merged_binding_hints.has(set_idx)) {
-				const HashMap<uint32_t, WebGpuTranslateBindingLayout> &binding_hints_map = merged_binding_hints.get(set_idx);
-				if (binding_hints_map.has(uniform_refl.binding)) {
-					const WebGpuTranslateBindingLayout &binding_hint_entry = binding_hints_map.get(uniform_refl.binding);
-					switch (binding_hint_entry.type) {
-						case WebGpuTranslateBindingType::UNUSED:
-							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::UNUSED;
-							break;
-						case WebGpuTranslateBindingType::SAMPLER:
-							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::SAMPLER;
-							binding_hint.sampler = (WebGpuShaderBinary::DataBindingSamplerHint){
-								.sampler_type = binding_hint_entry._data.sampler.sampler_type,
-							};
-							break;
-						case WebGpuTranslateBindingType::TEXTURE:
-							binding_hint.type = WebGpuShaderBinary::DataBindingHintType::TEXTURE;
-							binding_hint.texture = (WebGpuShaderBinary::DataBindingTextureHint){
-								.sample_type = binding_hint_entry._data.texture.sample_type,
-								.multisampled = binding_hint_entry._data.texture.multisampled,
-							};
-							break;
-					}
-				}
-			}
-
 			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
 				uint16_t *corrections = nullptr;
 				uint32_t correction_count = 0;
@@ -1341,12 +1320,41 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 			}
 
 			binding_input.binding = binding;
-			binding_input.binding_hint = binding_hint;
 			binding_input.binding.correction_count = binding_input.corrections.size();
 
 			bindings.push_back(binding_input);
 		}
-		binary_sets.push_back(bindings);
+		if (merged_binding_hints.has(set_idx)) {
+			const HashMap<uint32_t, WebGpuTranslateBindingLayout> &binding_hints_map = merged_binding_hints.get(set_idx);
+			for (KeyValue<uint32_t, WebGpuTranslateBindingLayout> kv : binding_hints_map) {
+				WebGpuBindingHint binding_hint = {};
+				const WebGpuTranslateBindingLayout &binding_hint_entry = kv.value;
+				switch (binding_hint_entry.type) {
+					case WebGpuTranslateBindingType::UNUSED:
+						binding_hint.type = WebGpuBindingHintType::UNUSED;
+						break;
+					case WebGpuTranslateBindingType::SAMPLER:
+						binding_hint.type = WebGpuBindingHintType::SAMPLER;
+						binding_hint.sampler = (WebGpuBindingSamplerHint){
+							.sampler_type = binding_hint_entry._data.sampler.sampler_type,
+						};
+						break;
+					case WebGpuTranslateBindingType::TEXTURE:
+						binding_hint.type = WebGpuBindingHintType::TEXTURE;
+						binding_hint.texture = (WebGpuBindingTextureHint){
+							.sample_type = binding_hint_entry._data.texture.sample_type,
+							.multisampled = binding_hint_entry._data.texture.multisampled,
+						};
+						break;
+				}
+
+				binding_hints.insert(kv.key, binding_hint);
+			}
+		}
+		binary_sets.push_back(WebGpuShaderBinary::SetInput{
+				.bindings = bindings,
+				.binding_hints = binding_hints,
+		});
 	}
 
 	// Free transform corrections
@@ -1415,19 +1423,20 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	}
 
 	Vector<Vector<WGPUBindGroupLayoutEntry>> &bind_group_layout_entries = shader_info->bind_group_layout_entries;
+	HashSet<Pair<uint32_t, uint32_t>> &pruned_set_bindings = shader_info->pruned_set_bindings;
 
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
 
 	for (uint32_t set_idx = 0; set_idx < data.sets.size(); set_idx++) {
-		const Vector<WebGpuShaderBinary::DataBindingInput> bindings = data.sets[set_idx];
+		const Vector<WebGpuShaderBinary::DataBindingInput> bindings = data.sets[set_idx].bindings;
+		const HashMap<uint32_t, WebGpuBindingHint> binding_hints = data.sets[set_idx].binding_hints;
 		uint32_t wgpu_binding_offset = 0;
 
 		HashMap<uint32_t, Vector<uint32_t>> binding_corrections;
-
 		for (uint32_t binding_idx = 0; binding_idx < bindings.size(); binding_idx++) {
 			const WebGpuShaderBinary::DataBindingInput &binding_input = bindings[binding_idx];
-			const WebGpuShaderBinary::DataBinding binding = binding_input.binding;
+			const WebGpuShaderBinary::DataBinding &binding = binding_input.binding;
 
 			ShaderUniform info;
 			info.type = UniformType(binding.type);
@@ -1465,11 +1474,22 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
+					// If our binding is missing (pruned), we skip it while still offsetting properly.
+					bool pruned = !binding_hints.has(binding.binding + wgpu_binding_offset);
+
+					WGPUSamplerBindingType sampler_binding_type = !pruned ? (WGPUSamplerBindingType)binding_hints[binding.binding + wgpu_binding_offset].sampler.sampler_type : WGPUSamplerBindingType_Filtering;
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
-						.type = WGPUSamplerBindingType_Filtering
+						.type = sampler_binding_type,
 					};
 					layout_entry_extras->count = binding.length;
-					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+					if (!pruned) {
+						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+					} else {
+						Pair<uint32_t, uint32_t> sb;
+						sb.first = set_idx;
+						sb.second = layout_entry.binding;
+						pruned_set_bindings.insert(sb);
+					}
 
 					// Apply only dref splitting corrections
 					for (int i = 0; i < binding_input.corrections.size(); i++) {
@@ -1490,11 +1510,23 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 								ERR_FAIL_V_MSG(ShaderID(), "Expected sampler, got combined image sampler");
 								break;
 						}
-						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						if (!pruned) {
+							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						} else {
+							Pair<uint32_t, uint32_t> sb;
+							sb.first = set_idx;
+							sb.second = layout_entry.binding;
+							pruned_set_bindings.insert(sb);
+						}
 					}
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+					// If our binding is missing (pruned), we skip it while still offsetting properly.
+					bool pruned = !binding_hints.has(binding.binding + wgpu_binding_offset);
+
+					WGPUTextureSampleType sampleType =
+							!pruned ? (WGPUTextureSampleType)binding_hints[binding.binding + wgpu_binding_offset].texture.sample_type : webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+					bool multisampled = binding_hints.has(binding.binding + wgpu_binding_offset) ? binding_hints[binding.binding + wgpu_binding_offset].texture.multisampled : info.texture_is_multisample;
 					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
@@ -1503,9 +1535,16 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
 						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
-						.multisampled = info.texture_is_multisample,
+						.multisampled = multisampled,
 					};
-					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+					if (!pruned) {
+						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+					} else {
+						Pair<uint32_t, uint32_t> sb;
+						sb.first = set_idx;
+						sb.second = layout_entry.binding;
+						pruned_set_bindings.insert(sb);
+					}
 
 					WGPUBindGroupLayoutEntry sampler_layout = layout_entry;
 					sampler_layout.texture.sampleType = WGPUTextureSampleType_BindingNotUsed;
@@ -1523,18 +1562,25 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
-								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
+								correction_entry.texture.sampleType = WGPUTextureSampleType_Float;
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
-								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
+								correction_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								corrected_combimg_sampler = true;
 								break;
 						}
-						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						if (!pruned) {
+							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						} else {
+							Pair<uint32_t, uint32_t> sb;
+							sb.first = set_idx;
+							sb.second = layout_entry.binding;
+							pruned_set_bindings.insert(sb);
+						}
 					}
 
 					ERR_FAIL_COND_V_MSG(!corrected_combimg_sampler, ShaderID(), "WebGpu correction for combined image sampler unexpectedly skipped");
@@ -1542,7 +1588,12 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					// TODO: Figure out array of combined image samplers.
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
-					WGPUTextureSampleType sampleType = webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+					// If our binding is missing (pruned), we skip it while still offsetting properly.
+					bool pruned = !binding_hints.has(binding.binding + wgpu_binding_offset);
+					WGPUTextureSampleType sampleType =
+							!pruned ? (WGPUTextureSampleType)binding_hints[binding.binding + wgpu_binding_offset].texture.sample_type : webgpu_texture_sample_type_from_shader_uniform(info.texture_sample_type);
+
+					bool multisampled = binding_hints.has(binding.binding + wgpu_binding_offset) ? binding_hints[binding.binding + wgpu_binding_offset].texture.multisampled : info.texture_is_multisample;
 					if (info.texture_is_multisample && sampleType == WGPUTextureSampleType_Float) {
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
@@ -1551,10 +1602,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
 						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
-						.multisampled = info.texture_is_multisample,
+						.multisampled = multisampled,
 					};
 					layout_entry_extras->count = binding.length;
-					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+
+					if (!pruned) {
+						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+					} else {
+						Pair<uint32_t, uint32_t> sb;
+						sb.first = set_idx;
+						sb.second = layout_entry.binding;
+						pruned_set_bindings.insert(sb);
+					}
 
 					// Apply only dref splitting corrections
 					for (int i = 0; i < binding_input.corrections.size(); i++) {
@@ -1566,16 +1625,23 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
-								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
+								correction_entry.texture.sampleType = WGPUTextureSampleType_Float;
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
-								layout_entry.texture.sampleType = WGPUTextureSampleType_Depth;
+								correction_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								ERR_FAIL_V_MSG(ShaderID(), "Expected texture, got combined image sampler");
 								break;
 						}
-						bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						if (!pruned) {
+							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+						} else {
+							Pair<uint32_t, uint32_t> sb;
+							sb.first = set_idx;
+							sb.second = layout_entry.binding;
+							pruned_set_bindings.insert(sb);
+						}
 					}
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
@@ -1612,9 +1678,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						// NOTE: Other texture types don't appear to be supported by spirv reflect, but utexture2D does appear once in godot.
-						.sampleType = WGPUTextureSampleType_Float,
+						.sampleType = (WGPUTextureSampleType)binding_hints[binding.binding + wgpu_binding_offset].texture.sample_type,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
-						.multisampled = info.texture_is_multisample,
+						// .multisampled = info.texture_is_multisample,
+						.multisampled = binding_hints[binding.binding + wgpu_binding_offset].texture.multisampled,
 					};
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
@@ -1650,6 +1717,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			}
 		}
 		shader_info->set_binding_corrections.insert(set_idx, binding_corrections);
+		shader_info->set_binding_hints.insert(set_idx, binding_hints);
 	}
 
 	for (uint32_t i = 0; i < data.overrides.size(); i++) {
@@ -1775,23 +1843,21 @@ void RenderingDeviceDriverWebGpu::shader_destroy_modules(ShaderID p_shader) {
 /**** UNIFORM SET ****/
 /*********************/
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUniform> p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections) {
 	Vector<WGPUBindGroupEntry> entries;
 
 	uint32_t binding_offset = 0;
 	for (uint32_t uniform_idx = 0; uniform_idx < p_uniforms.size(); uniform_idx++) {
-		const BoundUniform &uniform = p_uniforms[uniform_idx];
+		const BoundUniform &uniform = p_uniforms.ptr()[uniform_idx];
 		int binding_correction_count = (p_set_binding_corrections.has(uniform.binding) ? (int)p_set_binding_corrections[uniform.binding].size() : 0);
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
 				for (int i = -1; i < binding_correction_count; i++) {
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
-						ERR_FAIL_COND_V_MSG(
-								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON &&
-										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-								nullptr,
-								vformat("WebGPU unexpected bind group sampler correction, got %d", correction));
+						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON && correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
+							continue;
+						}
 						binding_offset += 1;
 					}
 
@@ -1878,16 +1944,14 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
 				for (int i = -1; i < binding_correction_count; i++) {
 					ERR_FAIL_COND_V(
-							uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && binding_correction_count != 0,
+							(uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_IMAGE) && binding_correction_count != 0,
 							nullptr);
 
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
-						ERR_FAIL_COND_V_MSG(
-								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON &&
-										correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR,
-								nullptr,
-								vformat("WebGPU unexpected bind group sampler correction, got %d", correction));
+						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON && correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
+							continue;
+						}
 						binding_offset += 1;
 					}
 
@@ -1948,6 +2012,24 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(VectorView<BoundUn
 
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
 	return bind_group;
+}
+
+LocalVector<RenderingDeviceDriverWebGpu::BoundUniform> RenderingDeviceDriverWebGpu::_prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashSet<Pair<uint32_t, uint32_t>> &p_pruned_set_bindings) {
+	LocalVector<BoundUniform> new_uniforms;
+
+	Pair<uint32_t, uint32_t> sb;
+	sb.first = p_set_idx;
+
+	for (uint32_t idx = 0; idx < p_uniforms.size(); idx++) {
+		const BoundUniform &uniform = p_uniforms.ptr()[idx];
+		sb.second = uniform.binding;
+
+		if (!p_pruned_set_bindings.has(sb)) {
+			new_uniforms.push_back(uniform);
+		}
+	}
+
+	return new_uniforms;
 }
 
 WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout) {
@@ -2136,7 +2218,8 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	WGPUBindGroup bind_group = _bind_group_create(p_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
+	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->pruned_set_bindings);
+	WGPUBindGroup bind_group = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
 	ERR_FAIL_COND_V(bind_group == nullptr, UniformSetID());
 
 	return UniformSetID(bind_group);
@@ -2763,7 +2846,7 @@ void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBuff
 						.slot = i,
 						.buffer = buffer_info->buffer,
 						.offset = p_offsets[i],
-						.size = buffer_info->size,
+						.size = WGPU_WHOLE_SIZE,
 				},
 		}));
 	}
@@ -2793,7 +2876,7 @@ void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBuffer
 					.buffer = buffer_info->buffer,
 					.format = format,
 					.offset = p_offset,
-					.size = buffer_info->size,
+					.size = WGPU_WHOLE_SIZE,
 			} }));
 }
 
