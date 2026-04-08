@@ -507,7 +507,9 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 v
 				pos.xy = pos.xy * 0.5 + 0.5;
 				pos.xy = uv_rect.xy + pos.xy * uv_rect.zw;
 
-				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
+				// HACK: AHAHAHAHAH
+				// float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos.xy, 0.0).r;
+				float d = 0.5;
 				if (d > z_norm) {
 					blocker_average += d;
 					blocker_count += 1.0;
@@ -606,7 +608,9 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 v
 
 		pos = pos * 0.5 + 0.5;
 		pos = uv_rect.xy + pos * uv_rect.zw;
-		float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
+		// HACK: AHAHAHAHAH
+		// float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), pos, 0.0).r;
+		float shadow_z = 0.5;
 		transmittance_z = (depth - shadow_z) / omni_lights.data[idx].inv_radius;
 	}
 #endif // !SHADOWS_DISABLED
@@ -787,7 +791,9 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 v
 			for (uint i = 0; i < sc_penumbra_shadow_samples(); i++) {
 				vec2 suv = shadow_uv + (disk_rotation * scene_data_block.data.penumbra_shadow_kernel[i].xy) * uv_size;
 				suv = clamp(suv, spot_lights.data[idx].atlas_rect.xy, clamp_max);
-				float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
+				// HACK: AHAHAHAHAH
+				// float d = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), suv, 0.0).r;
+				float d = 0.5;
 				if (d > splane.z) {
 					blocker_average += d;
 					blocker_count += 1.0;
@@ -836,7 +842,9 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 v
 		splane /= splane.w;
 
 		vec3 shadow_uv = vec3(splane.xy * spot_lights.data[idx].atlas_rect.zw + spot_lights.data[idx].atlas_rect.xy, splane.z);
-		float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), shadow_uv.xy, 0.0).r;
+		// HACK: AHAHAHAHAH
+		// float shadow_z = textureLod(sampler2D(shadow_atlas, SAMPLER_LINEAR_CLAMP), shadow_uv.xy, 0.0).r;
+		float shadow_z = 0.5;
 
 		shadow_z = shadow_z * 2.0 - 1.0;
 		float z_far = 1.0 / spot_lights.data[idx].inv_radius;
