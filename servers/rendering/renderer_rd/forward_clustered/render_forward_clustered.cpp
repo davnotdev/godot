@@ -3149,7 +3149,7 @@ void RenderForwardClustered::_update_render_base_uniform_set() {
 
 		{
 			RD::Uniform u;
-			u.binding = 2;
+			u.binding = 50;
 			u.uniform_type = RD::UNIFORM_TYPE_SAMPLER;
 			u.append_id(scene_shader.shadow_sampler);
 			uniforms.push_back(u);
@@ -3344,7 +3344,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 	}
 	{
 		RD::Uniform u;
-		u.binding = 5;
+		u.binding = 54;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 		RID texture;
 		if (p_render_data && p_render_data->shadow_atlas.is_valid()) {
@@ -3358,7 +3358,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 	}
 	{
 		RD::Uniform u;
-		u.binding = 6;
+		u.binding = 56;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 		if (p_use_directional_shadow_atlas && RendererRD::LightStorage::get_singleton()->directional_shadow_get_texture().is_valid()) {
 			u.append_id(RendererRD::LightStorage::get_singleton()->directional_shadow_get_texture());

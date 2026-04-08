@@ -2,7 +2,10 @@
 #define WEBGPU_SHADER_BINARY_H
 
 #include "core/string/ustring.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/vector.h"
+
+#include "drivers/webgpu/webgpu_common.h"
 
 class WebGpuShaderBinary {
 	//	An overview of the shader binary layout:
@@ -17,11 +20,13 @@ class WebGpuShaderBinary {
 	//			uint32_t binding_count;
 	//			struct {
 	//				DataBinding binding;
-	//				uint32_t binding_hint_size;
-	//				// (sized) via `binding_hint_size`
-	//				DataBindingHint binding_hint;
 	//				uint32_t corrections[binding.corrections_count];
 	//			} bindings[binding_count];
+	//			uint32_t binding_hint_count;
+	//			struct {
+	//				uint32_t binding;
+	//				WebGpuBindingHint binding_hint;
+	//			} binding_hints[binding_hint_count];
 	//		} sets[data.set_count]
 	//		struct {
 	//			uint32_t shader_stage;
@@ -72,35 +77,10 @@ public:
 		uint32_t correction_count;
 	};
 
-	enum class DataBindingHintType {
-		UNUSED = 0,
-		SAMPLER = 2,
-		TEXTURE = 3,
-	};
-
-	struct DataBindingSamplerHint {
-		uint32_t sampler_type = 0;
-	};
-
-	struct DataBindingTextureHint {
-		uint32_t sample_type = 0;
-		uint32_t multisampled = 0;
-	};
-
-	struct DataBindingHint {
-		DataBindingHintType type = DataBindingHintType::UNUSED;
-		union {
-			DataBindingSamplerHint sampler;
-			DataBindingTextureHint texture;
-		};
-		DataBindingHint() {}
-	};
-
 public:
 	struct DataBindingInput {
 		DataBinding binding;
 		uint32_t binding_hint_size;
-		DataBindingHint binding_hint;
 		Vector<uint32_t> corrections;
 	};
 
@@ -116,10 +96,17 @@ public:
 		uint32_t constant_id;
 	};
 
+	struct SetInput {
+		Vector<DataBindingInput> bindings;
+		// Binding hints are separate because they also include inserted bindings.
+		// They exist using binding indices post-transformation.
+		HashMap<uint32_t, WebGpuBindingHint> binding_hints;
+	};
+
 	struct DataInput {
 		Data data;
 		CharString shader_name;
-		Vector<Vector<DataBindingInput>> sets;
+		Vector<SetInput> sets;
 		Vector<ShaderStageInput> stages;
 		Vector<OverrideInput> overrides;
 	};

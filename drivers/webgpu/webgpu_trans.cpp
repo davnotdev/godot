@@ -171,5 +171,16 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 }
 
 bool webgpu_translate_compare_binding_layout(const WebGpuTranslateBindingLayout &a, const WebGpuTranslateBindingLayout &b) {
-	return a.type == b.type && std::memcmp(&a._data, &b._data, sizeof(a._data));
+	if (a.type == b.type) {
+		switch (a.type) {
+			case WebGpuTranslateBindingType::UNUSED:
+				return true;
+			case WebGpuTranslateBindingType::SAMPLER:
+				return a._data.sampler.sampler_type == b._data.sampler.sampler_type;
+			case WebGpuTranslateBindingType::TEXTURE:
+				return a._data.texture.sample_type == b._data.texture.sample_type && a._data.texture.multisampled == b._data.texture.multisampled;
+		}
+	} else {
+		return false;
+	}
 }
