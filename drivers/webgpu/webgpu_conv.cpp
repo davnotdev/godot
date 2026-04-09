@@ -34,7 +34,7 @@ WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buf
 	return (WGPUBufferUsage)ret;
 }
 
-WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format, bool truncate_stencil) {
+WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 	WGPUTextureFormat ret = WGPUTextureFormat_Undefined;
 
 	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
@@ -157,21 +157,13 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format, b
 			ret = WGPUTextureFormat_Depth16Unorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT:
-			if (truncate_stencil) {
-				ret = WGPUTextureFormat_Depth24Plus;
-			} else {
-				ret = WGPUTextureFormat_Depth24PlusStencil8;
-			}
+			ret = WGPUTextureFormat_Depth24PlusStencil8;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT:
 			ret = WGPUTextureFormat_Depth32Float;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT:
-			if (truncate_stencil) {
-				ret = WGPUTextureFormat_Depth32Float;
-			} else {
-				ret = WGPUTextureFormat_Depth32FloatStencil8;
-			}
+			ret = WGPUTextureFormat_Depth32FloatStencil8;
 			break;
 
 		case RDD::DataFormat::DATA_FORMAT_BC1_RGBA_UNORM_BLOCK:
@@ -1271,8 +1263,4 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		default:
 			return (FormatBlockDimension){ 1, 1 };
 	}
-}
-
-bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format) {
-	return (p_format == WGPUTextureFormat_Depth32FloatStencil8 || p_format == WGPUTextureFormat_Depth24PlusStencil8);
 }

@@ -279,13 +279,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	}
 
 	WGPUTextureFormat texture_format = webgpu_texture_format_from_rd(p_format.format);
-	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format, true);
+	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureUsage usage = (WGPUTextureUsage)usage_bits;
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_format.format);
-
-	if (webgpu_texture_format_is_depth_stencil(texture_format)) {
-		aspect = WGPUTextureAspect_DepthOnly;
-	}
 
 	WGPUExtent3D size;
 	size.width = p_format.width;
@@ -330,8 +326,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	for (uint32_t i = 0; i < p_format.shareable_formats.size(); i++) {
 		DataFormat format = p_format.shareable_formats[i];
-		view_formats.push_back(webgpu_texture_format_from_rd(format, true));
+		view_formats.push_back(webgpu_texture_format_from_rd(format));
 	}
+	view_formats.push_back(view_format);
 
 	WGPUTextureDescriptor texture_desc = (WGPUTextureDescriptor){
 		.usage = usage,
@@ -422,7 +419,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
-		.format = webgpu_texture_format_from_rd(p_view.format, true),
+		.format = webgpu_texture_format_from_rd(p_view.format),
 		.mipLevelCount = texture_info->texture_view_desc.mipLevelCount,
 		.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount,
 		.usage = texture_view_usage,
@@ -455,7 +452,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		},
 	};
 
-	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format, true);
+	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
@@ -2515,7 +2512,7 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		}
 
 		RenderPassAttachmentInfo attachment_info = (RenderPassAttachmentInfo){
-			.format = webgpu_texture_format_from_rd(attachment.format, true),
+			.format = webgpu_texture_format_from_rd(attachment.format),
 			// TODO: Assert that p_format.samples follows this behavior.
 			.sample_count = (uint32_t)pow(2, (uint32_t)attachment.samples),
 			.load_op = webgpu_load_op_from_rd(attachment.load_op),
