@@ -1122,7 +1122,11 @@ RD::DataFormat RendererSceneRenderRD::_render_buffers_get_color_format() {
 }
 
 bool RendererSceneRenderRD::_render_buffers_can_be_storage() {
+#ifdef WEBGPU_ENABLED
+	return false;
+#else
 	return true;
+#endif
 }
 
 void RendererSceneRenderRD::gi_set_use_half_resolution(bool p_enable) {
