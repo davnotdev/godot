@@ -58,7 +58,19 @@ private:
 	struct TextureInfo {
 	public:
 		WGPUTexture texture;
-		WGPUTextureView view;
+
+		enum class ViewIndex {
+			DEFAULT = 0,
+			DEPTH_ONLY = 1,
+		};
+
+		Vector<WGPUTextureView> views;
+
+		WGPUTextureView get_default_view() const { return views[(long)ViewIndex::DEFAULT]; }
+		WGPUTextureView get_depth_only_view() const { return views[(long)ViewIndex::DEPTH_ONLY]; }
+
+		// Depth Stencil => DEPTH_ONLY, _ => DEFAULT
+		WGPUTextureView get_view_with_format() const;
 
 		// TODO: nextInChain is not preserved.
 		WGPUTextureDescriptor texture_desc;
@@ -70,8 +82,9 @@ private:
 		bool uses_depth_or_array_layers;
 	};
 
-	// Keep track of existing mirror textures to ensure we don't write to a deleted texture.
-	HashSet<TextureID> mirror_textures;
+	// For depth stencil formats, create one default texture view and one depth only texture view.
+	// For other formats, create one texture view.
+	Vector<WGPUTextureView> _texture_views_with_aspect_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor& p_texture_view_descriptor);
 
 public:
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;

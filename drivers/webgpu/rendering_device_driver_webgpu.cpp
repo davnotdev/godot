@@ -100,6 +100,9 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				// NOTE: This is my system's max buffer size, needed for some godot examples.
 				.maxUniformBufferBindingSize = 1953653104,
 				.maxStorageBufferBindingSize = 1953653104,
+				// These are the limits for lavapipe (CPU vulkan implementation)
+				// .maxUniformBufferBindingSize = 65536,
+				// .maxStorageBufferBindingSize = 134217728,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
@@ -258,6 +261,30 @@ uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffe
 /**** TEXTURE ****/
 /*****************/
 
+WGPUTextureView RenderingDeviceDriverWebGpu::TextureInfo::get_view_with_format() const {
+	if (webgpu_texture_format_is_depth_stencil(texture_view_desc.format)) {
+		return this->get_depth_only_view();
+	} else {
+		return this->get_default_view();
+	}
+}
+
+Vector<WGPUTextureView> RenderingDeviceDriverWebGpu::_texture_views_with_aspect_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor &p_texture_view_descriptor) {
+	if (webgpu_texture_format_is_depth_stencil(p_texture_view_descriptor.format)) {
+		WGPUTextureViewDescriptor depth_only_descriptor = p_texture_view_descriptor;
+		depth_only_descriptor.aspect = WGPUTextureAspect_DepthOnly;
+		depth_only_descriptor.format = webgpu_texture_format_downgrade_depth_only(p_texture_view_descriptor.format);
+		return {
+			wgpuTextureCreateView(p_texture, &p_texture_view_descriptor),
+			wgpuTextureCreateView(p_texture, &depth_only_descriptor)
+		};
+	} else {
+		return {
+			wgpuTextureCreateView(p_texture, &p_texture_view_descriptor)
+		};
+	}
+}
+
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
 	WGPUFlags usage_bits = WGPUTextureUsage_None;
 	if (p_format.usage_bits & TEXTURE_USAGE_SAMPLING_BIT) {
@@ -372,11 +399,11 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		.aspect = aspect,
 	};
 
-	WGPUTextureView view = wgpuTextureCreateView(texture, &texture_view_desc);
+	Vector<WGPUTextureView> views = _texture_views_with_aspect_create(texture, texture_view_desc);
 
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
-	texture_info->view = view;
+	texture_info->views = views;
 	texture_info->rd_texture_format = p_format.format;
 	texture_info->texture_desc = texture_desc;
 	texture_info->texture_view_desc = texture_view_desc;
@@ -422,14 +449,16 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		.format = webgpu_texture_format_from_rd(p_view.format),
 		.mipLevelCount = texture_info->texture_view_desc.mipLevelCount,
 		.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount,
+		.aspect = texture_info->texture_view_desc.aspect,
 		.usage = texture_view_usage,
 	};
+	print_line("texture_create_shared, ", texture_view_desc.format, texture_view_desc.usage, texture_view_desc.aspect);
 
-	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
+	Vector<WGPUTextureView> views = _texture_views_with_aspect_create(texture_info->texture, texture_view_desc);
 
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
-	new_texture_info->view = view;
+	new_texture_info->views = views;
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -482,11 +511,11 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 			return TextureID();
 	}
 
-	WGPUTextureView view = wgpuTextureCreateView(texture_info->texture, &texture_view_desc);
+	Vector<WGPUTextureView> views = _texture_views_with_aspect_create(texture_info->texture, texture_view_desc);
 
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
-	new_texture_info->view = view;
+	new_texture_info->views = views;
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -498,7 +527,9 @@ void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 	if (texture_info->is_original_texture) {
 		wgpuTextureRelease(texture_info->texture);
 	}
-	wgpuTextureViewRelease(texture_info->view);
+	for (int i = 0; i < texture_info->views.size(); i++) {
+		wgpuTextureViewRelease(texture_info->views[i]);
+	}
 	memdelete(texture_info);
 }
 
@@ -1897,7 +1928,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 					WGPUSampler sampler = (WGPUSampler)uniform.ids[0].id;
 					TextureInfo *texture_info = (TextureInfo *)uniform.ids[1].id;
 
-					texture_entry.textureView = texture_info->view;
+					texture_entry.textureView = texture_info->get_view_with_format();
 					sampler_entry.sampler = sampler;
 				} else {
 					uint32_t uniform_count = uniform.ids.size() / 2;
@@ -1909,7 +1940,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 						TextureInfo *texture_info = (TextureInfo *)uniform.ids[i * 2 + 1].id;
 
 						uniform_samplers[i] = sampler;
-						uniform_texture_views[i] = texture_info->view;
+						uniform_texture_views[i] = texture_info->get_view_with_format();
 
 						WGPUBindGroupEntryExtras *texture_view_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
 						*texture_view_entry_extras = (WGPUBindGroupEntryExtras){
@@ -1957,13 +1988,13 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 
 					if (uniform.ids.size() == 1) {
 						TextureInfo *texture_info = (TextureInfo *)uniform.ids[0].id;
-						entry.textureView = texture_info->view;
+						entry.textureView = texture_info->get_view_with_format();
 					} else {
 						WGPUTextureView *uniform_texture_views = ALLOCA_ARRAY(WGPUTextureView, uniform.ids.size());
 
 						for (uint32_t j = 0; j < uniform.ids.size(); j++) {
 							TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
-							uniform_texture_views[j] = texture_info->view;
+							uniform_texture_views[j] = texture_info->get_view_with_format();
 						}
 
 						WGPUBindGroupEntryExtras *entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
@@ -2217,6 +2248,7 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 
 	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->pruned_set_bindings);
 	WGPUBindGroup bind_group = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
+
 	ERR_FAIL_COND_V(bind_group == nullptr, UniformSetID());
 
 	return UniformSetID(bind_group);
@@ -2558,7 +2590,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 			TextureID attachment_texture_id = framebuffer_info->attachments[i];
 			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
 			maybe_depth_stencil_attachment.first = (WGPURenderPassDepthStencilAttachment){
-				.view = attachment_texture->view,
+				.view = attachment_texture->get_default_view(),
 				.depthLoadOp = attachment.load_op,
 				.depthStoreOp = attachment.store_op,
 				.depthClearValue = p_clear_values[i].depth,
@@ -2585,7 +2617,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 			} else {
 				TextureID attachment_texture_id = framebuffer_info->attachments[i];
 				TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
-				view = attachment_texture->view;
+				view = attachment_texture->get_default_view();
 			}
 
 			color_attachments.push_back((WGPURenderPassColorAttachment){
