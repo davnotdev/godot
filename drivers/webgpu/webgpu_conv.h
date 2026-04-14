@@ -32,6 +32,8 @@ struct FormatBlockDimension {
 	uint32_t block_dim_y;
 };
 
+bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format);
+WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format);
 uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTextureAspect aspect);
 FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat format);
 
