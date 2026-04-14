@@ -958,6 +958,27 @@ WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::Shader
 	}
 }
 
+bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
+WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth24PlusStencil8:
+			return WGPUTextureFormat_Depth24Plus;
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return WGPUTextureFormat_Depth32Float;
+		default:
+			return WGPUTextureFormat_Undefined;
+	}
+}
+
 uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTextureAspect aspect) {
 	switch ((WGPUNativeTextureFormat)format) {
 		case WGPUNativeTextureFormat_R16Unorm:
