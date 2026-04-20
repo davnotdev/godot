@@ -191,11 +191,11 @@ private:
 			RENDER_SET_VERTEX_BUFFER,
 			RENDER_SET_INDEX_BUFFER,
 			RENDER_SET_BLEND_CONSTANTS,
-			RENDER_SET_PUSH_CONSTANTS,
+			RENDER_SET_IMMEDIATES,
 
 			COMPUTE_SET_PIPELINE,
 			COMPUTE_SET_BIND_GROUP,
-			COMPUTE_SET_PUSH_CONSTANTS,
+			COMPUTE_SET_PUSH_IMMEDIATES,
 			COMPUTE_DISPATCH_WORKGROUPS,
 			COMPUTE_DISPATCH_WORKGROUPS_INDIRECT,
 		};
@@ -278,12 +278,11 @@ private:
 			WGPUColor color;
 		};
 
-		struct RenderSetPushConstants {
-			WGPUShaderStage stages;
+		struct RenderSetImmediates {
 			uint32_t offset;
 		};
 
-		struct ComputeSetPushConstants {
+		struct ComputeSetImmediates {
 			uint32_t offset;
 		};
 
@@ -321,9 +320,9 @@ private:
 			RenderSetVertexBuffer render_set_vertex_buffer;
 			RenderSetIndexBuffer render_set_index_buffer;
 			RenderSetBlendConstant render_set_blend_constant;
-			RenderSetPushConstants render_set_push_constants;
+			RenderSetImmediates render_set_push_constants;
 
-			ComputeSetPushConstants compute_set_push_constants;
+			ComputeSetImmediates compute_set_push_constants;
 			ComputeDispatchWorkgroups compute_dispatch_workgroups;
 			ComputeDispatchWorkgroupsIndirect compute_dispatch_workgroups_indirect;
 
