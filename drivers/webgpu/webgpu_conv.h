@@ -21,7 +21,7 @@ WGPUTextureAspect webgpu_texture_aspect_from_rd_format(RDD::DataFormat p_data_fo
 WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_operation);
 WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor);
 WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_stencil_operation);
-WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
+WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
 WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type);
 
 RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format);
