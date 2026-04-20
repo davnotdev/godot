@@ -925,22 +925,22 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 	}
 }
 
-WGPUTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
+WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
 	switch (p_texture_swizzle) {
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ZERO:
-			return WGPUTextureComponentSwizzle_Zero;
+			return WGPUNativeTextureComponentSwizzle_Zero;
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ONE:
-			return WGPUTextureComponentSwizzle_One;
+			return WGPUNativeTextureComponentSwizzle_One;
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_R:
-			return WGPUTextureComponentSwizzle_R;
+			return WGPUNativeTextureComponentSwizzle_R;
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_G:
-			return WGPUTextureComponentSwizzle_G;
+			return WGPUNativeTextureComponentSwizzle_G;
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_B:
-			return WGPUTextureComponentSwizzle_B;
+			return WGPUNativeTextureComponentSwizzle_B;
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_A:
-			return WGPUTextureComponentSwizzle_A;
+			return WGPUNativeTextureComponentSwizzle_A;
 		default:
-			return WGPUTextureComponentSwizzle_Identity;
+			return WGPUNativeTextureComponentSwizzle_Identity;
 	}
 }
 

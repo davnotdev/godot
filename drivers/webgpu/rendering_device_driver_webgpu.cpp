@@ -47,7 +47,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		WGPUFeatureName_TextureCompressionBC,
 
 		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
-		(WGPUFeatureName)WGPUNativeFeature_PushConstants,
+		(WGPUFeatureName)WGPUNativeFeature_Immediates,
 		// Need changes in Godot (default textures use 16bit I believe)
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
@@ -56,7 +56,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 		// I haven't looked into these
 		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
-		(WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
+		(WGPUFeatureName)WGPUNativeFeature_UniformBufferAndStorageTextureArrayNonUniformIndexing,
 
 		// Needs SPIRV workaround
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -72,16 +72,17 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	// NOTE: These tweaks are ONLY REQUIRED FOR FORWARD+.
 	// Forward Mobile should still be fully supported under the default limits.
 	WGPUNativeLimits required_native_limits = (WGPUNativeLimits){
-		.chain = (WGPUChainedStructOut){
+		.chain = (WGPUChainedStruct){
 				.sType = (WGPUSType)WGPUSType_NativeLimits,
 		},
-		.maxPushConstantSize = 128,
-		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED
+		.maxImmediateSize = 128,
+		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED,
+		.maxBindingArrayElementsPerShaderStage = 4,
 	};
 
 	WGPULimits required_limits =
 			(WGPULimits){
-				.nextInChain = (WGPUChainedStructOut *)&required_native_limits,
+				.nextInChain = (WGPUChainedStruct *)&required_native_limits,
 				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
@@ -375,7 +376,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 				.next = nullptr,
 				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
 		},
-		.swizzle = (WGPUTextureViewSwizzle){
+		.swizzle = (WGPUNativeTextureViewSwizzle){
 				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
 				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
 				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
@@ -436,7 +437,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 				.next = nullptr,
 				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
 		},
-		.swizzle = (WGPUTextureViewSwizzle){
+		.swizzle = (WGPUNativeTextureViewSwizzle){
 				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
 				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
 				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
@@ -473,7 +474,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 				.next = nullptr,
 				.sType = (WGPUSType)WGPUSType_TextureViewDescriptorExtras,
 		},
-		.swizzle = (WGPUTextureViewSwizzle){
+		.swizzle = (WGPUNativeTextureViewSwizzle){
 				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
 				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
 				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
@@ -894,9 +895,9 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
 					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.group_index, data.bind_group, 0, nullptr);
 				} break;
-				case PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_CONSTANTS: {
-					PassEncoderCommand::ComputeSetPushConstants data = command.compute_set_push_constants;
-					wgpuComputePassEncoderSetPushConstants(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
+				case PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_IMMEDIATES: {
+					PassEncoderCommand::ComputeSetImmediates data = command.compute_set_push_constants;
+					wgpuComputePassEncoderSetImmediates(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS: {
 					PassEncoderCommand::ComputeDispatchWorkgroups data = command.compute_dispatch_workgroups;
@@ -992,9 +993,9 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 						const PassEncoderCommand::RenderSetBlendConstant &data = command.render_set_blend_constant;
 						wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
 					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_PUSH_CONSTANTS: {
-						const PassEncoderCommand::RenderSetPushConstants &data = command.render_set_push_constants;
-						wgpuRenderPassEncoderSetPushConstants(render_encoder, data.stages, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
+					case PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES: {
+						const PassEncoderCommand::RenderSetImmediates &data = command.render_set_push_constants;
+						wgpuRenderPassEncoderSetImmediates(render_encoder, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
 					} break;
 					default:
 						break;
@@ -1498,7 +1499,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				},
 				.count = 1
 			};
-			layout_entry.nextInChain = (const WGPUChainedStruct *)layout_entry_extras;
+			layout_entry.nextInChain = &layout_entry_extras->chain;
 
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
@@ -1784,7 +1785,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		};
 
 		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
-			.nextInChain = (const WGPUChainedStruct *)&source,
+			.nextInChain = &source.chain,
 		};
 		WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_desc);
 
@@ -1827,23 +1828,13 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->bind_group_layout_descs.push_back(bind_group_layout_desc);
 	}
 
-	WGPUPushConstantRange push_constant_range;
-
-	if (binary_data.push_constant_size) {
-		push_constant_range = (WGPUPushConstantRange){
-			.stages = binary_data.push_constant_stages,
-			.start = 0,
-			.end = binary_data.push_constant_size,
-		};
-	}
 	shader_info->push_constant_stage_flags = binary_data.push_constant_stages;
 
 	WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
 		.chain = (WGPUChainedStruct){
 				.sType = (WGPUSType)WGPUSType_PipelineLayoutExtras,
 		},
-		.pushConstantRangeCount = (size_t)(binary_data.push_constant_size ? 1 : 0),
-		.pushConstantRanges = &push_constant_range,
+		.immediateDataSize = binary_data.push_constant_size
 	};
 
 	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor){
@@ -2487,16 +2478,15 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 	if (shader_info->push_constant_stage_flags & WGPUShaderStage_Compute) {
 		command_buffer_info->has_compute_commands = true;
 		command_buffer_info->commands.push_back((PassEncoderCommand){
-				.type = PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_CONSTANTS,
-				.compute_set_push_constants = (PassEncoderCommand::ComputeSetPushConstants){
+				.type = PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_IMMEDIATES,
+				.compute_set_push_constants = (PassEncoderCommand::ComputeSetImmediates){
 						.offset = p_first_index },
 				.compute_push_constants = data,
 		});
 	} else if (shader_info->push_constant_stage_flags & WGPUShaderStage_Vertex || shader_info->push_constant_stage_flags & WGPUShaderStage_Fragment) {
 		command_buffer_info->commands.push_back((PassEncoderCommand){
-				.type = PassEncoderCommand::CommandType::RENDER_SET_PUSH_CONSTANTS,
-				.render_set_push_constants = (PassEncoderCommand::RenderSetPushConstants){
-						.stages = shader_info->push_constant_stage_flags,
+				.type = PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES,
+				.render_set_push_constants = (PassEncoderCommand::RenderSetImmediates){
 						.offset = p_first_index },
 				.render_push_constants = data,
 		});
@@ -3272,7 +3262,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 
 	Vector<WGPUConstantEntry> overrides = _get_specialization_constant_entries(p_specialization_constants, shader_info->compute_override_layout);
 
-	WGPUProgrammableStageDescriptor programmable_stage_desc = (WGPUProgrammableStageDescriptor){
+	WGPUComputeState programmable_stage_desc = (WGPUComputeState){
 		.module = shader_info->compute_shader,
 		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)overrides.size(),
@@ -3370,7 +3360,7 @@ uint64_t RenderingDeviceDriverWebGpu::get_lazily_memory_used() {
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 	WGPUNativeLimits extras;
 	WGPULimits limits;
-	limits.nextInChain = (WGPUChainedStructOut *)&extras;
+	limits.nextInChain = &extras.chain;
 	wgpuDeviceGetLimits(device, &limits);
 	return rd_limit_from_webgpu(p_limit, limits);
 }
