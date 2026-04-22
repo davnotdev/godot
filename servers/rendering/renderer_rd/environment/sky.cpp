@@ -1283,11 +1283,14 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 		}
 	}
 
+	// TODO(davnotdev): Gating this fixes some validation error, but I need to look more into this.
+#ifndef WEBGPU_ENABLED
 	if (sky->processing_layer == 0 && sky_mode == RS::SKY_MODE_INCREMENTAL) {
 		// On the first frame after creating sky, rebuild in single frame
 		update_single_frame = true;
 		sky_mode = RS::SKY_MODE_QUALITY;
 	}
+#endif
 
 	int max_processing_layer = sky_use_cubemap_array ? sky->reflection.layers.size() : sky->reflection.layers[0].mipmaps.size();
 
