@@ -1162,6 +1162,7 @@ RD::DataFormat RendererSceneRenderRD::_render_buffers_get_preferred_color_format
 }
 
 bool RendererSceneRenderRD::_render_buffers_can_be_storage() {
+// TODO(davnotdev): Oh boy, this causes issues, future me, look at this.
 #ifdef WEBGPU_ENABLED
 	return false;
 #else
