@@ -335,7 +335,8 @@ typedef enum WGPUNativeFeature
      *
      * This is a native only feature.
      */
-    WGPUNativeFeature_UniformBufferAndStorageTextureArrayNonUniformIndexing = 0x00030010,
+    // WGPUNativeFeature_UniformBufferAndStorageTextureArrayNonUniformIndexing = 0x00030010,
+    WGPUNativeFeature_StorageTextureArrayNonUniformIndexing = 0x00030010,
     // TODO: requires wgpu.h api change
     // WGPUNativeFeature_AddressModeClampToZero = 0x00030011,
     // WGPUNativeFeature_AddressModeClampToBorder = 0x00030012,
