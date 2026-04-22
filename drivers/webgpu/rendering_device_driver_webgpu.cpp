@@ -56,7 +56,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 		// I haven't looked into these
 		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
-		(WGPUFeatureName)WGPUNativeFeature_UniformBufferAndStorageTextureArrayNonUniformIndexing,
+		(WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
 
 		// Needs SPIRV workaround
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -77,7 +77,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		},
 		.maxImmediateSize = 128,
 		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED,
-		.maxBindingArrayElementsPerShaderStage = 4,
+		.maxBindingArrayElementsPerShaderStage = 256,
 	};
 
 	WGPULimits required_limits =
@@ -99,11 +99,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
 				.maxUniformBuffersPerShaderStage = 32768 + 272,
 				// NOTE: This is my system's max buffer size, needed for some godot examples.
-				.maxUniformBufferBindingSize = 1953653104,
-				.maxStorageBufferBindingSize = 1953653104,
+				// .maxUniformBufferBindingSize = 1953653104,
+				// .maxStorageBufferBindingSize = 1953653104,
 				// These are the limits for lavapipe (CPU vulkan implementation)
-				// .maxUniformBufferBindingSize = 65536,
-				// .maxStorageBufferBindingSize = 134217728,
+				.maxUniformBufferBindingSize = 65536,
+				.maxStorageBufferBindingSize = 134217728,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
@@ -1162,9 +1162,9 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
 	// Since this is presumably just for debug, we will skip this.
-	if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
-		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ClusterDebugShaderRD*");
-	}
+	// if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
+	// 	ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ClusterDebugShaderRD*");
+	// }
 
 	ShaderReflection shader_refl;
 	if (_reflect_spirv(p_spirv, shader_refl) != OK) {
@@ -1285,7 +1285,7 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 		const ShaderStageSPIRVData &data = spirv[i];
 		ConvertResult result = webgpu_translate_spirv_to_wgsl((uint32_t *)data.spirv.ptr(), data.spirv.size() / 4);
 		if (result.error_string != nullptr) {
-			print_line("[WGPU] WGSL compiliation ", p_shader_name, "on step", result.failure_stage, ":", result.error_string.ptr());
+			print_line("[WGPU] WGSL compilation ", p_shader_name, "on step", result.failure_stage, ":", result.error_string.ptr());
 			// HACK: exit so that we can debug this easier.
 			// exit(1);
 			return Vector<uint8_t>();
