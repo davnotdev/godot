@@ -453,7 +453,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		.aspect = texture_info->texture_view_desc.aspect,
 		.usage = texture_view_usage,
 	};
-	print_line("texture_create_shared, ", texture_view_desc.format, texture_view_desc.usage, texture_view_desc.aspect);
 
 	Vector<WGPUTextureView> views = _texture_views_with_aspect_create(texture_info->texture, texture_view_desc);
 
@@ -493,6 +492,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		.baseArrayLayer = p_layer,
 		.arrayLayerCount = p_layers,
 		.aspect = aspect,
+		.usage = texture_info->texture_view_desc.usage,
 	};
 
 	switch (p_slice_type) {
@@ -3367,12 +3367,20 @@ uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 
 uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 	switch (p_trait) {
-		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT:
-			return 256;
 		case API_TRAIT_HONORS_PIPELINE_BARRIERS:
 			return 0;
+		case API_TRAIT_SHADER_CHANGE_INVALIDATION:
+			return SHADER_CHANGE_INVALIDATION_ALL_BOUND_UNIFORM_SETS;
+		case API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT:
+			return 256;
 		case API_TRAIT_TEXTURE_DATA_ROW_PITCH_STEP:
 			return 256;
+		case API_TRAIT_SECONDARY_VIEWPORT_SCISSOR:
+			return 0;
+		case API_TRAIT_USE_GENERAL_IN_COPY_QUEUES:
+			return 0;
+		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS:
+			return 0;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}
