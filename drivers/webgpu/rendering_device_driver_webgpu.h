@@ -84,7 +84,7 @@ private:
 
 	// For depth stencil formats, create one default texture view and one depth only texture view.
 	// For other formats, create one texture view.
-	Vector<WGPUTextureView> _texture_views_with_aspect_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor& p_texture_view_descriptor);
+	Vector<WGPUTextureView> _texture_views_with_aspect_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor &p_texture_view_descriptor);
 
 public:
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;
@@ -423,7 +423,7 @@ private:
 
 		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
 		HashMap<uint32_t, HashMap<uint32_t, WebGpuBindingHint>> set_binding_hints;
-		HashSet<Pair<uint32_t, uint32_t>> pruned_set_bindings;
+		HashSet<Pair<uint32_t, uint32_t>> used_set_bindings;
 
 		String shader_name;
 		WGPUPipelineLayout pipeline_layout;
@@ -445,9 +445,35 @@ public:
 	/*********************/
 
 private:
-	WGPUBindGroup _bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections);
+	// TODO: We only actually need the master entry list.
+	struct BindGroupCreateResult {
+		WGPUBindGroup bind_group;
+		HashSet<uint32_t> used_bindings;
+		Vector<WGPUBindGroupEntry> descriptor_entries;
+	};
+	struct UniformSetInfo {
+		// We check for partial compatibility by checking if two sets have the same bindings.
+		// bind_group.count > layout.count => build a new bind_group with that subset
+		// bind_group.count < layout.count => something went terribly wrong
+		// _ => there are also cases where there is some intersection which is also terrible.
+		// TODO: Quite naive, we should preserve the descriptor's chain here and everywhere.
+		Vector<BindGroupCreateResult> bind_groups;
+		// Once we know we can use the whole bind group or a subset, we can just cache the result forever.
+		HashMap<WGPUBindGroupLayout, WGPUBindGroup> cached;
+	};
+
+	BindGroupCreateResult _bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections);
+
+	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
+	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
 	LocalVector<BoundUniform> _prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashSet<Pair<uint32_t, uint32_t>> &p_pruned_set_bindings);
+
+	WGPUBindGroup _select_bind_group_from_uniform_set(UniformSetInfo *p_uniform_set_info, const ShaderInfo *p_shader_info, uint32_t p_set_index);
+	WGPUBindGroup _bind_group_create_subset(const UniformSetInfo *p_uniform_set_info, WGPUBindGroupLayout p_layout, const HashSet<uint32_t> &p_subset);
+	WGPUBindGroup _bind_group_create_superset(const UniformSetInfo *p_uniform_set_info, const HashSet<uint32_t> &p_layout_set, const ShaderInfo *p_shader_info, uint32_t p_set_idx);
+
 	WGPUBindGroup _mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout);
+	BoundUniform _mock_bind_group_entry_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, uint32_t p_entry_index);
 
 	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
 	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
@@ -457,6 +483,7 @@ private:
 	// TODO: deallocate these
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
 
+	// TODO: Hey, how are we freeing these resources?
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
 	TextureID _texture_mock_binding_create(WGPUTextureBindingLayout p_layout);
 	TextureID _storage_texture_mock_binding_create(WGPUStorageTextureBindingLayout p_layout);
