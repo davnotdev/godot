@@ -1452,7 +1452,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 	}
 
 	Vector<Vector<WGPUBindGroupLayoutEntry>> &bind_group_layout_entries = shader_info->bind_group_layout_entries;
-	HashSet<Pair<uint32_t, uint32_t>> &pruned_set_bindings = shader_info->pruned_set_bindings;
 
 	r_shader_desc.uniform_sets.resize(binary_data.set_count);
 	bind_group_layout_entries.resize(binary_data.set_count);
@@ -1513,11 +1512,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry_extras->count = binding.length;
 					if (!pruned) {
 						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
-					} else {
-						Pair<uint32_t, uint32_t> sb;
-						sb.first = set_idx;
-						sb.second = layout_entry.binding;
-						pruned_set_bindings.insert(sb);
 					}
 
 					// Apply only dref splitting corrections
@@ -1541,11 +1535,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						}
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
-						} else {
-							Pair<uint32_t, uint32_t> sb;
-							sb.first = set_idx;
-							sb.second = layout_entry.binding;
-							pruned_set_bindings.insert(sb);
 						}
 					}
 				} break;
@@ -1568,11 +1557,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					};
 					if (!pruned) {
 						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
-					} else {
-						Pair<uint32_t, uint32_t> sb;
-						sb.first = set_idx;
-						sb.second = layout_entry.binding;
-						pruned_set_bindings.insert(sb);
 					}
 
 					WGPUBindGroupLayoutEntry sampler_layout = layout_entry;
@@ -1604,11 +1588,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						}
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
-						} else {
-							Pair<uint32_t, uint32_t> sb;
-							sb.first = set_idx;
-							sb.second = layout_entry.binding;
-							pruned_set_bindings.insert(sb);
 						}
 					}
 
@@ -1637,11 +1616,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 					if (!pruned) {
 						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
-					} else {
-						Pair<uint32_t, uint32_t> sb;
-						sb.first = set_idx;
-						sb.second = layout_entry.binding;
-						pruned_set_bindings.insert(sb);
 					}
 
 					// Apply only dref splitting corrections
@@ -1665,11 +1639,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						}
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
-						} else {
-							Pair<uint32_t, uint32_t> sb;
-							sb.first = set_idx;
-							sb.second = layout_entry.binding;
-							pruned_set_bindings.insert(sb);
 						}
 					}
 				} break;
@@ -1747,6 +1716,11 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		}
 		shader_info->set_binding_corrections.insert(set_idx, binding_corrections);
 		shader_info->set_binding_hints.insert(set_idx, binding_hints);
+
+		for (int i = 0; i < bind_group_layout_entries[set_idx].size(); i++) {
+			const WGPUBindGroupLayoutEntry &entry = bind_group_layout_entries[set_idx][i];
+			shader_info->used_set_bindings.insert({ set_idx, entry.binding });
+		}
 	}
 
 	for (uint32_t i = 0; i < data.overrides.size(); i++) {
@@ -1862,12 +1836,13 @@ void RenderingDeviceDriverWebGpu::shader_destroy_modules(ShaderID p_shader) {
 /**** UNIFORM SET ****/
 /*********************/
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> p_set_binding_corrections) {
+RenderingDeviceDriverWebGpu::BindGroupCreateResult RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections) {
 	Vector<WGPUBindGroupEntry> entries;
 
 	uint32_t binding_offset = 0;
 	for (uint32_t uniform_idx = 0; uniform_idx < p_uniforms.size(); uniform_idx++) {
 		const BoundUniform &uniform = p_uniforms.ptr()[uniform_idx];
+
 		int binding_correction_count = (p_set_binding_corrections.has(uniform.binding) ? (int)p_set_binding_corrections[uniform.binding].size() : 0);
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
@@ -1964,8 +1939,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				for (int i = -1; i < binding_correction_count; i++) {
 					ERR_FAIL_COND_V(
 							(uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_IMAGE) && binding_correction_count != 0,
-							nullptr);
-
+							(BindGroupCreateResult){ .bind_group = nullptr });
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
 						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON && correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
@@ -2028,9 +2002,18 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 		.entryCount = (size_t)entries.size(),
 		.entries = entries.ptr(),
 	};
-
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
-	return bind_group;
+
+	HashSet<uint32_t> used_bindings;
+	for (const WGPUBindGroupEntry &entry : entries) {
+		used_bindings.insert(entry.binding);
+	}
+
+	return (BindGroupCreateResult){
+		.bind_group = bind_group,
+		.used_bindings = used_bindings,
+		.descriptor_entries = entries,
+	};
 }
 
 LocalVector<RenderingDeviceDriverWebGpu::BoundUniform> RenderingDeviceDriverWebGpu::_prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashSet<Pair<uint32_t, uint32_t>> &p_pruned_set_bindings) {
@@ -2043,13 +2026,133 @@ LocalVector<RenderingDeviceDriverWebGpu::BoundUniform> RenderingDeviceDriverWebG
 		const BoundUniform &uniform = p_uniforms.ptr()[idx];
 		sb.second = uniform.binding;
 
-		if (!p_pruned_set_bindings.has(sb)) {
+		if (p_pruned_set_bindings.has(sb)) {
 			new_uniforms.push_back(uniform);
 		}
 	}
 
 	return new_uniforms;
 }
+
+WGPUBindGroup RenderingDeviceDriverWebGpu::_select_bind_group_from_uniform_set(UniformSetInfo *p_uniform_set_info, const ShaderInfo *p_shader_info, uint32_t p_set_index) {
+	WGPUBindGroupLayout layout = p_shader_info->bind_group_layouts[p_set_index];
+
+	if (p_uniform_set_info->cached.has(layout)) {
+		return p_uniform_set_info->cached.get(layout);
+	} else {
+		// TODO: WIP Safe enough to run many more things but not correct!
+		return _mock_bind_group_create_or_get(p_shader_info->bind_group_layout_descs[p_set_index], p_shader_info->bind_group_layouts[p_set_index]);
+		Vector<WGPUBindGroupLayoutEntry> layout_entries = p_shader_info->bind_group_layout_entries[p_set_index];
+		HashSet<uint32_t> layout_set;
+		for (int i = 0; i < layout_entries.size(); i++) {
+			layout_set.insert(layout_entries[i].binding);
+		}
+
+		// Find and cache existing layout matches.
+		for (int i = 0; i < p_uniform_set_info->bind_groups.size(); i++) {
+			const BindGroupCreateResult &entry = p_uniform_set_info->bind_groups[i];
+			if (entry.used_bindings.size() != layout_set.size()) {
+				continue;
+			}
+			bool found = true;
+			for (uint32_t value : layout_set) {
+				if (!entry.used_bindings.has(value)) {
+					found = false;
+					break;
+				}
+			}
+			if (found) {
+				p_uniform_set_info->cached.insert(layout, entry.bind_group);
+				return entry.bind_group;
+			}
+		}
+
+		// Ensure our master bind group is a superset of the bind group layout.
+		const HashSet<uint32_t> master_set = p_uniform_set_info->bind_groups[0].used_bindings;
+		bool is_subset = true;
+		for (uint32_t value : layout_set) {
+			// NOTE: I expected this case to be an error but it isn't?
+			// This is investigation worthy, but I'll work around for now.
+			// ERR_FAIL_COND_V_MSG(!master_set.has(value), nullptr, vformat("Incompatible bind group layout is superset of bind group for shader %s, binding %d", p_shader_info->shader_name, value));
+			if (!master_set.has(value)) {
+				is_subset = false;
+				break;
+			}
+		}
+
+		if (is_subset) {
+			WGPUBindGroup subset_bind_group = _bind_group_create_subset(p_uniform_set_info, layout, layout_set);
+			p_uniform_set_info->cached.insert(layout, subset_bind_group);
+			p_uniform_set_info->bind_groups.push_back((BindGroupCreateResult){
+					.bind_group = subset_bind_group,
+					.used_bindings = layout_set,
+					.descriptor_entries = {} });
+			return subset_bind_group;
+		} else {
+			// WGPUBindGroup super_bind_group = _bind_group_create_superset(p_uniform_set_info, layout_set, p_shader_info, p_set_index);
+			// // TODO: Does this belong is bind_groups? Our assumptions about partial compatibility may not hold.
+			// p_uniform_set_info->cached.insert(layout, super_bind_group);
+			// // p_uniform_set_info->bind_groups.push_back((BindGroupCreateResult){
+			// // 		.bind_group = subset_bind_group,
+			// // 		.used_bindings = layout_set,
+			// // 		.descriptor_entries = {} });
+			// return super_bind_group;
+		}
+	}
+}
+
+WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create_subset(const UniformSetInfo *p_uniform_set_info, WGPUBindGroupLayout p_layout, const HashSet<uint32_t> &p_subset) {
+	const Vector<WGPUBindGroupEntry> &original_entries = p_uniform_set_info->bind_groups[0].descriptor_entries;
+	Vector<WGPUBindGroupEntry> entries;
+
+	for (const WGPUBindGroupEntry &entry : original_entries) {
+		if (p_subset.has(entry.binding)) {
+			WGPUBindGroupEntry new_entry = entry;
+
+			// TODO: Once again, we should to preserve this.
+			new_entry.nextInChain = nullptr;
+			entries.push_back(new_entry);
+		}
+	}
+
+	WGPUBindGroupDescriptor bind_group_descriptor = (WGPUBindGroupDescriptor){
+		.nextInChain = nullptr,
+		.layout = p_layout,
+		.entryCount = (size_t)entries.size(),
+		.entries = entries.ptr(),
+	};
+	return wgpuDeviceCreateBindGroup(device, &bind_group_descriptor);
+}
+
+// TODO: WIP Well, I don't really like where this goes.
+// WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create_superset(const UniformSetInfo *p_uniform_set_info, const HashSet<uint32_t> &p_layout_set, const ShaderInfo *p_shader_info, uint32_t p_set_index) {
+// 	const Vector<WGPUBindGroupEntry> &original_entries = p_uniform_set_info->bind_groups[0].descriptor_entries;
+// 	const HashSet<uint32_t> &used_bindings = p_uniform_set_info->bind_groups[0].used_bindings;
+
+// 	HashMap<uint32_t, const WGPUBindGroupLayoutEntry *> layout_entries;
+// 	const WGPUBindGroupLayoutDescriptor layout_descriptor = p_shader_info->bind_group_layout_descs[p_set_index];
+// 	for (uint32_t i = 0; i < layout_descriptor.entryCount; i++) {
+// 		layout_entries.insert(layout_descriptor.entries[i].binding, &layout_descriptor.entries[i]);
+// 	}
+
+// 	Vector<WGPUBindGroupEntry> entries = original_entries;
+
+// 	for (uint32_t layout_binding : p_layout_set) {
+// 		if (!used_bindings.has(layout_binding)) {
+// 			const WGPUBindGroupLayoutEntry &layout_entry = *layout_entries[layout_binding];
+// 			WGPUBindGroupEntry entry = {};
+// 			print_error("TODODODODODODODO");
+// 			exit(1);
+// 		}
+// 	}
+// 	WGPUBindGroupDescriptor bind_group_descriptor = (WGPUBindGroupDescriptor){
+// 		.nextInChain = nullptr,
+// 		.layout = p_shader_info->bind_group_layouts[p_set_index],
+// 		.entryCount = (size_t)entries.size(),
+// 		.entries = entries.ptr(),
+// 	};
+// 	return wgpuDeviceCreateBindGroup(device, &bind_group_descriptor);
+// }
 
 WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout) {
 	if (this->mock_bind_groups.has(p_layout)) {
@@ -2058,44 +2161,61 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const 
 		Vector<BoundUniform> uniforms;
 
 		for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
-			const WGPUBindGroupLayoutEntry &entry = p_descriptor.entries[i];
-			RDD::ID id;
-			RDD::UniformType type;
-			if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_SAMPLER;
-				id = this->_sampler_mock_binding_create(entry.sampler);
-			} else if (entry.texture.sampleType != WGPUTextureSampleType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
-				id = this->_texture_mock_binding_create(entry.texture);
-			} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_IMAGE;
-				id = this->_storage_texture_mock_binding_create(entry.storageTexture);
-			} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_UNIFORM_BUFFER;
-				id = this->_buffer_mock_binding_create(entry.buffer);
-			} else {
-				id = ID();
-			}
-			ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "Empty id in _mock_bind_group_create_or_get");
-
-			LocalVector<ID> ids;
-			ids.push_back(id);
-
-			uniforms.push_back((RDD::BoundUniform){
-					.type = type,
-					.binding = entry.binding,
-					.ids = ids });
+			BoundUniform result = _mock_bind_group_entry_create(p_descriptor, p_layout, i);
+			ERR_FAIL_COND_V(result.type == UniformType::UNIFORM_TYPE_MAX, nullptr);
+			uniforms.push_back(result);
 		}
 
-		WGPUBindGroup bind_group = this->_bind_group_create(uniforms, p_layout, HashMap<uint32_t, Vector<uint32_t>>());
+		BindGroupCreateResult bind_group_result = this->_bind_group_create(uniforms, p_layout, HashMap<uint32_t, Vector<uint32_t>>());
+		WGPUBindGroup bind_group = bind_group_result.bind_group;
 		this->mock_bind_groups.insert(p_layout, bind_group);
 		return bind_group;
 	}
 }
 
+RenderingDeviceDriverWebGpu::BoundUniform RenderingDeviceDriverWebGpu::_mock_bind_group_entry_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, uint32_t p_entry_index) {
+	const WGPUBindGroupLayoutEntry &entry = p_descriptor.entries[p_entry_index];
+	RDD::ID id;
+	RDD::UniformType type;
+	if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
+		type = RDD::UniformType::UNIFORM_TYPE_SAMPLER;
+		id = this->_sampler_mock_binding_create(entry.sampler);
+	} else if (entry.texture.sampleType != WGPUTextureSampleType_BindingNotUsed) {
+		type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
+		id = this->_texture_mock_binding_create(entry.texture);
+	} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
+		type = RDD::UniformType::UNIFORM_TYPE_IMAGE;
+		id = this->_storage_texture_mock_binding_create(entry.storageTexture);
+	} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
+		type = RDD::UniformType::UNIFORM_TYPE_UNIFORM_BUFFER;
+		id = this->_buffer_mock_binding_create(entry.buffer);
+	} else {
+		id = ID();
+	}
+	ERR_FAIL_COND_V_MSG(id.id == ID().id, RDD::BoundUniform{ .type = UniformType::UNIFORM_TYPE_MAX }, "Empty id in _mock_bind_group_entry_create");
+
+	LocalVector<ID> ids;
+	ids.push_back(id);
+
+	return (RDD::BoundUniform){
+		.type = type,
+		.binding = entry.binding,
+		.ids = ids
+	};
+}
+
 RDD::SamplerID RenderingDeviceDriverWebGpu::_sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout) {
 	// TODO: Handle arrayed
 	SamplerState sampler_state = SamplerState();
+
+	switch (p_layout.type) {
+		case WGPUSamplerBindingType_Comparison:
+			sampler_state.enable_compare = true;
+			sampler_state.compare_op = COMPARE_OP_ALWAYS;
+		default:
+			break;
+	}
+
 	return this->sampler_create(sampler_state);
 }
 
@@ -2113,7 +2233,7 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_texture_mock_binding_create(WGPUTex
 			break;
 		case WGPUTextureSampleType_Depth:
 			format.format = DataFormat::DATA_FORMAT_D32_SFLOAT;
-			format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+			format.usage_bits |= TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 			break;
 		case WGPUTextureSampleType_Sint:
 			format.format = DataFormat::DATA_FORMAT_R32G32B32A32_SINT;
@@ -2141,6 +2261,7 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_texture_mock_binding_create(WGPUTex
 			break;
 		case WGPUTextureViewDimension_CubeArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+			format.array_layers = 6;
 			break;
 		case WGPUTextureViewDimension_3D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
@@ -2237,17 +2358,24 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->pruned_set_bindings);
-	WGPUBindGroup bind_group = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
+	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->used_set_bindings);
+	BindGroupCreateResult bind_group_result = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index]);
 
-	ERR_FAIL_COND_V(bind_group == nullptr, UniformSetID());
+	ERR_FAIL_COND_V(bind_group_result.bind_group == nullptr, UniformSetID());
+	UniformSetInfo *uniform_set_info = memnew(UniformSetInfo);
+	*uniform_set_info = {};
+	uniform_set_info->bind_groups = { bind_group_result };
+	uniform_set_info->cached = {
+		{ shader_info->bind_group_layouts[p_set_index], bind_group_result.bind_group }
+	};
 
-	return UniformSetID(bind_group);
+	return UniformSetID(uniform_set_info);
 }
 
 void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
-	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
-	wgpuBindGroupRelease(bind_group);
+	// TODO: This is old stuff.
+	// WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
+	// wgpuBindGroupRelease(bind_group);
 }
 
 // ----- COMMANDS -----
@@ -2719,12 +2847,12 @@ void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferI
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
+	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
 
 	command_buffer_info->commands.push_back(((PassEncoderCommand){
 			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
-
 			.set_bind_group = (PassEncoderCommand::SetBindGroup){
 					.group_index = p_set_index,
 					.bind_group = bind_group,
@@ -3198,8 +3326,9 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBuffer
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
+	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
 
 	command_buffer_info->has_compute_commands = true;
 	command_buffer_info->commands.push_back((PassEncoderCommand){
@@ -3409,7 +3538,7 @@ String RenderingDeviceDriverWebGpu::get_api_name() const {
 
 String RenderingDeviceDriverWebGpu::get_api_version() const {
 	// TODO: We should compile this in based on the wgpu / dawn version
-	return "v28.0.0 (wgpu)";
+	return "v29.0.0 (wgpu)";
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
