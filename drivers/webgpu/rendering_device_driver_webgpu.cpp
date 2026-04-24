@@ -2360,6 +2360,16 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 			.height = (uint32_t)region.size.y,
 			.depthOrArrayLayers = (uint32_t)region.size.z,
 		};
+
+		// WebGPU requires copy extents to be multiples of the compressed block size.
+		// For uncompressed formats, block_w/block_h are 1 so this is a no-op.
+		uint32_t block_w = 1, block_h = 1;
+		get_compressed_image_format_block_dimensions(src_texture_info->rd_texture_format, block_w, block_h);
+		if (block_w > 1 || block_h > 1) {
+			cp_size.width = STEPIFY(cp_size.width, block_w);
+			cp_size.height = STEPIFY(cp_size.height, block_h);
+		}
+
 		wgpuCommandEncoderCopyTextureToTexture(command_buffer_info->encoder, &src_texture_cp, &dst_texture_cp, &cp_size);
 	}
 }
@@ -2426,6 +2436,15 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			.height = (uint32_t)region.texture_region_size.y,
 			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
 		};
+
+		// WebGPU requires copy extents to be multiples of the compressed block size.
+		// For uncompressed formats, block_w/block_h are 1 so this is a no-op.
+		uint32_t block_w = 1, block_h = 1;
+		get_compressed_image_format_block_dimensions(dst_texture_info->rd_texture_format, block_w, block_h);
+		if (block_w > 1 || block_h > 1) {
+			cp_size.width = STEPIFY(cp_size.width, block_w);
+			cp_size.height = STEPIFY(cp_size.height, block_h);
+		}
 
 		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
 	}
