@@ -570,17 +570,26 @@ private:
 		uint32_t depth_attachment_index = UINT32_MAX;
 		uint32_t view_count;
 
+		// This data corresponds with a use of `_empty_render_pass_attachment_create`
+		// TODO: Free me!
+		FramebufferID empty_framebuffer;
+		TextureID emtpy_depth_texture;
+
 		const RenderPassAttachmentInfo *get_depth_attachment() const {
 			return depth_attachment_index < attachments.size() ? attachments.ptr() + depth_attachment_index : nullptr;
 		}
 	};
 
+	// HACK: WebGPU does not support empty render passes which can be created by `framebuffer_create_empty`.
+	// When this happens, we stick in a stock depth attachment.
+	RenderPassAttachmentInfo _empty_render_pass_attachment_create();
+
+public:
 	virtual RenderPassID render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> p_subpasses, VectorView<SubpassDependency> p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) override final;
 	virtual void render_pass_free(RenderPassID p_render_pass) override final;
 
 	// ----- COMMANDS -----
 
-public:
 	virtual void command_begin_render_pass(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, FramebufferID p_framebuffer, CommandBufferType p_cmd_buffer_type, const Rect2i &p_rect, VectorView<RenderPassClearValue> p_clear_values) override final;
 	virtual void command_end_render_pass(CommandBufferID p_cmd_buffer) override final;
 	virtual void command_next_render_subpass(CommandBufferID p_cmd_buffer, CommandBufferType p_cmd_buffer_type) override final;
