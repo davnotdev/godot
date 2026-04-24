@@ -931,75 +931,73 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
 			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 
-			if (render_encoder) {
-				if (render_mock_bind_groups.has(i)) {
-					const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = render_mock_bind_groups.get(i);
-					for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
-						uint32_t set_idx = mock_bindings[mb_idx].first;
-						WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
-						wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, bind_group, 0, nullptr);
-					}
+			if (render_mock_bind_groups.has(i)) {
+				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = render_mock_bind_groups.get(i);
+				for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
+					uint32_t set_idx = mock_bindings[mb_idx].first;
+					WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
+					wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, bind_group, 0, nullptr);
 				}
-				switch (command.type) {
-					case PassEncoderCommand::CommandType::RENDER_SET_VIEWPORT: {
-						PassEncoderCommand::RenderSetViewport data = command.render_set_viewport;
-						wgpuRenderPassEncoderSetViewport(render_encoder, data.x, data.y, data.width, data.height, data.min_depth, data.max_depth);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_SCISSOR_RECT: {
-						PassEncoderCommand::RenderSetScissorRect data = command.render_set_scissor_rect;
-						wgpuRenderPassEncoderSetScissorRect(render_encoder, data.x, data.y, data.width, data.height);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_PIPELINE: {
-						PassEncoderCommand::SetPipeline data = command.set_pipeline;
-						wgpuRenderPassEncoderSetPipeline(render_encoder, data.pipeline_info->render_pipeline);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
-						PassEncoderCommand::SetBindGroup data = command.set_bind_group;
-						wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group, 0, nullptr);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_DRAW: {
-						PassEncoderCommand::RenderDraw data = command.render_draw;
-						wgpuRenderPassEncoderDraw(render_encoder, data.vertex_count, data.instance_count, data.first_vertex, data.first_instance);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_DRAW_INDEXED: {
-						PassEncoderCommand::RenderDrawIndexed data = command.render_draw_indexed;
-						wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT: {
-						PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
-						wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT: {
-						PassEncoderCommand::RenderMultiDrawIndirectCount data = command.render_multi_draw_indirect_count;
-						wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT: {
-						PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
-						wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
-						PassEncoderCommand::RenderMultiDrawIndexedIndirectCount data = command.render_multi_draw_indexed_indirect_count;
-						wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER: {
-						PassEncoderCommand::RenderSetVertexBuffer data = command.render_set_vertex_buffer;
-						wgpuRenderPassEncoderSetVertexBuffer(render_encoder, data.slot, data.buffer, data.offset, data.size);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_INDEX_BUFFER: {
-						PassEncoderCommand::RenderSetIndexBuffer data = command.render_set_index_buffer;
-						wgpuRenderPassEncoderSetIndexBuffer(render_encoder, data.buffer, data.format, data.offset, data.size);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_BLEND_CONSTANTS: {
-						const PassEncoderCommand::RenderSetBlendConstant &data = command.render_set_blend_constant;
-						wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
-					} break;
-					case PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES: {
-						const PassEncoderCommand::RenderSetImmediates &data = command.render_set_push_constants;
-						wgpuRenderPassEncoderSetImmediates(render_encoder, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
-					} break;
-					default:
-						break;
-				}
+			}
+			switch (command.type) {
+				case PassEncoderCommand::CommandType::RENDER_SET_VIEWPORT: {
+					PassEncoderCommand::RenderSetViewport data = command.render_set_viewport;
+					wgpuRenderPassEncoderSetViewport(render_encoder, data.x, data.y, data.width, data.height, data.min_depth, data.max_depth);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_SCISSOR_RECT: {
+					PassEncoderCommand::RenderSetScissorRect data = command.render_set_scissor_rect;
+					wgpuRenderPassEncoderSetScissorRect(render_encoder, data.x, data.y, data.width, data.height);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_PIPELINE: {
+					PassEncoderCommand::SetPipeline data = command.set_pipeline;
+					wgpuRenderPassEncoderSetPipeline(render_encoder, data.pipeline_info->render_pipeline);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
+					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
+					wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group, 0, nullptr);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_DRAW: {
+					PassEncoderCommand::RenderDraw data = command.render_draw;
+					wgpuRenderPassEncoderDraw(render_encoder, data.vertex_count, data.instance_count, data.first_vertex, data.first_instance);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_DRAW_INDEXED: {
+					PassEncoderCommand::RenderDrawIndexed data = command.render_draw_indexed;
+					wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT: {
+					PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
+					wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT: {
+					PassEncoderCommand::RenderMultiDrawIndirectCount data = command.render_multi_draw_indirect_count;
+					wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT: {
+					PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
+					wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
+					PassEncoderCommand::RenderMultiDrawIndexedIndirectCount data = command.render_multi_draw_indexed_indirect_count;
+					wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER: {
+					PassEncoderCommand::RenderSetVertexBuffer data = command.render_set_vertex_buffer;
+					wgpuRenderPassEncoderSetVertexBuffer(render_encoder, data.slot, data.buffer, data.offset, data.size);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_INDEX_BUFFER: {
+					PassEncoderCommand::RenderSetIndexBuffer data = command.render_set_index_buffer;
+					wgpuRenderPassEncoderSetIndexBuffer(render_encoder, data.buffer, data.format, data.offset, data.size);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_BLEND_CONSTANTS: {
+					const PassEncoderCommand::RenderSetBlendConstant &data = command.render_set_blend_constant;
+					wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
+				} break;
+				case PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES: {
+					const PassEncoderCommand::RenderSetImmediates &data = command.render_set_push_constants;
+					wgpuRenderPassEncoderSetImmediates(render_encoder, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
+				} break;
+				default:
+					break;
 			}
 		}
 
@@ -1162,8 +1160,22 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::shader_compile_binary_from_spirv(Ve
 
 	// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
 	// Since this is presumably just for debug, we will skip this.
-	// if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
-	// 	ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ClusterDebugShaderRD*");
+	if (p_shader_name.contains("ClusterDebugShaderRD:0")) {
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ClusterDebugShaderRD*");
+	}
+
+	// The hall of bad shaders:
+	if (p_shader_name.contains("CopyToFbShaderRD:0")) {
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile CopyToFbShaderRD:0");
+	}
+	if (p_shader_name.contains("BokehDofRasterShaderRD:0")) {
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile BokehDofRasterShaderRD:0");
+	}
+	if (p_shader_name.contains("CubeToDpShaderRD:0")) {
+		ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile CubeToDpShaderRD:0");
+	}
+	// if (p_shader_name.contains("ParticlesShaderRD:0")) {
+	// 	ERR_FAIL_V_MSG(Vector<uint8_t>(), "Refusing to compile ParticlesShaderRD:0");
 	// }
 
 	ShaderReflection shader_refl;
@@ -2566,6 +2578,20 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::pipeline_cache_serialize() {
 
 // ----- SUBPASS -----
 
+RenderingDeviceDriverWebGpu::RenderPassAttachmentInfo RenderingDeviceDriverWebGpu::_empty_render_pass_attachment_create() {
+	return (RenderPassAttachmentInfo){
+		.format = WGPUTextureFormat_Depth32Float,
+		// TODO: HELLO WHY IS THIS FOUR???
+		.sample_count = 4,
+		.load_op = WGPULoadOp_Undefined,
+		.store_op = WGPUStoreOp_Undefined,
+		.stencil_load_op = WGPULoadOp_Undefined,
+		.stencil_store_op = WGPUStoreOp_Undefined,
+		.is_depth_stencil = true,
+		.is_depth_stencil_read_only = true
+	};
+}
+
 RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_create(VectorView<Attachment> p_attachments, VectorView<Subpass> _p_subpasses, VectorView<SubpassDependency> _p_subpass_dependencies, uint32_t p_view_count, AttachmentReference p_fragment_density_map_attachment) {
 	// WebGpu does not have subpasses so we will store this info until we create a render pipeline later.
 	RenderPassInfo *render_pass_info = memnew(RenderPassInfo);
@@ -2598,6 +2624,24 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 		render_pass_info->attachments.push_back(attachment_info);
 	}
 
+	if (p_attachments.size() == 0) {
+		RenderPassAttachmentInfo attachment = _empty_render_pass_attachment_create();
+		render_pass_info->attachments.push_back(attachment);
+
+		TextureFormat format = {};
+		format.format = rd_texture_format_from_webgpu(attachment.format);
+		format.width = 1;
+		format.height = 1;
+		format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		// TODO: HELLO WHY IS THIS FOUR???
+		format.samples = TEXTURE_SAMPLES_4;
+		TextureView view = {};
+		view.format = format.format;
+		render_pass_info->emtpy_depth_texture = texture_create(format, view);
+		render_pass_info->empty_framebuffer = framebuffer_create(RenderPassID(render_pass_info), { render_pass_info->emtpy_depth_texture }, 1, 1);
+		render_pass_info->depth_attachment_index = 0;
+	}
+
 	render_pass_info->view_count = p_view_count;
 
 	return RenderPassID(render_pass_info);
@@ -2617,7 +2661,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	Vector<WGPURenderPassColorAttachment> color_attachments;
 
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
-	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
+	FramebufferInfo *framebuffer_info = render_pass_info->empty_framebuffer != FramebufferID() ? (FramebufferInfo *)render_pass_info->empty_framebuffer.id : (FramebufferInfo *)p_framebuffer.id;
 
 	// DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
 
@@ -2674,14 +2718,14 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 					},
 			});
 		}
-
-		command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
-			.color_attachments = color_attachments,
-			.depth_stencil_attachment = maybe_depth_stencil_attachment,
-			.maybe_surface_texture_view = maybe_surface_texture_view,
-		};
-		command_buffer_info->is_render_pass_active = true;
 	}
+
+	command_buffer_info->active_render_pass_info = (RenderPassEncoderInfo){
+		.color_attachments = color_attachments,
+		.depth_stencil_attachment = maybe_depth_stencil_attachment,
+		.maybe_surface_texture_view = maybe_surface_texture_view,
+	};
+	command_buffer_info->is_render_pass_active = true;
 }
 
 void RenderingDeviceDriverWebGpu::command_end_render_pass(CommandBufferID p_cmd_buffer) {
@@ -2755,7 +2799,6 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
 	PipelineInfo *pipeline_info = (PipelineInfo *)p_pipeline.id;
-
 	command_buffer_info->commands.push_back(((PassEncoderCommand){
 			.type = PassEncoderCommand::CommandType::RENDER_SET_PIPELINE,
 
@@ -3158,7 +3201,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		.cullMode = cull_mode,
 		// TODO Consider implementing wireframe rendering (required native feature).
 		// TODO Consider implementing `p_rasterization_state.enable_depth_clamp` (required native feature).
-
 	};
 	pipeline_descriptor.primitive = primitive_state;
 
@@ -3439,8 +3481,14 @@ uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 }
 
 bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {
-	// TODO
-	return false;
+	switch (p_feature) {
+		// HACK: This lie may just be cover up for a higher level bug.
+		// Turning this off, we still create an empty render pass (big no no).
+		case SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS:
+			return true;
+		default:
+			return false;
+	}
 }
 
 const RenderingDeviceDriver::MultiviewCapabilities &RenderingDeviceDriverWebGpu::get_multiview_capabilities() {
