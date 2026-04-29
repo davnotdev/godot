@@ -199,7 +199,7 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 
 		result.sets.push_back(SetInput{
 				.bindings = bindings,
-				.binding_hints = binding_hints });
+				.binding_hints = std::move(binding_hints) });
 	}
 
 	for (int i = 0; i < result.data.stages_count; i++) {

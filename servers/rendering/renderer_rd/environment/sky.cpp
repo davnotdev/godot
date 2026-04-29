@@ -1262,7 +1262,7 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 
 	// TODO(davnotdev): Gating this fixes some validation error, but I need to look more into this.
 #ifndef WEBGPU_ENABLED
-	if (sky->processing_layer == 0 && sky_mode == RS::SKY_MODE_INCREMENTAL) {
+	if (sky->processing_layer == 0 && sky_mode == RenderingServerEnums::SKY_MODE_INCREMENTAL) {
 		// On the first frame after creating sky, rebuild in single frame
 		update_single_frame = true;
 		sky_mode = RSE::SKY_MODE_QUALITY;

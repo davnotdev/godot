@@ -164,7 +164,7 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 
 	return (ConvertResult){
 		.wgsl_string = back_result.output,
-		.binding_hints = binding_hints,
+		.binding_hints = std::move(binding_hints),
 		.error_string = nullptr,
 		.failure_stage = WebGpuTranslateFailureStage::NONE
 	};

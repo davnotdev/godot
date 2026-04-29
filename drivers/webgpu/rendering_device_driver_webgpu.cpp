@@ -1,18 +1,19 @@
 #include "rendering_device_driver_webgpu.h"
 
-#include "core/error/error_macros.h"
-#include "core/os/memory.h"
-#include "core/string/print_string.h"
-#include "core/templates/local_vector.h"
-
 #include "rendering_context_driver_webgpu.h"
 #include "webgpu.h"
 #include "webgpu_conv.h"
 #include "webgpu_shader_binary.h"
 #include "webgpu_trans.h"
 
+#include "core/error/error_macros.h"
+#include "core/os/memory.h"
+#include "core/string/print_string.h"
+#include "core/templates/local_vector.h"
+
 #include <spirv_webgpu_transform.h>
 #include <wgpu.h>
+
 #include <cstdint>
 #include <cstring>
 
@@ -695,7 +696,8 @@ void RenderingDeviceDriverWebGpu::command_pipeline_barrier(
 		BitField<PipelineStageBits> p_dst_stages,
 		VectorView<MemoryAccessBarrier> p_memory_barriers,
 		VectorView<BufferBarrier> p_buffer_barriers,
-		VectorView<TextureBarrier> p_texture_barriers) {
+		VectorView<TextureBarrier> p_texture_barriers,
+		VectorView<AccelerationStructureBarrier> p_acceleration_structure_barriers) {
 	// Empty.
 }
 
@@ -1121,6 +1123,11 @@ RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_fo
 	RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain_info->surface;
 
 	return surface->rd_format;
+}
+
+RenderingDeviceDriver::ColorSpace RenderingDeviceDriverWebGpu::swap_chain_get_color_space(SwapChainID p_swap_chain) {
+	// TODO: v4.7-dev
+	return ColorSpace::COLOR_SPACE_REC709_LINEAR;
 }
 
 void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
@@ -2100,7 +2107,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 			uniforms.push_back((RDD::BoundUniform){
 					.type = type,
 					.binding = entry.binding,
-					.ids = ids });
+					.ids = std::move(ids) });
 		}
 	}
 
@@ -3400,6 +3407,72 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::compute_pipeline_
 	pipeline_info->shader_id = p_shader;
 
 	return PipelineID(pipeline_info);
+}
+
+/********************/
+/**** RAYTRACING ****/
+/********************/
+
+// ----- ACCELERATION STRUCTURE -----
+
+// NOTE: Pay attention to WebRTX and [acceleration extension](https://github.com/gfx-rs/wgpu/issues/6762).
+// But realistically this is not coming for a long long time.
+
+RenderingDeviceDriver::AccelerationStructureID RenderingDeviceDriverWebGpu::blas_create(VectorView<AccelerationStructureGeometry> p_geometries, BitField<AccelerationStructureFlagBits> p_flags) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+	return AccelerationStructureID();
+}
+
+RenderingDeviceDriver::AccelerationStructureID RenderingDeviceDriverWebGpu::tlas_create(uint32_t p_max_instance_count, BitField<AccelerationStructureFlagBits> p_flags) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+	return AccelerationStructureID();
+}
+
+void RenderingDeviceDriverWebGpu::acceleration_structure_instance_write(uint8_t *r_driver_instance, const AccelerationStructureInstance &p_instance) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+void RenderingDeviceDriverWebGpu::acceleration_structure_free(AccelerationStructureID p_acceleration_structure) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+uint32_t RenderingDeviceDriverWebGpu::acceleration_structure_get_scratch_size_bytes(AccelerationStructureID p_acceleration_structure) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+	return 0;
+}
+
+RenderingDeviceDriver::RaytracingPipelineID RenderingDeviceDriverWebGpu::raytracing_pipeline_create(VectorView<PipelineShader> p_shaders, VectorView<uint32_t> p_raygen_shader_indices, VectorView<uint32_t> p_miss_shader_indices, VectorView<HitGroup> p_hit_groups, uint32_t p_max_trace_recursion_depth, ShaderID p_layout_defining_shader) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+	return RaytracingPipelineID();
+}
+
+void RenderingDeviceDriverWebGpu::raytracing_pipeline_free(RaytracingPipelineID p_pipeline) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+bool RenderingDeviceDriverWebGpu::raytracing_pipeline_get_shader_group_handles(RaytracingPipelineID p_pipeline, uint32_t p_group_index_offset, VectorView<uint32_t> p_group_indices, uint8_t *r_data, uint32_t p_data_stride_bytes) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+	return false;
+}
+
+void RenderingDeviceDriverWebGpu::command_build_blas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+void RenderingDeviceDriverWebGpu::command_build_tlas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer, BufferID p_instance_buffer, uint32_t p_instance_offset, uint32_t p_instance_count) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+void RenderingDeviceDriverWebGpu::command_bind_raytracing_pipeline(CommandBufferID p_cmd_buffer, RaytracingPipelineID p_pipeline) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+void RenderingDeviceDriverWebGpu::command_bind_raytracing_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
+}
+
+void RenderingDeviceDriverWebGpu::command_trace_rays(CommandBufferID p_cmd_buffer, const ShaderBindingTable &p_raygen_sbt, const ShaderBindingTable &p_miss_sbt, const ShaderBindingTable &p_hit_sbt, uint32_t p_width, uint32_t p_height, uint32_t p_depth) {
+	CRASH_NOW_MSG("RAYTRACING NOT SUPPORTED");
 }
 
 /*****************/

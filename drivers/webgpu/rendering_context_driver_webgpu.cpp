@@ -4,10 +4,9 @@
 #ifdef WEBGPU_ENABLED
 
 #include "rendering_context_driver_webgpu.h"
+#include "rendering_device_driver_webgpu.h"
 
 #include "core/error/error_macros.h"
-
-#include "rendering_device_driver_webgpu.h"
 
 static void handle_request_adapter(WGPURequestAdapterStatus status,
 		WGPUAdapter adapter, WGPUStringView message,
@@ -119,15 +118,51 @@ void RenderingContextDriverWebGpu::surface_set_size(SurfaceID p_surface, uint32_
 	surface->needs_resize = true;
 }
 
-void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServer::VSyncMode p_vsync_mode) {
+void RenderingContextDriverWebGpu::surface_set_vsync_mode(SurfaceID p_surface, DisplayServerEnums::VSyncMode p_vsync_mode) {
 	Surface *surface = (Surface *)(p_surface);
 	surface->vsync_mode = p_vsync_mode;
 	surface->needs_resize = true;
 }
 
-DisplayServer::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mode(SurfaceID p_surface) const {
+DisplayServerEnums::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mode(SurfaceID p_surface) const {
 	Surface *surface = (Surface *)(p_surface);
 	return surface->vsync_mode;
+}
+
+void RenderingContextDriverWebGpu::surface_set_hdr_output_enabled(SurfaceID p_surface, bool p_enabled) {
+	// TODO: HDR
+}
+bool RenderingContextDriverWebGpu::surface_get_hdr_output_enabled(SurfaceID p_surface) const {
+	// TODO: HDR
+	return true;
+}
+void RenderingContextDriverWebGpu::surface_set_hdr_output_reference_luminance(SurfaceID p_surface, float p_reference_luminance) {
+	// TODO: HDR
+	CRASH_NOW();
+}
+float RenderingContextDriverWebGpu::surface_get_hdr_output_reference_luminance(SurfaceID p_surface) const {
+	// TODO: HDR
+	CRASH_NOW();
+}
+void RenderingContextDriverWebGpu::surface_set_hdr_output_max_luminance(SurfaceID p_surface, float p_max_luminance) {
+	// TODO: HDR
+	CRASH_NOW();
+}
+float RenderingContextDriverWebGpu::surface_get_hdr_output_max_luminance(SurfaceID p_surface) const {
+	// TODO: HDR
+	CRASH_NOW();
+}
+void RenderingContextDriverWebGpu::surface_set_hdr_output_linear_luminance_scale(SurfaceID p_surface, float p_linear_luminance_scale) {
+	// TODO: HDR
+	CRASH_NOW();
+}
+float RenderingContextDriverWebGpu::surface_get_hdr_output_linear_luminance_scale(SurfaceID p_surface) const {
+	// TODO: HDR
+	CRASH_NOW();
+}
+float RenderingContextDriverWebGpu::surface_get_hdr_output_max_value(SurfaceID p_surface) const {
+	// TODO: HDR
+	CRASH_NOW();
 }
 
 uint32_t RenderingContextDriverWebGpu::surface_get_width(SurfaceID p_surface) const {
