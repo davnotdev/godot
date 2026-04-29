@@ -52,7 +52,7 @@ Vector<uint8_t> WebGpuShaderBinary::to_byte_array() {
 			stages_encoded_size +
 			overrides_encoded_size;
 
-	bytes.resize_zeroed(expected_byte_count);
+	bytes.resize_initialized(expected_byte_count);
 
 	uint8_t *binptr = bytes.ptrw();
 	uint32_t offset = 0;
@@ -175,7 +175,7 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 			offset += sizeof(DataBinding);
 
 			uint32_t corrections_size = binding.binding.correction_count * sizeof(uint32_t);
-			binding.corrections.resize_zeroed(binding.binding.correction_count);
+			binding.corrections.resize_initialized(binding.binding.correction_count);
 			memcpy(binding.corrections.ptrw(), binptr + offset, corrections_size);
 			offset += corrections_size;
 
@@ -199,8 +199,7 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 
 		result.sets.push_back(SetInput{
 				.bindings = bindings,
-				.binding_hints = binding_hints
-		});
+				.binding_hints = binding_hints });
 	}
 
 	for (int i = 0; i < result.data.stages_count; i++) {
@@ -213,7 +212,7 @@ WebGpuShaderBinary::DataOutput WebGpuShaderBinary::parse_input_from_bytes(const 
 		offset += sizeof(uint32_t);
 
 		uint32_t source_size = stage.zstd_size ? stage.zstd_size : stage.original_source_size;
-		stage.source.resize_zeroed(source_size);
+		stage.source.resize_initialized(source_size);
 		memcpy(stage.source.ptrw(), binptr + offset, source_size);
 		offset += STEPIFY(source_size, 4);
 
