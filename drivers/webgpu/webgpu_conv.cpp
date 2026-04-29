@@ -569,11 +569,20 @@ WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage) {
 	}
 }
 
-WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits> p_texture_aspect_bits) {
-	// NOTE: WGPUTextureAspect_All will be preferred if we cannot match a specific aspect.
-	if (p_texture_aspect_bits == RDD::TextureAspectBits::TEXTURE_ASPECT_DEPTH_BIT) {
+WGPUTextureAspect webgpu_texture_aspect_from_rd(RDD::TextureAspect p_texture_aspect) {
+	if (p_texture_aspect == RDD::TextureAspect::TEXTURE_ASPECT_DEPTH) {
 		return WGPUTextureAspect_DepthOnly;
-	} else if (p_texture_aspect_bits == RDD::TextureAspectBits::TEXTURE_ASPECT_STENCIL_BIT) {
+	} else if (p_texture_aspect == RDD::TextureAspect::TEXTURE_ASPECT_STENCIL) {
+		return WGPUTextureAspect_StencilOnly;
+	} else {
+		return WGPUTextureAspect_All;
+	}
+}
+
+WGPUTextureAspect webgpu_texture_aspect_from_rd(BitField<RDD::TextureAspectBits> p_texture_aspect) {
+	if (p_texture_aspect == RDD::TextureAspectBits::TEXTURE_ASPECT_DEPTH_BIT) {
+		return WGPUTextureAspect_DepthOnly;
+	} else if (p_texture_aspect == RDD::TextureAspectBits::TEXTURE_ASPECT_STENCIL_BIT) {
 		return WGPUTextureAspect_StencilOnly;
 	} else {
 		return WGPUTextureAspect_All;
