@@ -167,7 +167,9 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /**** BUFFERS ****/
 /*****************/
 
-RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
+RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
+	// TODO: new buffer_create fields v4.6
+	// RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
 	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
 	uint32_t map_mode = 0;
 	bool is_transfer_buffer = false;
@@ -251,6 +253,15 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	buffer_info->is_transfer_first_map = false;
 
 	wgpuBufferUnmap(buffer_info->buffer);
+}
+
+uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) {
+	// TODO: v4.6
+	return nullptr;
+}
+uint64_t RenderingDeviceDriverWebGpu::buffer_get_dynamic_offsets(Span<BufferID> p_buffers) {
+	// TODO: v4.6
+	return 0;
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffer) {
@@ -565,25 +576,21 @@ void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
 	uint32_t blocks_per_column =
 			(height + block_height - 1) / block_height;
 
-	r_layout->offset = 0;
-
 	r_layout->row_pitch =
 			STEPIFY(blocks_per_row * bytes_per_block, 256);
-
-	r_layout->depth_pitch =
-			r_layout->row_pitch * blocks_per_column;
-
-	r_layout->layer_pitch =
-			r_layout->depth_pitch;
-
 	r_layout->size =
-			r_layout->depth_pitch * depth;
+			r_layout->row_pitch * blocks_per_column * depth;
 }
 
-uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
-	return nullptr;
+// TODO: Well, we didn't use this anyway v4.6
+// uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
+// 	return nullptr;
+// }
+// void RenderingDeviceDriverWebGpu::texture_unmap(TextureID p_texture) {}
+Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_texture, uint32_t p_layer) {
+	// TODO: v4.6
+	return Vector<uint8_t>();
 }
-void RenderingDeviceDriverWebGpu::texture_unmap(TextureID p_texture) {}
 
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
 	// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
@@ -644,7 +651,7 @@ bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFor
 /**********************/
 
 // NOTE: The attributes in `p_vertex_attribs` must be in order.
-RenderingDeviceDriver::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(VectorView<VertexAttribute> p_vertex_attribs) {
+RenderingDeviceDriverWebGpu::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) {
 	VertexFormatInfo *vertex_format_info = memnew(VertexFormatInfo);
 	vertex_format_info->layouts.resize_initialized(p_vertex_attribs.size());
 	vertex_format_info->vertex_attributes.resize_initialized(p_vertex_attribs.size());
@@ -686,7 +693,7 @@ void RenderingDeviceDriverWebGpu::command_pipeline_barrier(
 		CommandBufferID p_cmd_buffer,
 		BitField<PipelineStageBits> p_src_stages,
 		BitField<PipelineStageBits> p_dst_stages,
-		VectorView<MemoryBarrier> p_memory_barriers,
+		VectorView<MemoryAccessBarrier> p_memory_barriers,
 		VectorView<BufferBarrier> p_buffer_barriers,
 		VectorView<TextureBarrier> p_texture_barriers) {
 	// Empty.
@@ -2258,8 +2265,10 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 	// Internally, `wgpu` checks this size using data at draw / dispatch time.
 	// We could also use this "late" data for this purpose (among other hacks) if this issue persists.
 	const uint32_t max_binding_size = 65536;
-	BufferID buffer = this->buffer_create(p_layout.minBindingSize ? p_layout.minBindingSize : max_binding_size, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
-	return buffer;
+	// TODO: new buffer_create v4.6
+	// BufferID buffer = this->buffer_create(p_layout.minBindingSize ? p_layout.minBindingSize : max_binding_size, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
+	// return buffer;
+	return BufferID();
 }
 
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
@@ -2291,6 +2300,11 @@ void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
 	// TODO: This is old stuff.
 	// WGPUBindGroup bind_group = (WGPUBindGroup)p_uniform_set.id;
 	// wgpuBindGroupRelease(bind_group);
+}
+
+uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
+	// TODO: v4.6
+	return 0;
 }
 
 // ----- COMMANDS -----
@@ -2394,6 +2408,10 @@ void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID _p
 	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
 
+void RenderingDeviceDriverWebGpu::command_clear_depth_stencil_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, float p_depth, uint8_t p_stencil, const TextureSubresourceRange &p_subresources) {
+	// TODO: v4.6
+}
+
 void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -2434,13 +2452,13 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = dst_texture_info->texture,
-			.mipLevel = region.texture_subresources.mipmap,
+			.mipLevel = region.texture_subresource.mipmap,
 			.origin = (WGPUOrigin3D){
 					.x = (uint32_t)region.texture_offset.x,
 					.y = (uint32_t)region.texture_offset.y,
 					.z = (uint32_t)region.texture_offset.z,
 			},
-			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresources.aspect),
+			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresource.aspect),
 		};
 		WGPUExtent3D cp_size = (WGPUExtent3D){
 			.width = (uint32_t)region.texture_region_size.x,
@@ -2482,13 +2500,13 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 
 		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = src_texture_info->texture,
-			.mipLevel = region.texture_subresources.mipmap,
+			.mipLevel = region.texture_subresource.mipmap,
 			.origin = (WGPUOrigin3D){
 					.x = (uint32_t)region.texture_offset.x,
 					.y = (uint32_t)region.texture_offset.y,
 					.z = (uint32_t)region.texture_offset.z,
 			},
-			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresources.aspect),
+			.aspect = webgpu_texture_aspect_from_rd(region.texture_subresource.aspect),
 		};
 
 		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
@@ -2806,29 +2824,31 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 			} }));
 }
 
-void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
-	DEV_ASSERT(p_cmd_buffer.id != 0);
-	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-	DEV_ASSERT(command_buffer_info->encoder != nullptr);
-	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
+// void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+// 	DEV_ASSERT(p_cmd_buffer.id != 0);
+// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+// 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
 
-	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
-	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
-	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
+// 	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
+// 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+// 	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
 
-	command_buffer_info->commands.push_back(((PassEncoderCommand){
-			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
-			.set_bind_group = (PassEncoderCommand::SetBindGroup){
-					.group_index = p_set_index,
-					.bind_group = bind_group,
-					.shader_info = shader_info,
-			} }));
-}
+// 	command_buffer_info->commands.push_back(((PassEncoderCommand){
+// 			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
+// 			.set_bind_group = (PassEncoderCommand::SetBindGroup){
+// 					.group_index = p_set_index,
+// 					.bind_group = bind_group,
+// 					.shader_info = shader_info,
+// 			} }));
+// }
 
-void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) {
-	for (uint32_t i = 0; i < p_set_count; i++) {
-		command_bind_render_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
-	}
+void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) {
+	// TODO: new fields v4.6
+	// void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) {
+	// for (uint32_t i = 0; i < p_set_count; i++) {
+	// 	command_bind_render_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
+	// }
 }
 
 // Drawing.
@@ -2943,26 +2963,29 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(Com
 }
 
 // Buffer binding.
-void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
-	DEV_ASSERT(p_cmd_buffer.id != 0);
-	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-	DEV_ASSERT(command_buffer_info->encoder != nullptr);
-	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
-
-	for (uint32_t i = 0; i < p_binding_count; i++) {
-		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
-
-		command_buffer_info->commands.push_back(((PassEncoderCommand){
-				.type = PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER,
-				.render_set_vertex_buffer = (PassEncoderCommand::RenderSetVertexBuffer){
-						.slot = i,
-						.buffer = buffer_info->buffer,
-						.offset = p_offsets[i],
-						.size = WGPU_WHOLE_SIZE,
-				},
-		}));
-	}
+void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets, uint64_t p_dynamic_offsets) {
+	// TODO: v4.6 new fields
 }
+// void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
+// 	DEV_ASSERT(p_cmd_buffer.id != 0);
+// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+// 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
+
+// 	for (uint32_t i = 0; i < p_binding_count; i++) {
+// 		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
+
+// 		command_buffer_info->commands.push_back(((PassEncoderCommand){
+// 				.type = PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER,
+// 				.render_set_vertex_buffer = (PassEncoderCommand::RenderSetVertexBuffer){
+// 						.slot = i,
+// 						.buffer = buffer_info->buffer,
+// 						.offset = p_offsets[i],
+// 						.size = WGPU_WHOLE_SIZE,
+// 				},
+// 		}));
+// 	}
+// }
 
 void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
@@ -3285,32 +3308,33 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID 
 					.pipeline_info = pipeline,
 			} });
 }
-void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
-	DEV_ASSERT(p_cmd_buffer.id != 0);
-	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+// void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
+// 	DEV_ASSERT(p_cmd_buffer.id != 0);
+// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
 
-	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
-	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
-	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
+// 	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
+// 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+// 	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
 
-	command_buffer_info->has_compute_commands = true;
-	command_buffer_info->commands.push_back((PassEncoderCommand){
-			.type = PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP,
-			.set_bind_group = (PassEncoderCommand::SetBindGroup){
-					.group_index = p_set_index,
-					.bind_group = bind_group,
-					.shader_info = shader_info,
-			},
-	});
-}
+// 	command_buffer_info->has_compute_commands = true;
+// 	command_buffer_info->commands.push_back((PassEncoderCommand){
+// 			.type = PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP,
+// 			.set_bind_group = (PassEncoderCommand::SetBindGroup){
+// 					.group_index = p_set_index,
+// 					.bind_group = bind_group,
+// 					.shader_info = shader_info,
+// 			},
+// 	});
+// }
 
-void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) {
-	// TODO: impl
-	// CRASH_NOW_MSG("TODO --> command_bind_compute_uniform_sets");
-	for (uint32_t i = 0; i < p_set_count; i++) {
-		command_bind_compute_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
-	}
+void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) {
+	// TODO: Hey hey, finish this up for v4.6
+	// // TODO: impl
+	// // CRASH_NOW_MSG("TODO --> command_bind_compute_uniform_sets");
+	// for (uint32_t i = 0; i < p_set_count; i++) {
+	// 	command_bind_compute_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
+	// }
 }
 
 // Dispatching.
