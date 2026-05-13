@@ -167,9 +167,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /**** BUFFERS ****/
 /*****************/
 
-RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
-	// TODO: new buffer_create fields v4.6
-	// RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type) {
+RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t _p_frames_drawn) {
 	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
 	uint32_t map_mode = 0;
 	bool is_transfer_buffer = false;
@@ -256,12 +254,12 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) {
-	// TODO: v4.6
-	return nullptr;
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> buffer_persistent_map_advance");
 }
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_dynamic_offsets(Span<BufferID> p_buffers) {
-	// TODO: v4.6
-	return 0;
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> buffer_get_dynamic_offsets");
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffer) {
@@ -582,14 +580,9 @@ void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
 			r_layout->row_pitch * blocks_per_column * depth;
 }
 
-// TODO: Well, we didn't use this anyway v4.6
-// uint8_t *RenderingDeviceDriverWebGpu::texture_map(TextureID p_texture, const TextureSubresource &p_subresource) {
-// 	return nullptr;
-// }
-// void RenderingDeviceDriverWebGpu::texture_unmap(TextureID p_texture) {}
 Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_texture, uint32_t p_layer) {
-	// TODO: v4.6
-	return Vector<uint8_t>();
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> texture_get_data");
 }
 
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
@@ -1125,8 +1118,9 @@ RenderingDeviceDriver::DataFormat RenderingDeviceDriverWebGpu::swap_chain_get_fo
 }
 
 RenderingDeviceDriver::ColorSpace RenderingDeviceDriverWebGpu::swap_chain_get_color_space(SwapChainID p_swap_chain) {
-	// TODO: v4.7-dev
-	return ColorSpace::COLOR_SPACE_REC709_LINEAR;
+	// TODO: Look into this.
+	return ColorSpace::COLOR_SPACE_REC709_NONLINEAR_SRGB;
+	;
 }
 
 void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
@@ -1964,10 +1958,8 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 	// Internally, `wgpu` checks this size using data at draw / dispatch time.
 	// We could also use this "late" data for this purpose (among other hacks) if this issue persists.
 	const uint32_t max_binding_size = 65536;
-	// TODO: new buffer_create v4.6
-	// BufferID buffer = this->buffer_create(p_layout.minBindingSize ? p_layout.minBindingSize : max_binding_size, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU);
-	// return buffer;
-	return BufferID();
+	BufferID buffer = this->buffer_create(p_layout.minBindingSize ? p_layout.minBindingSize : max_binding_size, usage, RDD::MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU, 0);
+	return buffer;
 }
 
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
@@ -2002,8 +1994,8 @@ void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
 }
 
 uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
-	// TODO: v4.6
-	return 0;
+	// TODO: impl
+	CRASH_NOW_MSG("TODO --> uniform_sets_get_dynamic_offsets");
 }
 
 // ----- COMMANDS -----
@@ -2108,7 +2100,8 @@ void RenderingDeviceDriverWebGpu::command_clear_color_texture(CommandBufferID _p
 }
 
 void RenderingDeviceDriverWebGpu::command_clear_depth_stencil_texture(CommandBufferID p_cmd_buffer, TextureID p_texture, TextureLayout p_texture_layout, float p_depth, uint8_t p_stencil, const TextureSubresourceRange &p_subresources) {
-	// TODO: v4.6
+	// NOTE: No easy support.
+	// CRASH_NOW_MSG("NOT SUPPORTED?");
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, TextureID p_dst_texture, TextureLayout _p_dst_texture_layout, VectorView<BufferTextureCopyRegion> p_regions) {
