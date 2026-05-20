@@ -150,6 +150,9 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT:
 			ret = WGPUTextureFormat_RGBA32Float;
 			break;
+		case RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
+			ret = WGPUTextureFormat_RGB10A2Unorm;
+			break;
 		case RDD::DataFormat::DATA_FORMAT_S8_UINT:
 			ret = WGPUTextureFormat_Stencil8;
 			break;

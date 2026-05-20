@@ -129,40 +129,47 @@ DisplayServerEnums::VSyncMode RenderingContextDriverWebGpu::surface_get_vsync_mo
 	return surface->vsync_mode;
 }
 
+// TODO: HDR
 void RenderingContextDriverWebGpu::surface_set_hdr_output_enabled(SurfaceID p_surface, bool p_enabled) {
-	// TODO: HDR
+	// TODO: HDR — route to a WGPUSurfaceConfiguration update with an HDR color-space chain.
 }
+
 bool RenderingContextDriverWebGpu::surface_get_hdr_output_enabled(SurfaceID p_surface) const {
-	// TODO: HDR
-	return true;
+	// TODO: HDR — query actual surface capability once the chain is configured.
+	return false;
 }
+
 void RenderingContextDriverWebGpu::surface_set_hdr_output_reference_luminance(SurfaceID p_surface, float p_reference_luminance) {
-	// TODO: HDR
-	CRASH_NOW();
+	// TODO: HDR — feed into the canvas tone-mapping reference luminance.
 }
+
 float RenderingContextDriverWebGpu::surface_get_hdr_output_reference_luminance(SurfaceID p_surface) const {
 	// TODO: HDR
-	CRASH_NOW();
+	return 0.0f;
 }
+
 void RenderingContextDriverWebGpu::surface_set_hdr_output_max_luminance(SurfaceID p_surface, float p_max_luminance) {
-	// TODO: HDR
-	CRASH_NOW();
+	// TODO: HDR — feed into the canvas tone-mapping peak luminance.
 }
+
 float RenderingContextDriverWebGpu::surface_get_hdr_output_max_luminance(SurfaceID p_surface) const {
 	// TODO: HDR
-	CRASH_NOW();
+	return 0.0f;
 }
+
 void RenderingContextDriverWebGpu::surface_set_hdr_output_linear_luminance_scale(SurfaceID p_surface, float p_linear_luminance_scale) {
-	// TODO: HDR
-	CRASH_NOW();
+	// TODO: HDR — feed into the linear-light scaling used by the display chain.
 }
+
 float RenderingContextDriverWebGpu::surface_get_hdr_output_linear_luminance_scale(SurfaceID p_surface) const {
 	// TODO: HDR
-	CRASH_NOW();
+	return 0.0f;
 }
+
 float RenderingContextDriverWebGpu::surface_get_hdr_output_max_value(SurfaceID p_surface) const {
-	// TODO: HDR
-	CRASH_NOW();
+	// TODO: HDR — return the surface's max representable linear value (>1.0 for HDR).
+	// Defensive SDR fallback for now; gated unreachable while _enabled is false.
+	return 1.0f;
 }
 
 uint32_t RenderingContextDriverWebGpu::surface_get_width(SurfaceID p_surface) const {

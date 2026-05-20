@@ -229,6 +229,7 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 	buffer_info->buffer = buffer;
 	buffer_info->map_mode = (WGPUMapMode)map_mode;
 	buffer_info->is_transfer_first_map = is_transfer_buffer;
+	buffer_info->is_mapped = is_transfer_buffer;
 
 	return BufferID(buffer_info);
 }
@@ -281,13 +282,18 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	} else {
 		buffer_info->is_transfer_first_map = false;
 	}
+	buffer_info->is_mapped = true;
 	const void *data = wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
 	return (uint8_t *)data;
 }
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	if (!buffer_info->is_mapped) {
+		return;
+	}
 	buffer_info->is_transfer_first_map = false;
+	buffer_info->is_mapped = false;
 
 	wgpuBufferUnmap(buffer_info->buffer);
 }
@@ -712,28 +718,49 @@ bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFor
 // NOTE: The attributes in `p_vertex_attribs` must be in order.
 RenderingDeviceDriverWebGpu::VertexFormatID RenderingDeviceDriverWebGpu::vertex_format_create(Span<VertexAttribute> p_vertex_attribs, const VertexAttributeBindingsMap &p_vertex_bindings) {
 	VertexFormatInfo *vertex_format_info = memnew(VertexFormatInfo);
-	vertex_format_info->layouts.resize_initialized(p_vertex_attribs.size());
-	vertex_format_info->vertex_attributes.resize_initialized(p_vertex_attribs.size());
 
+	uint32_t slot_count = 0;
+	for (const KeyValue<uint32_t, VertexAttributeBinding> &kv : p_vertex_bindings) {
+		slot_count = MAX(slot_count, kv.key + 1);
+	}
+
+	HashMap<uint32_t, Vector<WGPUVertexAttribute>> attrs_by_binding;
 	for (uint32_t i = 0; i < p_vertex_attribs.size(); i++) {
-		VertexAttribute attrib = p_vertex_attribs[i];
+		const VertexAttribute &attrib = p_vertex_attribs[i];
+		uint32_t binding = (attrib.binding == UINT32_MAX) ? i : attrib.binding;
+		attrs_by_binding[binding].push_back((WGPUVertexAttribute){
+				.format = webgpu_vertex_format_from_rd(attrib.format),
+				.offset = attrib.offset,
+				.shaderLocation = attrib.location,
+		});
+	}
 
-		vertex_format_info->vertex_attributes.set(i,
-				(WGPUVertexAttribute){
-						.format = webgpu_vertex_format_from_rd(attrib.format),
-						.offset = attrib.offset,
-						.shaderLocation = attrib.location,
-				});
+	HashMap<uint32_t, uint32_t> binding_attr_offsets;
+	for (const KeyValue<uint32_t, VertexAttributeBinding> &kv : p_vertex_bindings) {
+		uint32_t binding = kv.key;
+		Vector<WGPUVertexAttribute> *attrs = attrs_by_binding.getptr(binding);
+		binding_attr_offsets[binding] = vertex_format_info->vertex_attributes.size();
+		if (attrs) {
+			vertex_format_info->vertex_attributes.append_array(*attrs);
+		}
+	}
 
-		WGPUVertexStepMode step_mode = attrib.frequency == VertexFrequency::VERTEX_FREQUENCY_VERTEX ? WGPUVertexStepMode_Vertex : WGPUVertexStepMode_Instance;
-
-		WGPUVertexBufferLayout layout = (WGPUVertexBufferLayout){
+	vertex_format_info->layouts.resize_initialized(slot_count);
+	const WGPUVertexAttribute *attr_base = vertex_format_info->vertex_attributes.ptr();
+	for (const KeyValue<uint32_t, VertexAttributeBinding> &kv : p_vertex_bindings) {
+		uint32_t binding = kv.key;
+		const VertexAttributeBinding &binding_info = kv.value;
+		Vector<WGPUVertexAttribute> *attrs = attrs_by_binding.getptr(binding);
+		size_t attr_count = attrs ? attrs->size() : 0;
+		WGPUVertexStepMode step_mode = binding_info.frequency == VERTEX_FREQUENCY_VERTEX
+				? WGPUVertexStepMode_Vertex
+				: WGPUVertexStepMode_Instance;
+		vertex_format_info->layouts.write[binding] = (WGPUVertexBufferLayout){
 			.stepMode = step_mode,
-			.arrayStride = attrib.stride,
-			.attributeCount = 1,
-			.attributes = vertex_format_info->vertex_attributes.ptr() + i,
+			.arrayStride = binding_info.stride,
+			.attributeCount = attr_count,
+			.attributes = attr_count > 0 ? attr_base + binding_attr_offsets[binding] : nullptr,
 		};
-		vertex_format_info->layouts.set(i, layout);
 	}
 
 	return VertexFormatID(vertex_format_info);
@@ -1482,7 +1509,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_STORAGE_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
-						.type = WGPUBufferBindingType_Storage,
+						.type = info.writable ? WGPUBufferBindingType_Storage : WGPUBufferBindingType_ReadOnlyStorage,
 						.hasDynamicOffset = false,
 						.minBindingSize = info.length,
 					};
@@ -1490,7 +1517,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				} break;
 				case UNIFORM_TYPE_STORAGE_BUFFER_DYNAMIC: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
-						.type = WGPUBufferBindingType_Storage,
+						.type = info.writable ? WGPUBufferBindingType_Storage : WGPUBufferBindingType_ReadOnlyStorage,
 						.hasDynamicOffset = true,
 						.minBindingSize = info.length,
 					};
@@ -2133,7 +2160,7 @@ void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buf
 
 	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
 
-	if (buffer_info->is_transfer_first_map) {
+	if (buffer_info->is_mapped) {
 		this->buffer_unmap(p_buffer);
 	}
 }
@@ -2151,7 +2178,10 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 256));
 	}
 
-	if (dst_buffer_info->is_transfer_first_map) {
+	if (src_buffer_info->is_mapped) {
+		this->buffer_unmap(p_src_buffer);
+	}
+	if (dst_buffer_info->is_mapped) {
 		this->buffer_unmap(p_dst_buffer);
 	}
 }
@@ -2286,7 +2316,7 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
 	}
 
-	if (src_buffer_info->is_transfer_first_map) {
+	if (src_buffer_info->is_mapped) {
 		this->buffer_unmap(p_src_buffer);
 	}
 }
@@ -2336,7 +2366,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 		wgpuCommandEncoderCopyTextureToBuffer(command_buffer_info->encoder, &cp_texture, &cp_buffer, &cp_size);
 	}
 
-	if (dst_buffer_info->is_transfer_first_map) {
+	if (dst_buffer_info->is_mapped) {
 		this->buffer_unmap(p_dst_buffer);
 	}
 }

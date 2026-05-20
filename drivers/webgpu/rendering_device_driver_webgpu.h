@@ -39,6 +39,8 @@ private:
 
 		// Transfer buffers will be mapped on creation.
 		bool is_transfer_first_map = false;
+		// Tracks the actual GPU-side map state.
+		bool is_mapped = false;
 
 		uint32_t frame_idx = UINT32_MAX;
 		bool is_dynamic() const { return frame_idx != UINT32_MAX; }
