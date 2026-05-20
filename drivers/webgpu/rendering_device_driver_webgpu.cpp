@@ -18,6 +18,11 @@
 
 #define WGPU_LOG_LEVEL WGPULogLevel_Trace
 
+static constexpr uint32_t VERTEX_DYN_BITS = 2;
+static constexpr uint64_t VERTEX_DYN_MASK = (uint64_t(1) << VERTEX_DYN_BITS) - 1ull;
+static constexpr uint32_t UNIFORM_DYN_BITS = 4;
+static constexpr uint32_t UNIFORM_DYN_MASK = (1u << UNIFORM_DYN_BITS) - 1u;
+
 static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
@@ -40,6 +45,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	adapter = context_driver->adapter_get(p_device_index);
 	context_device = context_driver->device_get(p_device_index);
+	frame_count = MAX(p_frame_count, 1u);
 
 	WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
@@ -167,10 +173,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 /**** BUFFERS ****/
 /*****************/
 
-RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t _p_frames_drawn) {
+RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) {
 	WGPUBufferUsage usage = webgpu_buffer_usage_from_rd(p_usage);
 	uint32_t map_mode = 0;
 	bool is_transfer_buffer = false;
+	const bool is_dynamic = p_usage.has_flag(BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT);
 
 	if (p_allocation_type == MemoryAllocationType::MEMORY_ALLOCATION_TYPE_GPU) {
 		usage = (WGPUBufferUsage)((int)usage & ~(WGPUBufferUsage_MapRead | WGPUBufferUsage_MapWrite));
@@ -185,17 +192,40 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 		}
 	}
 
+	if (is_dynamic) {
+		usage = (WGPUBufferUsage)((int)usage & ~(WGPUBufferUsage_MapRead | WGPUBufferUsage_MapWrite));
+		usage = (WGPUBufferUsage)((int)usage | WGPUBufferUsage_CopyDst);
+		is_transfer_buffer = false;
+		map_mode = 0;
+	}
+
+	const uint64_t slice_size = p_size;
+	const uint64_t alloc_size = is_dynamic ? slice_size * frame_count : slice_size;
+
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
 		.usage = usage,
-		.size = STEPIFY(p_size, 256),
+		.size = STEPIFY(alloc_size, 256),
 		.mappedAtCreation = is_transfer_buffer,
 	};
 	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
 
+	if (is_dynamic) {
+		BufferDynamicInfo *dyn = memnew(BufferDynamicInfo);
+		dyn->size = slice_size;
+		dyn->buffer = buffer;
+		dyn->map_mode = (WGPUMapMode)0;
+		dyn->is_transfer_first_map = false;
+		dyn->frame_idx = 0;
+		dyn->persistent_size = slice_size * frame_count;
+		dyn->persistent_ptr = (uint8_t *)memalloc(dyn->persistent_size);
+		memset(dyn->persistent_ptr, 0, dyn->persistent_size);
+		// Treat the buffer as "never mapped" so the first advance is unconditional.
+		dyn->last_frame_mapped = p_frames_drawn - 1u;
+		return BufferID(static_cast<BufferInfo *>(dyn));
+	}
+
 	BufferInfo *buffer_info = memnew(BufferInfo);
-	// NOTE: The ACTUAL buffer size is aligned for copying.
-	// Some calls to command_copy_buffer don't respect alignment
-	buffer_info->size = p_size;
+	buffer_info->size = slice_size;
 	buffer_info->buffer = buffer;
 	buffer_info->map_mode = (WGPUMapMode)map_mode;
 	buffer_info->is_transfer_first_map = is_transfer_buffer;
@@ -211,7 +241,16 @@ bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, Dat
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 	wgpuBufferRelease(buffer_info->buffer);
-	memdelete(buffer_info);
+	if (buffer_info->is_dynamic()) {
+		BufferDynamicInfo *dyn = static_cast<BufferDynamicInfo *>(buffer_info);
+		dirty_dynamic_buffers.erase(dyn);
+		if (dyn->persistent_ptr) {
+			memfree(dyn->persistent_ptr);
+		}
+		memdelete(dyn);
+	} else {
+		memdelete(buffer_info);
+	}
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buffer) {
@@ -254,12 +293,39 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> buffer_persistent_map_advance");
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	ERR_FAIL_COND_V_MSG(!buffer_info->is_dynamic(), nullptr,
+			"Buffer must have BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT. Use buffer_map() instead.");
+	BufferDynamicInfo *dyn = static_cast<BufferDynamicInfo *>(buffer_info);
+	ERR_FAIL_COND_V_MSG(dyn->last_frame_mapped == p_frames_drawn, nullptr,
+			"Buffers with BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT must only be mapped once per frame.");
+	dyn->last_frame_mapped = p_frames_drawn;
+	dyn->frame_idx = (dyn->frame_idx + 1u) % frame_count;
+	dirty_dynamic_buffers.insert(dyn);
+	return dyn->persistent_ptr + dyn->frame_idx * dyn->size;
 }
+
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_dynamic_offsets(Span<BufferID> p_buffers) {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> buffer_get_dynamic_offsets");
+	// Pretty much what Vulkan does.
+	uint64_t mask = 0u;
+	uint64_t shift = 0u;
+	for (const BufferID &b : p_buffers) {
+		const BufferInfo *bi = (const BufferInfo *)b.id;
+		if (!bi->is_dynamic()) {
+			continue;
+		}
+		mask |= (uint64_t(bi->frame_idx) & VERTEX_DYN_MASK) << shift;
+		shift += VERTEX_DYN_BITS;
+	}
+	return mask;
+}
+
+void RenderingDeviceDriverWebGpu::_flush_pending_dynamic_buffers() {
+	for (BufferDynamicInfo *dyn : dirty_dynamic_buffers) {
+		const uint64_t offset = dyn->frame_idx * dyn->size;
+		wgpuQueueWriteBuffer(queue, dyn->buffer, offset, dyn->persistent_ptr + offset, dyn->size);
+	}
+	dirty_dynamic_buffers.clear();
 }
 
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffer) {
@@ -757,6 +823,7 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 		command_buffer_info->encoder = nullptr;
 	}
 
+	_flush_pending_dynamic_buffers();
 	wgpuQueueSubmit(queue, commands.size(), commands.ptr());
 
 	for (uint32_t i = 0; i < commands.size(); i++) {
@@ -894,7 +961,9 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
-					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.group_index, data.bind_group, 0, nullptr);
+					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.group_index, data.bind_group,
+							(size_t)command.dynamic_offsets.size(),
+							command.dynamic_offsets.is_empty() ? nullptr : command.dynamic_offsets.ptr());
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_IMMEDIATES: {
 					PassEncoderCommand::ComputeSetImmediates data = command.compute_set_push_constants;
@@ -955,7 +1024,9 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
-					wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group, 0, nullptr);
+					wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group,
+							(size_t)command.dynamic_offsets.size(),
+							command.dynamic_offsets.is_empty() ? nullptr : command.dynamic_offsets.ptr());
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_DRAW: {
 					PassEncoderCommand::RenderDraw data = command.render_draw;
@@ -1401,10 +1472,26 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					};
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 				} break;
+				case UNIFORM_TYPE_UNIFORM_BUFFER_DYNAMIC: {
+					layout_entry.buffer = (WGPUBufferBindingLayout){
+						.type = WGPUBufferBindingType_Uniform,
+						.hasDynamicOffset = true,
+						.minBindingSize = info.length,
+					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+				} break;
 				case UNIFORM_TYPE_STORAGE_BUFFER: {
 					layout_entry.buffer = (WGPUBufferBindingLayout){
 						.type = WGPUBufferBindingType_Storage,
 						.hasDynamicOffset = false,
+						.minBindingSize = info.length,
+					};
+					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+				} break;
+				case UNIFORM_TYPE_STORAGE_BUFFER_DYNAMIC: {
+					layout_entry.buffer = (WGPUBufferBindingLayout){
+						.type = WGPUBufferBindingType_Storage,
+						.hasDynamicOffset = true,
 						.minBindingSize = info.length,
 					};
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
@@ -1694,12 +1781,17 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				CRASH_NOW_MSG("Unimplemented!"); // TODO.
 				break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_UNIFORM_BUFFER:
-			case RenderingDeviceCommons::UNIFORM_TYPE_STORAGE_BUFFER: {
+			case RenderingDeviceCommons::UNIFORM_TYPE_STORAGE_BUFFER:
+			case RenderingDeviceCommons::UNIFORM_TYPE_UNIFORM_BUFFER_DYNAMIC:
+			case RenderingDeviceCommons::UNIFORM_TYPE_STORAGE_BUFFER_DYNAMIC: {
 				WGPUBindGroupEntry entry = {};
 				entry.binding = uniform.binding + binding_offset;
 
 				BufferInfo *buffer_info = (BufferInfo *)uniform.ids[0].id;
 				entry.buffer = buffer_info->buffer;
+				// For dynamic bindings the per-slice byte offset is applied via the
+				// dynamicOffsets array on wgpuRenderPassEncoderSetBindGroup, so the
+				// entry itself stays at offset 0 with the slice size.
 				entry.offset = 0;
 				entry.size = buffer_info->size;
 
@@ -1760,6 +1852,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_select_bind_group_from_uniform_set(U
 }
 
 WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<uint32_t> *p_binding_mask) {
+	// TODO: Watch out! Now that dynamic bindings exist, this may not always work out.
 	Vector<BoundUniform> uniforms;
 
 	for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
@@ -1984,6 +2077,19 @@ RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_cre
 		{ shader_info->bind_group_layouts[p_set_index], bind_group }
 	};
 
+	// Record dynamic uniform/storage buffers in binding order so the bind commands
+	// can resolve frame_idx -> byte offset against this set later.
+	for (uint32_t i = 0; i < p_uniforms.size(); i++) {
+		const BoundUniform &u = p_uniforms.ptr()[i];
+		if (!u.is_dynamic() || u.ids.is_empty()) {
+			continue;
+		}
+		BufferInfo *bi = (BufferInfo *)u.ids[0].id;
+		ERR_CONTINUE_MSG(!bi || !bi->is_dynamic(),
+				"BoundUniform marked dynamic but bound buffer is not BUFFER_USAGE_DYNAMIC_PERSISTENT_BIT.");
+		uniform_set_info->dynamic_buffers.push_back(static_cast<BufferDynamicInfo *>(bi));
+	}
+
 	return UniformSetID(uniform_set_info);
 }
 
@@ -1994,8 +2100,18 @@ void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
 }
 
 uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
-	// TODO: impl
-	CRASH_NOW_MSG("TODO --> uniform_sets_get_dynamic_offsets");
+	// Pretty much what Vulkan does.
+	uint32_t mask = 0u;
+	uint32_t shift = 0u;
+	for (uint32_t i = 0; i < p_set_count; i++) {
+		const UniformSetInfo *usi = (const UniformSetInfo *)p_uniform_sets[i].id;
+		for (const BufferDynamicInfo *dyn : usi->dynamic_buffers) {
+			DEV_ASSERT(dyn->frame_idx <= UNIFORM_DYN_MASK);
+			mask |= (dyn->frame_idx & UNIFORM_DYN_MASK) << shift;
+			shift += UNIFORM_DYN_BITS;
+		}
+	}
+	return mask;
 }
 
 // ----- COMMANDS -----
@@ -2516,31 +2632,35 @@ void RenderingDeviceDriverWebGpu::command_bind_render_pipeline(CommandBufferID p
 			} }));
 }
 
-// void RenderingDeviceDriverWebGpu::command_bind_render_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
-// 	DEV_ASSERT(p_cmd_buffer.id != 0);
-// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
-// 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
-
-// 	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
-// 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
-// 	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
-
-// 	command_buffer_info->commands.push_back(((PassEncoderCommand){
-// 			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
-// 			.set_bind_group = (PassEncoderCommand::SetBindGroup){
-// 					.group_index = p_set_index,
-// 					.bind_group = bind_group,
-// 					.shader_info = shader_info,
-// 			} }));
-// }
-
 void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) {
-	// TODO: new fields v4.6
-	// void RenderingDeviceDriverWebGpu::command_bind_render_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) {
-	// for (uint32_t i = 0; i < p_set_count; i++) {
-	// 	command_bind_render_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
-	// }
+	DEV_ASSERT(p_cmd_buffer.id != 0);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
+
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+
+	uint32_t shift = 0u;
+	for (uint32_t i = 0; i < p_set_count; i++) {
+		UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_sets[i].id;
+		WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_first_set_index + i);
+
+		PassEncoderCommand cmd = {
+			.type = PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP,
+			.set_bind_group = (PassEncoderCommand::SetBindGroup){
+					.group_index = p_first_set_index + i,
+					.bind_group = bind_group,
+					.shader_info = shader_info,
+			},
+		};
+		// Peel one slot per dynamic binding and convert frame_idx -> byte offset.
+		for (const BufferDynamicInfo *dyn : uniform_set_info->dynamic_buffers) {
+			uint32_t frame_idx = (p_dynamic_offsets >> shift) & UNIFORM_DYN_MASK;
+			shift += UNIFORM_DYN_BITS;
+			cmd.dynamic_offsets.push_back(uint32_t(frame_idx * dyn->size));
+		}
+		command_buffer_info->commands.push_back(cmd);
+	}
 }
 
 // Drawing.
@@ -2656,28 +2776,31 @@ void RenderingDeviceDriverWebGpu::command_render_draw_indexed_indirect_count(Com
 
 // Buffer binding.
 void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets, uint64_t p_dynamic_offsets) {
-	// TODO: v4.6 new fields
+	DEV_ASSERT(p_cmd_buffer.id != 0);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
+
+	for (uint32_t i = 0; i < p_binding_count; i++) {
+		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
+		uint64_t offset = p_offsets[i];
+		if (buffer_info->is_dynamic()) {
+			uint64_t frame_idx = p_dynamic_offsets & VERTEX_DYN_MASK;
+			p_dynamic_offsets >>= VERTEX_DYN_BITS;
+			offset += frame_idx * buffer_info->size;
+		}
+
+		command_buffer_info->commands.push_back(((PassEncoderCommand){
+				.type = PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER,
+				.render_set_vertex_buffer = (PassEncoderCommand::RenderSetVertexBuffer){
+						.slot = i,
+						.buffer = buffer_info->buffer,
+						.offset = offset,
+						.size = WGPU_WHOLE_SIZE,
+				},
+		}));
+	}
 }
-// void RenderingDeviceDriverWebGpu::command_render_bind_vertex_buffers(CommandBufferID p_cmd_buffer, uint32_t p_binding_count, const BufferID *p_buffers, const uint64_t *p_offsets) {
-// 	DEV_ASSERT(p_cmd_buffer.id != 0);
-// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
-// 	DEV_ASSERT(command_buffer_info->is_render_pass_active == true);
-
-// 	for (uint32_t i = 0; i < p_binding_count; i++) {
-// 		BufferInfo *buffer_info = (BufferInfo *)p_buffers[i].id;
-
-// 		command_buffer_info->commands.push_back(((PassEncoderCommand){
-// 				.type = PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER,
-// 				.render_set_vertex_buffer = (PassEncoderCommand::RenderSetVertexBuffer){
-// 						.slot = i,
-// 						.buffer = buffer_info->buffer,
-// 						.offset = p_offsets[i],
-// 						.size = WGPU_WHOLE_SIZE,
-// 				},
-// 		}));
-// 	}
-// }
 
 void RenderingDeviceDriverWebGpu::command_render_bind_index_buffer(CommandBufferID p_cmd_buffer, BufferID p_buffer, IndexBufferFormat p_format, uint64_t p_offset) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
@@ -3000,33 +3123,35 @@ void RenderingDeviceDriverWebGpu::command_bind_compute_pipeline(CommandBufferID 
 					.pipeline_info = pipeline,
 			} });
 }
-// void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) {
-// 	DEV_ASSERT(p_cmd_buffer.id != 0);
-// 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-// 	DEV_ASSERT(command_buffer_info->encoder != nullptr);
-
-// 	UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_set.id;
-// 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
-// 	WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_set_index);
-
-// 	command_buffer_info->has_compute_commands = true;
-// 	command_buffer_info->commands.push_back((PassEncoderCommand){
-// 			.type = PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP,
-// 			.set_bind_group = (PassEncoderCommand::SetBindGroup){
-// 					.group_index = p_set_index,
-// 					.bind_group = bind_group,
-// 					.shader_info = shader_info,
-// 			},
-// 	});
-// }
-
 void RenderingDeviceDriverWebGpu::command_bind_compute_uniform_sets(CommandBufferID p_cmd_buffer, VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count, uint32_t p_dynamic_offsets) {
-	// TODO: Hey hey, finish this up for v4.6
-	// // TODO: impl
-	// // CRASH_NOW_MSG("TODO --> command_bind_compute_uniform_sets");
-	// for (uint32_t i = 0; i < p_set_count; i++) {
-	// 	command_bind_compute_uniform_set(p_cmd_buffer, p_uniform_sets[i], p_shader, p_first_set_index + i);
-	// }
+	DEV_ASSERT(p_cmd_buffer.id != 0);
+	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	DEV_ASSERT(command_buffer_info->encoder != nullptr);
+
+	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
+
+	command_buffer_info->has_compute_commands = true;
+
+	uint32_t shift = 0u;
+	for (uint32_t i = 0; i < p_set_count; i++) {
+		UniformSetInfo *uniform_set_info = (UniformSetInfo *)p_uniform_sets[i].id;
+		WGPUBindGroup bind_group = _select_bind_group_from_uniform_set(uniform_set_info, shader_info, p_first_set_index + i);
+
+		PassEncoderCommand cmd = {
+			.type = PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP,
+			.set_bind_group = (PassEncoderCommand::SetBindGroup){
+					.group_index = p_first_set_index + i,
+					.bind_group = bind_group,
+					.shader_info = shader_info,
+			},
+		};
+		for (const BufferDynamicInfo *dyn : uniform_set_info->dynamic_buffers) {
+			uint32_t frame_idx = (p_dynamic_offsets >> shift) & UNIFORM_DYN_MASK;
+			shift += UNIFORM_DYN_BITS;
+			cmd.dynamic_offsets.push_back(uint32_t(frame_idx * dyn->size));
+		}
+		command_buffer_info->commands.push_back(cmd);
+	}
 }
 
 // Dispatching.

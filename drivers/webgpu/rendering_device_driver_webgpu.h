@@ -31,13 +31,28 @@ private:
 	/*****************/
 
 	struct BufferInfo {
-		WGPUBuffer buffer;
-		WGPUMapMode map_mode;
-		uint64_t size;
+		WGPUBuffer buffer = nullptr;
+		WGPUMapMode map_mode = (WGPUMapMode)0;
+		// For dynamic buffers, this is the slice size
+		// the underlying allocation is frame_count * size.
+		uint64_t size = 0;
 
 		// Transfer buffers will be mapped on creation.
-		bool is_transfer_first_map;
+		bool is_transfer_first_map = false;
+
+		uint32_t frame_idx = UINT32_MAX;
+		bool is_dynamic() const { return frame_idx != UINT32_MAX; }
 	};
+
+	struct BufferDynamicInfo : BufferInfo {
+		uint64_t last_frame_mapped = UINT64_MAX;
+		uint8_t *persistent_ptr = nullptr;
+		uint64_t persistent_size = 0;
+	};
+
+	uint32_t frame_count = 1;
+	HashSet<BufferDynamicInfo *> dirty_dynamic_buffers;
+	void _flush_pending_dynamic_buffers();
 
 public:
 	virtual BufferID buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) override final;
@@ -337,6 +352,7 @@ private:
 
 		Vector<uint8_t> render_push_constants;
 		Vector<uint8_t> compute_push_constants;
+		Vector<uint32_t> dynamic_offsets;
 
 		bool is_draw_call() const {
 			return this->type == CommandType::RENDER_DRAW ||
@@ -457,6 +473,7 @@ private:
 		HashMap<uint32_t, BoundUniform> saved_uniforms;
 		Vector<WGPUBindGroup> bind_groups;
 		HashMap<WGPUBindGroupLayout, WGPUBindGroup> cached;
+		Vector<BufferDynamicInfo *> dynamic_buffers;
 	};
 
 	WGPUBindGroup _bind_group_create(
