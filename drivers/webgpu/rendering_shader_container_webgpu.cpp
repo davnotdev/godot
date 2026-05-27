@@ -13,6 +13,46 @@
 
 #include <spirv_webgpu_transform.h>
 
+#define DEBUG_SHADERS
+
+#ifdef DEBUG_SHADERS
+#define DEBUG_SHADERS_RAW_LOCATION "/tmp/shader"
+#define DEBUG_SHADERS_POST_PATCH_LOCATION "/tmp/shader2"
+#define DEBUG_SHADERS_POST_TRANSLATION_LOCATION "/tmp/wgsl"
+
+#include <cstdio>
+
+static void _debug_dump_shader(const char *p_dir, const String &p_shader_name, RenderingDeviceCommons::ShaderStage p_stage, const uint8_t *p_data, size_t p_size) {
+	String safe = p_shader_name.is_empty() ? String("unnamed") : p_shader_name;
+	safe = safe.replace_char(':', '_').replace_char('/', '_').replace_char(' ', '_');
+	String stage_suffix;
+	switch (p_stage) {
+		case RenderingDeviceCommons::SHADER_STAGE_VERTEX:
+			stage_suffix = "vert";
+			break;
+		case RenderingDeviceCommons::SHADER_STAGE_FRAGMENT:
+			stage_suffix = "frag";
+			break;
+		case RenderingDeviceCommons::SHADER_STAGE_COMPUTE:
+			stage_suffix = "comp";
+			break;
+		default:
+			stage_suffix = String("stage") + itos((int)p_stage);
+			break;
+	}
+	String path = String(p_dir) + "/" + safe + "_" + stage_suffix + ".spv";
+	FILE *f = fopen(path.utf8().get_data(), "wb");
+	if (!f) {
+		print_line("[WGPU][DEBUG_SHADERS] failed to open ", path);
+		return;
+	}
+	if (p_size > 0) {
+		fwrite(p_data, 1, p_size, f);
+	}
+	fclose(f);
+}
+#endif
+
 static WebGpuBindingHint webgpu_binding_hint_from_trans(const WebGpuTranslateBindingLayout &p_in) {
 	WebGpuBindingHint out = {};
 	switch (p_in.type) {
@@ -106,6 +146,11 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		in_spirv.resize(stage_spirv.size());
 		memcpy(in_spirv.ptrw(), stage_spirv.ptr(), stage_spirv.size() * sizeof(uint32_t));
 
+#ifdef DEBUG_SHADERS
+		_debug_dump_shader(DEBUG_SHADERS_RAW_LOCATION, shader_name_str, p_spirv[i].shader_stage,
+				(const uint8_t *)stage_spirv.ptr(), stage_spirv.size() * sizeof(uint32_t));
+#endif
+
 		TransformCorrectionMap map = (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 		uint32_t *combimg_out_spv = nullptr;
 		uint32_t combimg_out_count = 0;
@@ -181,6 +226,12 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	HashMap<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> merged_binding_hints;
 	for (int i = 0; i < patched.size(); i++) {
 		const Vector<uint8_t> &spv_bytes = patched[i].spirv;
+
+#ifdef DEBUG_SHADERS
+		_debug_dump_shader(DEBUG_SHADERS_POST_PATCH_LOCATION, shader_name_str, patched[i].shader_stage,
+				spv_bytes.ptr(), (size_t)spv_bytes.size());
+#endif
+
 		ConvertResult result = webgpu_translate_spirv_to_wgsl((const uint32_t *)spv_bytes.ptr(), spv_bytes.size() / sizeof(uint32_t));
 		if (result.error_string != nullptr) {
 			print_line("[WGPU] WGSL compilation ", shader_name_str, "on step", (int)result.failure_stage, ":", result.error_string.ptr());
@@ -188,6 +239,11 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		}
 
 		wgsl_sources.write[i] = result.wgsl_string;
+
+#ifdef DEBUG_SHADERS
+		_debug_dump_shader(DEBUG_SHADERS_POST_TRANSLATION_LOCATION, shader_name_str, patched[i].shader_stage,
+				(const uint8_t *)result.wgsl_string.ptr(), (size_t)result.wgsl_string.length());
+#endif
 
 		for (KeyValue<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> &set_kv : result.binding_hints) {
 			if (!merged_binding_hints.has(set_kv.key)) {
