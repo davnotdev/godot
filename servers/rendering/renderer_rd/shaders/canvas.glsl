@@ -298,7 +298,9 @@ void main() {
 	gl_Position = canvas_data.screen_transform * vec4(vertex, 0.0, 1.0);
 
 #ifdef USE_POINT_SIZE
+#ifndef WEBGPU_USED
 	gl_PointSize = point_size;
+#endif
 #endif
 }
 

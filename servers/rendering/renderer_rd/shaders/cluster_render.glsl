@@ -146,7 +146,6 @@ void main() {
 			aux = atomicOr(cluster_render.data[usage_write_offset], usage_write_bit);
 		}
 	}
-#endif
 
 	//find the current element in the depth usage list and mark the current depth as used
 	float unit_depth = depth_interp * state.inv_z_far;

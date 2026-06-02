@@ -690,7 +690,9 @@ void vertex_shader(in vec3 vertex,
 		point_coord_interp = point_coord;
 #endif
 	} else {
+#ifndef WEBGPU_USED
 		gl_PointSize = point_size;
+#endif
 	}
 #endif
 }
@@ -1258,7 +1260,12 @@ void main() {
 	if (sc_emulate_point_size) {
 		point_coord = point_coord_interp;
 	} else {
+#ifdef WEBGPU_USED
+		// HACK: stubby stubby (no gl_PointCoord in webGPU)
+		point_coord = vec2(0.5);
+#else
 		point_coord = gl_PointCoord;
+#endif
 	}
 #else // !POINT_SIZE_USED
 	vec2 point_coord = vec2(0.5);

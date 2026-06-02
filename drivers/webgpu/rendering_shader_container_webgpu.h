@@ -17,7 +17,7 @@ public:
 		uint32_t texture_sample_type = 0; // RDC::ShaderUniform::TextureSampleType
 		uint32_t texture_is_multisample = 0;
 		Vector<uint32_t> corrections;
-		Vector<WebGpuBindingHint> correction_hints; // size == corrections.size()
+		Vector<WebGpuBindingHint> binding_hints; // size == corrections.size()
 	};
 
 	Vector<UniformData> webgpu_uniform_data;

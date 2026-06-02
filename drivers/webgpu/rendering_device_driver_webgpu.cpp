@@ -108,8 +108,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				// .maxUniformBufferBindingSize = 1953653104,
 				// .maxStorageBufferBindingSize = 1953653104,
 				// These are the limits for lavapipe (CPU vulkan implementation)
-				.maxUniformBufferBindingSize = 65536,
-				.maxStorageBufferBindingSize = 134217728,
+				// .maxUniformBufferBindingSize = 65536,
+				// .maxStorageBufferBindingSize = 134217728,
+				// New Limits? Not sure but these will go away soon anyway (hopefully).
+				.maxUniformBufferBindingSize = 746153060,
+				.maxStorageBufferBindingSize = 746153060,
 				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
 				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
@@ -959,7 +962,7 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
 						const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
 						if (!bound_layouts.has(set_idx)) {
-							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx]);
+							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx], shader_info->set_binding_corrections[set_idx], shader_info->used_original_bindings[set_idx]);
 							groups.push_back(Pair(set_idx, mock_group));
 						}
 					}
@@ -1272,6 +1275,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 		HashMap<uint32_t, Vector<uint32_t>> binding_corrections;
 		HashMap<uint32_t, WebGpuBindingHint> binding_hints;
+		HashSet<uint32_t> used_original_bindings;
 
 		for (uint32_t binding_idx = 0; binding_idx < (uint32_t)bindings.size(); binding_idx++) {
 			const ShaderUniform &refl_uniform = bindings[binding_idx];
@@ -1287,7 +1291,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			binding_corrections.insert(info.binding, u.corrections);
 			binding_hints.insert(info.binding + wgpu_binding_offset, u.base_hint);
 			for (int k = 0; k < u.corrections.size(); k++) {
-				binding_hints.insert(info.binding + wgpu_binding_offset + 1 + k, u.correction_hints[k]);
+				binding_hints.insert(info.binding + wgpu_binding_offset + 1 + k, u.binding_hints[k]);
 			}
 
 			WGPUShaderStage shader_stage = (WGPUShaderStage)0;
@@ -1308,6 +1312,9 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 				.count = 1,
 			};
 			layout_entry.nextInChain = &layout_entry_extras->chain;
+
+			// Used to build `used_original_bindings`.
+			int set_original_entry_count = bind_group_layout_entries[set_idx].size();
 
 			switch (info.type) {
 				case UNIFORM_TYPE_SAMPLER: {
@@ -1417,6 +1424,19 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						sampleType = WGPUTextureSampleType_UnfilterableFloat;
 					}
 
+					// Dref textures are always depth or unfilterable-float rather than float.
+					bool is_dref_split = false;
+					for (int i = 0; i < u.corrections.size(); i++) {
+						if (u.corrections[i] == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR ||
+								u.corrections[i] == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON) {
+							is_dref_split = true;
+							break;
+						}
+					}
+					if (is_dref_split && sampleType != WGPUTextureSampleType_Float) {
+						sampleType = WGPUTextureSampleType_UnfilterableFloat;
+					}
+
 					layout_entry.texture = (WGPUTextureBindingLayout){
 						.sampleType = sampleType,
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
@@ -1437,7 +1457,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
-								correction_entry.texture.sampleType = WGPUTextureSampleType_Float;
+								correction_entry.texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
 								break;
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
 								correction_entry.texture.sampleType = WGPUTextureSampleType_Depth;
@@ -1533,6 +1553,10 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					return ShaderID();
 				}
 			}
+
+			if (bind_group_layout_entries[set_idx].size() > set_original_entry_count) {
+				used_original_bindings.insert(info.binding);
+			}
 		}
 
 		shader_info->set_binding_corrections.insert(set_idx, binding_corrections);
@@ -1543,6 +1567,7 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			used_bindings.insert(bind_group_layout_entries[set_idx][i].binding);
 		}
 		shader_info->used_set_bindings.insert(set_idx, used_bindings);
+		shader_info->used_original_bindings.insert(set_idx, used_original_bindings);
 	}
 
 	for (uint32_t i = 0; i < refl.specialization_constants.size(); i++) {
@@ -1708,43 +1733,50 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				}
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				// TODO: Use corrections object rather than assuming combined image sampler split.
+				bool is_array = uniform.ids.size() != 2;
+				WGPUSampler single_sampler = nullptr;
+				WGPUSampler *uniform_samplers = nullptr;
+				uint32_t uniform_count = 0;
+
 				WGPUBindGroupEntry texture_entry = {};
 				texture_entry.binding = uniform.binding + binding_offset;
 
-				binding_offset += 1;
-
-				WGPUBindGroupEntry sampler_entry = {};
-				sampler_entry.binding = uniform.binding + binding_offset;
-
-				if (uniform.ids.size() == 2) {
-					WGPUSampler sampler = (WGPUSampler)uniform.ids[0].id;
+				if (!is_array) {
+					single_sampler = (WGPUSampler)uniform.ids[0].id;
 					TextureInfo *texture_info = (TextureInfo *)uniform.ids[1].id;
-
 					texture_entry.textureView = texture_info->get_view_with_format();
-					sampler_entry.sampler = sampler;
 				} else {
-					uint32_t uniform_count = uniform.ids.size() / 2;
-					WGPUSampler *uniform_samplers = ALLOCA_ARRAY(WGPUSampler, uniform_count);
+					uniform_count = uniform.ids.size() / 2;
+					uniform_samplers = ALLOCA_ARRAY(WGPUSampler, uniform_count);
 					WGPUTextureView *uniform_texture_views = ALLOCA_ARRAY(WGPUTextureView, uniform_count);
 
 					for (uint32_t i = 0; i < uniform_count; i++) {
-						WGPUSampler sampler = (WGPUSampler)uniform.ids[i * 2 + 0].id;
+						uniform_samplers[i] = (WGPUSampler)uniform.ids[i * 2 + 0].id;
 						TextureInfo *texture_info = (TextureInfo *)uniform.ids[i * 2 + 1].id;
-
-						uniform_samplers[i] = sampler;
 						uniform_texture_views[i] = texture_info->get_view_with_format();
+					}
 
-						WGPUBindGroupEntryExtras *texture_view_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
-						*texture_view_entry_extras = (WGPUBindGroupEntryExtras){
-							.chain = (WGPUChainedStruct){
-									.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
-							},
-							.textureViews = uniform_texture_views,
-							.textureViewCount = uniform_count,
-						};
-						texture_entry.nextInChain = (WGPUChainedStruct *)texture_view_entry_extras;
+					WGPUBindGroupEntryExtras *texture_view_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
+					*texture_view_entry_extras = (WGPUBindGroupEntryExtras){
+						.chain = (WGPUChainedStruct){
+								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
+						},
+						.textureViews = uniform_texture_views,
+						.textureViewCount = uniform_count,
+					};
+					texture_entry.nextInChain = (WGPUChainedStruct *)texture_view_entry_extras;
+				}
+				entries.push_back(texture_entry);
 
+				int sampler_entry_count = binding_correction_count > 0 ? binding_correction_count : 1;
+				for (int i = 0; i < sampler_entry_count; i++) {
+					binding_offset += 1;
+
+					WGPUBindGroupEntry sampler_entry = {};
+					sampler_entry.binding = uniform.binding + binding_offset;
+					if (!is_array) {
+						sampler_entry.sampler = single_sampler;
+					} else {
 						WGPUBindGroupEntryExtras *sampler_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
 						*sampler_entry_extras = (WGPUBindGroupEntryExtras){
 							.chain = (WGPUChainedStruct){
@@ -1755,9 +1787,8 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 						};
 						sampler_entry.nextInChain = (WGPUChainedStruct *)sampler_entry_extras;
 					}
+					entries.push_back(sampler_entry);
 				}
-				entries.push_back(texture_entry);
-				entries.push_back(sampler_entry);
 			} break;
 
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
@@ -1824,6 +1855,9 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 
 				entries.push_back(entry);
 			} break;
+			case RenderingDeviceCommons::UNIFORM_TYPE_ACCELERATION_STRUCTURE:
+				CRASH_NOW_MSG("WebRTX!!!");
+				break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_MAX:
 				break;
 		}
@@ -1871,49 +1905,102 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_select_bind_group_from_uniform_set(U
 	} else {
 		const HashSet<uint32_t> &binding_mask = p_shader_info->used_set_bindings[p_set_index];
 
-		WGPUBindGroup bind_group = _mock_bind_group_create(p_shader_info->bind_group_layout_descs[p_set_index], p_shader_info->bind_group_layouts[p_set_index], p_shader_info->set_binding_corrections[p_set_index], p_uniform_set_info->saved_uniforms, &binding_mask);
+		WGPUBindGroup bind_group = _mock_bind_group_create(p_shader_info->bind_group_layout_descs[p_set_index], p_shader_info->bind_group_layouts[p_set_index], p_shader_info->set_binding_corrections[p_set_index], p_shader_info->used_original_bindings[p_set_index], p_uniform_set_info->saved_uniforms, &binding_mask);
 		p_uniform_set_info->bind_groups.push_back(bind_group);
 		p_uniform_set_info->cached.insert(layout, bind_group);
 		return bind_group;
 	}
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<uint32_t> *p_binding_mask) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<uint32_t> &p_used_original_bindings, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<uint32_t> *p_binding_mask) {
 	// TODO: Watch out! Now that dynamic bindings exist, this may not always work out.
-	Vector<BoundUniform> uniforms;
 
+	HashMap<uint32_t, const WGPUBindGroupLayoutEntry *> entry_by_binding;
 	for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
-		const WGPUBindGroupLayoutEntry &entry = p_descriptor.entries[i];
+		entry_by_binding.insert(p_descriptor.entries[i].binding, &p_descriptor.entries[i]);
+	}
 
-		if (p_override_uniforms.has(entry.binding)) {
-			uniforms.push_back(p_override_uniforms[entry.binding]);
+	// _bind_group_create assumes ascending binding order.
+	Vector<uint32_t> sorted_bindings;
+	for (const uint32_t &binding : p_used_original_bindings) {
+		sorted_bindings.push_back(binding);
+	}
+	sorted_bindings.sort();
+
+	const Vector<uint32_t> empty_corrections;
+	Vector<BoundUniform> uniforms;
+	uint32_t binding_offset = 0;
+	for (int b_idx = 0; b_idx < sorted_bindings.size(); b_idx++) {
+		const uint32_t binding = sorted_bindings[b_idx];
+		const Vector<uint32_t> &corrections = p_set_binding_corrections.has(binding) ? p_set_binding_corrections[binding] : empty_corrections;
+
+		RDD::UniformType type = RDD::UniformType::UNIFORM_TYPE_MAX;
+		if (p_override_uniforms.has(binding)) {
+			const BoundUniform &uniform = p_override_uniforms[binding];
+			uniforms.push_back(uniform);
+			type = uniform.type;
 		} else {
-			RDD::ID id;
-			RDD::UniformType type;
-			if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_SAMPLER;
-				id = this->_sampler_mock_binding_create(entry.sampler);
-			} else if (entry.texture.sampleType != WGPUTextureSampleType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
-				id = this->_texture_mock_binding_create(entry.texture);
-			} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_IMAGE;
-				id = this->_storage_texture_mock_binding_create(entry.storageTexture);
-			} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
-				type = RDD::UniformType::UNIFORM_TYPE_UNIFORM_BUFFER;
-				id = this->_buffer_mock_binding_create(entry.buffer);
-			} else {
-				id = ID();
+			const uint32_t shifted_binding = binding + binding_offset;
+			ERR_FAIL_COND_V_MSG(!entry_by_binding.has(shifted_binding), nullptr, "Missing layout entry while mocking bind group");
+			const WGPUBindGroupLayoutEntry &entry = *entry_by_binding[shifted_binding];
+
+			// NOTE: This is messy and gross, so I need to rethink this through (or else worse things will happen).
+			// Our quest to be DRY has shot us right in the foot.
+			// Originally, having an combined image sampler be passed to _bind_group_create was safe.
+			// Unfortunately, complexity has caught up to us and we now need to recombine these so that the binding
+			// offsets and other new tracking data stays valid.
+			bool is_combined = false;
+			for (int i = 0; i < corrections.size(); i++) {
+				if (corrections[i] == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED) {
+					is_combined = true;
+					break;
+				}
 			}
-			ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "Empty id in _mock_bind_group_entry_create");
 
 			LocalVector<ID> ids;
-			ids.push_back(id);
+			if (is_combined) {
+				type = RDD::UniformType::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+				WGPUSamplerBindingLayout filtering = {};
+				filtering.type = WGPUSamplerBindingType_Filtering;
+				ids.push_back(this->_sampler_mock_binding_create(filtering));
+				ids.push_back(this->_texture_mock_binding_create(entry.texture));
+			} else {
+				ID id;
+				if (entry.sampler.type != WGPUSamplerBindingType_BindingNotUsed) {
+					type = RDD::UniformType::UNIFORM_TYPE_SAMPLER;
+					id = this->_sampler_mock_binding_create(entry.sampler);
+				} else if (entry.texture.sampleType != WGPUTextureSampleType_BindingNotUsed) {
+					type = RDD::UniformType::UNIFORM_TYPE_TEXTURE;
+					id = this->_texture_mock_binding_create(entry.texture);
+				} else if (entry.storageTexture.access != WGPUStorageTextureAccess_BindingNotUsed) {
+					type = RDD::UniformType::UNIFORM_TYPE_IMAGE;
+					id = this->_storage_texture_mock_binding_create(entry.storageTexture);
+				} else if (entry.buffer.type != WGPUBufferBindingType_BindingNotUsed) {
+					type = RDD::UniformType::UNIFORM_TYPE_UNIFORM_BUFFER;
+					id = this->_buffer_mock_binding_create(entry.buffer);
+				} else {
+					id = ID();
+				}
+				ERR_FAIL_COND_V_MSG(id.id == ID().id, nullptr, "Empty id in _mock_bind_group_entry_create");
+				ids.push_back(id);
+			}
 
 			uniforms.push_back((RDD::BoundUniform){
 					.type = type,
-					.binding = entry.binding,
+					.binding = binding,
 					.ids = std::move(ids) });
+		}
+
+		// NOTE: Another weird piece of pre-correction / post-correction messiness.
+		// Supersede me!
+		if (type == RDD::UniformType::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE) {
+			binding_offset += corrections.size() > 0 ? (uint32_t)corrections.size() : 1u;
+		} else if (type == RDD::UniformType::UNIFORM_TYPE_SAMPLER || type == RDD::UniformType::UNIFORM_TYPE_TEXTURE || type == RDD::UniformType::UNIFORM_TYPE_IMAGE || type == RDD::UniformType::UNIFORM_TYPE_INPUT_ATTACHMENT) {
+			for (int i = 0; i < corrections.size(); i++) {
+				if (corrections[i] == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR || corrections[i] == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON) {
+					binding_offset += 1;
+				}
+			}
 		}
 	}
 
@@ -1921,11 +2008,11 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 	return bind_group;
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<uint32_t> &p_used_original_bindings) {
 	if (this->mock_bind_groups.has(p_layout)) {
 		return this->mock_bind_groups.get(p_layout);
 	} else {
-		WGPUBindGroup bind_group = _mock_bind_group_create(p_descriptor, p_layout, {}, {}, nullptr);
+		WGPUBindGroup bind_group = _mock_bind_group_create(p_descriptor, p_layout, p_set_binding_corrections, p_used_original_bindings, {}, nullptr);
 		this->mock_bind_groups.insert(p_layout, bind_group);
 		return bind_group;
 	}
@@ -2085,7 +2172,7 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->used_set_bindings);
+	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->used_original_bindings);
 	WGPUBindGroup bind_group = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index], nullptr);
 
 	HashMap<uint32_t, BoundUniform> saved_uniforms;
@@ -3422,6 +3509,10 @@ bool RenderingDeviceDriverWebGpu::has_feature(Features p_feature) {
 		// Turning this off, we still create an empty render pass (big no no).
 		case SUPPORTS_FRAGMENT_SHADER_WITH_ONLY_SIDE_EFFECTS:
 			return true;
+		case SUPPORTS_POINT_SIZE:
+			return false;
+		case SUPPORTS_HDR_OUTPUT:
+			return false;
 		default:
 			return false;
 	}

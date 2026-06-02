@@ -31,6 +31,10 @@ void main() {
 
 #VERSION_DEFINES
 
+#ifdef WEBGPU_USED
+#undef SUBPASS
+#endif
+
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
 #define ViewIndex gl_ViewIndex

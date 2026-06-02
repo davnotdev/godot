@@ -15,12 +15,16 @@ void spirv_webgpu_transform_combimgsampsplitter_alloc(uint32_t *in_spv, uint32_t
 void spirv_webgpu_transform_combimgsampsplitter_free(uint32_t *out_spv);
 void spirv_webgpu_transform_drefsplitter_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count, TransformCorrectionMap *correction_map);
 void spirv_webgpu_transform_drefsplitter_free(uint32_t *out_spv);
+void spirv_webgpu_transform_immediatespatch_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count);
+void spirv_webgpu_transform_immediatespatch_free(uint32_t *out_spv);
 void spirv_webgpu_transform_isnanisinfpatch_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count);
 void spirv_webgpu_transform_isnanisinfpatch_free(uint32_t *out_spv);
 void spirv_webgpu_transform_storagecubepatch_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count, TransformCorrectionMap *correction_map);
 void spirv_webgpu_transform_storagecubepatch_free(uint32_t *out_spv);
 void spirv_webgpu_transform_pruneunuseddref_alloc(uint32_t *int_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count);
 void spirv_webgpu_transform_pruneunuseddref_free(uint32_t *out_spv);
+void spirv_webgpu_transform_splitbindingarray_alloc(uint32_t *in_spv, uint32_t in_count, uint32_t **out_spv, uint32_t *out_count, TransformCorrectionMap *correction_map);
+void spirv_webgpu_transform_splitbindingarray_free(uint32_t *out_spv);
 
 void spirv_webgpu_transform_mirrorpatch_alloc(
 		uint32_t *in_left_spv, uint32_t in_left_count, TransformCorrectionMap *left_corrections,
@@ -39,6 +43,7 @@ typedef enum {
 	SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR = 1,
 	SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON = 2,
 	SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_CONVERT_STORAGE_CUBE = 3,
+	SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY = 4,
 } TransformCorrectionType;
 
 // SAFETY: `corrections` invalidates when `correction_map` is written to.

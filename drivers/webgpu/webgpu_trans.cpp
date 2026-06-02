@@ -1,4 +1,5 @@
 #include "webgpu_trans.h"
+
 #include "naga.h"
 
 inline WebGpuTranslateBindingLayout interpret_binding_type(const NagaType *types, const NagaType &type) {

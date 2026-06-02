@@ -4,6 +4,10 @@
 
 #VERSION_DEFINES
 
+#ifdef WEBGPU_USED
+#define writeonly
+#endif
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #define PARTICLE_FLAG_ACTIVE uint(1)

@@ -8,6 +8,15 @@
 #include "servers/rendering/rendering_device_driver.h"
 
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
+	// TODO: Comb through the code and use this type.
+	// Often, we mix `uint32_t`'s that mean different things.
+	// To prevent confusion,
+	//		`OriginalBindingIndex` refers to bindings pre-correction.
+	//		`CorrectedBindingIndex` refers to bindings after correction.
+	// corrections refer to `spirv-webgpu-transform` transforms.
+	typedef uint32_t OriginalBindingIndex;
+	typedef uint32_t CorrectedBindingIndex;
+
 	struct ShaderInfo;
 	struct PipelineInfo;
 
@@ -447,7 +456,10 @@ private:
 
 		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
 		HashMap<uint32_t, HashMap<uint32_t, WebGpuBindingHint>> set_binding_hints;
-		HashMap<uint32_t, HashSet<uint32_t>> used_set_bindings;
+
+		// TODO: Should we actually store both original and corrected indices? There must be a better abstraction here.
+		HashMap<uint32_t, HashSet<CorrectedBindingIndex>> used_set_bindings;
+		HashMap<uint32_t, HashSet<OriginalBindingIndex>> used_original_bindings;
 
 		String shader_name;
 		WGPUPipelineLayout pipeline_layout;
@@ -497,12 +509,16 @@ private:
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashSet<OriginalBindingIndex> &p_used_original_bindings,
 			const HashMap<uint32_t, BoundUniform> &p_override_uniforms,
 			const HashSet<uint32_t> *p_binding_mask);
 
 	WGPUBindGroup _mock_bind_group_create_or_get(
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
-			WGPUBindGroupLayout p_layout);
+			WGPUBindGroupLayout p_layout,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashSet<OriginalBindingIndex> &p_used_original_bindings
+	);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these

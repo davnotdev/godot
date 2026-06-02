@@ -121,9 +121,9 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		ERR_FAIL_V_MSG(false, "Refusing to compile ClusterDebugShaderRD*");
 	}
 	// HACK: The hall of bad shaders:
-	if (shader_name_str.contains("CopyToFbShaderRD:0")) {
-		ERR_FAIL_V_MSG(false, "Refusing to compile CopyToFbShaderRD:0");
-	}
+	// if (shader_name_str.contains("CopyToFbShaderRD:0")) {
+	// 	ERR_FAIL_V_MSG(false, "Refusing to compile CopyToFbShaderRD:0");
+	// }
 	if (shader_name_str.contains("BokehDofRasterShaderRD:0")) {
 		ERR_FAIL_V_MSG(false, "Refusing to compile BokehDofRasterShaderRD:0");
 	}
@@ -306,7 +306,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			}
 
 			u.corrections.clear();
-			u.correction_hints.clear();
+			u.binding_hints.clear();
 			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
 				uint16_t *corrections_raw = nullptr;
 				uint32_t correction_count = 0;
@@ -325,7 +325,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				if (hint_set && hint_set->has(corr_post)) {
 					hint = webgpu_binding_hint_from_trans(hint_set->get(corr_post));
 				}
-				u.correction_hints.push_back(hint);
+				u.binding_hints.push_back(hint);
 			}
 
 			global_idx++;
@@ -391,7 +391,7 @@ uint32_t RenderingShaderContainerWebGpu::_to_bytes_reflection_binding_uniform_ex
 		p += sizeof(uint32_t);
 	}
 	for (uint32_t k = 0; k < correction_count; k++) {
-		memcpy(p, &u.correction_hints[k], sizeof(WebGpuBindingHint));
+		memcpy(p, &u.binding_hints[k], sizeof(WebGpuBindingHint));
 		p += sizeof(WebGpuBindingHint);
 	}
 
@@ -427,9 +427,9 @@ uint32_t RenderingShaderContainerWebGpu::_from_bytes_reflection_binding_uniform_
 		u.corrections.write[k] = decode_uint32(p);
 		p += sizeof(uint32_t);
 	}
-	u.correction_hints.resize(correction_count);
+	u.binding_hints.resize(correction_count);
 	for (uint32_t k = 0; k < correction_count; k++) {
-		memcpy(&u.correction_hints.write[k], p, sizeof(WebGpuBindingHint));
+		memcpy(&u.binding_hints.write[k], p, sizeof(WebGpuBindingHint));
 		p += sizeof(WebGpuBindingHint);
 	}
 

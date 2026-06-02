@@ -4,6 +4,10 @@
 
 #VERSION_DEFINES
 
+#ifdef WEBGPU_USED
+#define writeonly
+#endif
+
 #ifdef MODE_JUMPFLOOD_OPTIMIZED
 #define GROUP_SIZE 8
 
