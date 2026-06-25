@@ -43,9 +43,26 @@ layout(push_constant, std430) uniform Params {
 	float z_near;
 
 	mat3x4 inv_projection;
+#ifndef WEBGPU_USED
 	// We pack these more tightly than mat3 and vec3, which will require some reconstruction trickery.
 	float cam_basis[3][3];
 	float cam_origin[3];
+#else
+	// WGSL array fields must be 16-byte aligned.
+	float cam_basis_0;
+	float cam_basis_1;
+	float cam_basis_2;
+	float cam_basis_3;
+	float cam_basis_4;
+	float cam_basis_5;
+	float cam_basis_6;
+	float cam_basis_7;
+	float cam_basis_8;
+	float cam_basis_9;
+	float cam_origin_0;
+	float cam_origin_1;
+	float cam_origin_2;
+#endif
 }
 params;
 
@@ -79,13 +96,18 @@ void main() {
 	vec3 ray_pos;
 	vec3 ray_dir;
 	{
+#ifndef WEBGPU_USED
 		ray_pos = vec3(params.cam_origin[0], params.cam_origin[1], params.cam_origin[2]);
+#else
+		ray_pos = vec3(params.cam_origin_0, params.cam_origin_1, params.cam_origin_2);
+#endif
 
 		ray_dir.xy = ((vec2(screen_pos) / vec2(params.screen_size)) * 2.0 - 1.0);
 		ray_dir.z = params.z_near;
 
 		ray_dir = (vec4(ray_dir, 1.0) * mat4(params.inv_projection)).xyz;
 
+#ifndef WEBGPU_USED
 		mat3 cam_basis;
 		{
 			vec3 c0 = vec3(params.cam_basis[0][0], params.cam_basis[0][1], params.cam_basis[0][2]);
@@ -94,6 +116,16 @@ void main() {
 			cam_basis = mat3(c0, c1, c2);
 		}
 		ray_dir = normalize(cam_basis * ray_dir);
+#else
+		mat3 cam_basis;
+		{
+			vec3 c0 = vec3(params.cam_basis_0, params.cam_basis_1, params.cam_basis_2);
+			vec3 c1 = vec3(params.cam_basis_3, params.cam_basis_4, params.cam_basis_5);
+			vec3 c2 = vec3(params.cam_basis_6, params.cam_basis_7, params.cam_basis_8);
+			cam_basis = mat3(c0, c1, c2);
+		}
+		ray_dir = normalize(cam_basis * ray_dir);
+#endif
 	}
 
 	ray_pos.y *= params.y_mult;

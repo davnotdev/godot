@@ -52,22 +52,24 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		WGPUFeatureName_Float32Filterable,
 		WGPUFeatureName_TextureCompressionBC,
 
-		// Waiting on WebGPU spec, see https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md
-		(WGPUFeatureName)WGPUNativeFeature_Immediates,
+		// This is a fairly new feature.
+		// We can switch to this in the future, but for now, we have push constant emulation.
+		// (WGPUFeatureName)WGPUNativeFeature_Immediates,
 		// Need changes in Godot (default textures use 16bit I believe)
+
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		// New to spec, waiting for proper support
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 		// I haven't looked into these
-		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
-		(WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
 
-		// Needs SPIRV workaround
+		// Binding Array related
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_StorageResourceBindingArray,
 		(WGPUFeatureName)WGPUNativeFeature_BufferBindingArray,
+		(WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
+		(WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
 
 		// Avoidable
 		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
@@ -899,6 +901,30 @@ void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {
 
 // ----- BUFFER -----
 
+WGPUBuffer RenderingDeviceDriverWebGpu::_push_constant_buffer_acquire(CommandBufferInfo &p_command_buffer_info, uint64_t p_size) {
+	if (p_size == 0) {
+		return nullptr;
+	}
+
+	uint64_t aligned_size = STEPIFY(p_size, 256);
+	WGPUBuffer buffer = nullptr;
+	Vector<WGPUBuffer> *free_list = p_command_buffer_info.push_constant_buffer_pool.getptr(aligned_size);
+	if (free_list != nullptr && !free_list->is_empty()) {
+		buffer = free_list->get(free_list->size() - 1);
+		free_list->remove_at(free_list->size() - 1);
+	} else {
+		WGPUBufferDescriptor buffer_desc = (WGPUBufferDescriptor){
+			.nextInChain = nullptr,
+			.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform,
+			.size = aligned_size,
+			.mappedAtCreation = false,
+		};
+		buffer = wgpuDeviceCreateBuffer(device, &buffer_desc);
+	}
+	p_command_buffer_info.push_constant_buffer_used.push_back(Pair<uint64_t, WGPUBuffer>(aligned_size, buffer));
+	return buffer;
+}
+
 void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &p_command_buffer_info) {
 	WGPUComputePassEncoder compute_encoder = nullptr;
 	if (p_command_buffer_info.has_compute_commands) {
@@ -925,6 +951,9 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 			bool clear = false;
 			for (KeyValue<uint32_t, WGPUBindGroupLayout> &kv : bound_layouts) {
 				ShaderInfo *shader_info = (ShaderInfo *)command.set_pipeline.pipeline_info->shader_id.id;
+				if ((int64_t)kv.key == shader_info->push_constant_set_index) {
+					continue;
+				}
 				if (kv.key >= shader_info->bind_group_layouts.size() || shader_info->bind_group_layouts[kv.key] != kv.value) {
 					clear = true;
 					break;
@@ -972,6 +1001,17 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 	}
 
 	if (compute_encoder) {
+		uint64_t total_push_constant_size = 0;
+		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+			const PassEncoderCommand &command = p_command_buffer_info.commands[i];
+			if (command.type == PassEncoderCommand::CommandType::COMPUTE_SET_IMMEDIATES) {
+				total_push_constant_size += STEPIFY(command.compute_set_immediates.offset + command.compute_push_constants.size(), 256);
+			}
+		}
+		WGPUBuffer push_constant_buffer = _push_constant_buffer_acquire(p_command_buffer_info, total_push_constant_size);
+		uint32_t push_constant_offset = 0;
+		ShaderInfo *current_shader = nullptr;
+
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
 			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 
@@ -988,6 +1028,7 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				case PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE: {
 					PassEncoderCommand::SetPipeline data = command.set_pipeline;
 					wgpuComputePassEncoderSetPipeline(compute_encoder, data.pipeline_info->compute_pipeline);
+					current_shader = (ShaderInfo *)data.pipeline_info->shader_id.id;
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
@@ -995,9 +1036,16 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 							(size_t)command.dynamic_offsets.size(),
 							command.dynamic_offsets.is_empty() ? nullptr : command.dynamic_offsets.ptr());
 				} break;
-				case PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_IMMEDIATES: {
-					PassEncoderCommand::ComputeSetImmediates data = command.compute_set_push_constants;
-					wgpuComputePassEncoderSetImmediates(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
+				case PassEncoderCommand::CommandType::COMPUTE_SET_IMMEDIATES: {
+					PassEncoderCommand::ComputeSetImmediates data = command.compute_set_immediates;
+					uint32_t write_size = (uint32_t)command.compute_push_constants.size();
+					wgpuQueueWriteBuffer(queue, push_constant_buffer, push_constant_offset + data.offset, command.compute_push_constants.ptr(), write_size);
+
+					if (current_shader && current_shader->push_constant_set_index >= 0) {
+						WGPUBindGroup push_group = _push_constant_bind_group_create(current_shader, push_constant_buffer, push_constant_offset, current_shader->push_constant_size);
+						wgpuComputePassEncoderSetBindGroup(compute_encoder, (uint32_t)current_shader->push_constant_set_index, push_group, 0, nullptr);
+					}
+					push_constant_offset += STEPIFY(data.offset + write_size, 256);
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS: {
 					PassEncoderCommand::ComputeDispatchWorkgroups data = command.compute_dispatch_workgroups;
@@ -1028,6 +1076,17 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 	}
 
 	if (render_encoder) {
+		uint64_t total_push_constant_size = 0;
+		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+			const PassEncoderCommand &command = p_command_buffer_info.commands[i];
+			if (command.type == PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES) {
+				total_push_constant_size += STEPIFY(command.render_set_immediates.offset + command.render_push_constants.size(), 256);
+			}
+		}
+		WGPUBuffer push_constant_buffer = _push_constant_buffer_acquire(p_command_buffer_info, total_push_constant_size);
+		uint32_t push_constant_offset = 0;
+		ShaderInfo *current_shader = nullptr;
+
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
 			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 
@@ -1051,6 +1110,7 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				case PassEncoderCommand::CommandType::RENDER_SET_PIPELINE: {
 					PassEncoderCommand::SetPipeline data = command.set_pipeline;
 					wgpuRenderPassEncoderSetPipeline(render_encoder, data.pipeline_info->render_pipeline);
+					current_shader = (ShaderInfo *)data.pipeline_info->shader_id.id;
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
@@ -1095,8 +1155,15 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES: {
-					const PassEncoderCommand::RenderSetImmediates &data = command.render_set_push_constants;
-					wgpuRenderPassEncoderSetImmediates(render_encoder, data.offset, command.render_push_constants.size(), command.render_push_constants.ptr());
+					const PassEncoderCommand::RenderSetImmediates &data = command.render_set_immediates;
+					uint32_t write_size = (uint32_t)command.render_push_constants.size();
+					wgpuQueueWriteBuffer(queue, push_constant_buffer, push_constant_offset + data.offset, command.render_push_constants.ptr(), write_size);
+
+					if (current_shader && current_shader->push_constant_set_index >= 0) {
+						WGPUBindGroup push_group = _push_constant_bind_group_create(current_shader, push_constant_buffer, push_constant_offset, current_shader->push_constant_size);
+						wgpuRenderPassEncoderSetBindGroup(render_encoder, (uint32_t)current_shader->push_constant_set_index, push_group, 0, nullptr);
+					}
+					push_constant_offset += STEPIFY(data.offset + write_size, 256);
 				} break;
 				default:
 					break;
@@ -1126,6 +1193,13 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
+
+	// Flush push constant buffers back into the pool.
+	for (int i = 0; i < command_buffer_info->push_constant_buffer_used.size(); i++) {
+		const Pair<uint64_t, WGPUBuffer> &used = command_buffer_info->push_constant_buffer_used[i];
+		command_buffer_info->push_constant_buffer_pool[used.first].push_back(used.second);
+	}
+	command_buffer_info->push_constant_buffer_used.clear();
 
 	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
 	command_buffer_info->encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
@@ -1655,21 +1729,49 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		}
 	}
 	shader_info->push_constant_stage_flags = push_constant_stages;
+	shader_info->push_constant_size = refl.push_constant_size;
+	if (shader_info->push_constant_size > 0) {
+		WGPUBindGroupLayoutEntry entry = (WGPUBindGroupLayoutEntry){
+			.nextInChain = nullptr,
+			.binding = 0,
+			.visibility = push_constant_stages,
+			.buffer = (WGPUBufferBindingLayout){
+					.type = WGPUBufferBindingType_Uniform,
+					.hasDynamicOffset = false,
+					.minBindingSize = 0,
 
-	WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
-		.chain = (WGPUChainedStruct){
-				.sType = (WGPUSType)WGPUSType_PipelineLayoutExtras,
-		},
-		.immediateDataSize = refl.push_constant_size,
-	};
+			},
+		};
+		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
+			.nextInChain = nullptr,
+			.entryCount = 1,
+			.entries = &entry,
+		};
+		WGPUBindGroupLayout push_constant_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
+		shader_info->push_constant_set_index = (int64_t)shader_info->bind_group_layouts.size();
+		shader_info->push_constant_layout = push_constant_layout;
+		shader_info->bind_group_layouts.push_back(push_constant_layout);
+	}
+
+	// Superceded by immediates patching.
+	// Though maybe this will come back in the future.
+	//
+	// WGPUPipelineLayoutExtras wgpu_pipeline_extras = (WGPUPipelineLayoutExtras){
+	// 	.chain = (WGPUChainedStruct){
+	// 			.sType = (WGPUSType)WGPUSType_PipelineLayoutExtras,
+	// 	},
+	// 	.immediateDataSize = refl.push_constant_size,
+	// };
 
 	WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = (WGPUPipelineLayoutDescriptor){
-		.nextInChain = (WGPUChainedStruct *)&wgpu_pipeline_extras,
+		// .nextInChain = (WGPUChainedStruct *)&wgpu_pipeline_extras,
+		.nextInChain = nullptr,
 		.bindGroupLayoutCount = (size_t)shader_info->bind_group_layouts.size(),
 		.bindGroupLayouts = shader_info->bind_group_layouts.ptr(),
 	};
 
 	shader_info->pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &pipeline_layout_descriptor);
+
 	ERR_FAIL_COND_V(!shader_info->pipeline_layout, ShaderID());
 
 	return ShaderID(shader_info);
@@ -1881,6 +1983,23 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 	};
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
 	return bind_group;
+}
+
+WGPUBindGroup RenderingDeviceDriverWebGpu::_push_constant_bind_group_create(const ShaderInfo *p_shader_info, WGPUBuffer p_buffer, uint64_t p_offset, uint64_t p_size) {
+	DEV_ASSERT(p_shader_info->push_constant_layout != nullptr);
+
+	WGPUBindGroupEntry entry = {};
+	entry.binding = 0;
+	entry.buffer = p_buffer;
+	entry.offset = p_offset;
+	entry.size = p_size;
+
+	WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
+		.layout = p_shader_info->push_constant_layout,
+		.entryCount = 1,
+		.entries = &entry,
+	};
+	return wgpuDeviceCreateBindGroup(device, &bind_group_desc);
 }
 
 LocalVector<RenderingDeviceDriverWebGpu::BoundUniform> RenderingDeviceDriverWebGpu::_prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashMap<uint32_t, HashSet<uint32_t>> &p_pruned_set_bindings) {
@@ -2483,15 +2602,15 @@ void RenderingDeviceDriverWebGpu::command_bind_push_constants(CommandBufferID p_
 	if (shader_info->push_constant_stage_flags & WGPUShaderStage_Compute) {
 		command_buffer_info->has_compute_commands = true;
 		command_buffer_info->commands.push_back((PassEncoderCommand){
-				.type = PassEncoderCommand::CommandType::COMPUTE_SET_PUSH_IMMEDIATES,
-				.compute_set_push_constants = (PassEncoderCommand::ComputeSetImmediates){
+				.type = PassEncoderCommand::CommandType::COMPUTE_SET_IMMEDIATES,
+				.compute_set_immediates = (PassEncoderCommand::ComputeSetImmediates){
 						.offset = p_first_index },
 				.compute_push_constants = data,
 		});
 	} else if (shader_info->push_constant_stage_flags & WGPUShaderStage_Vertex || shader_info->push_constant_stage_flags & WGPUShaderStage_Fragment) {
 		command_buffer_info->commands.push_back((PassEncoderCommand){
 				.type = PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES,
-				.render_set_push_constants = (PassEncoderCommand::RenderSetImmediates){
+				.render_set_immediates = (PassEncoderCommand::RenderSetImmediates){
 						.offset = p_first_index },
 				.render_push_constants = data,
 		});

@@ -136,9 +136,15 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		Vector<uint8_t> spirv;
 	};
 	Vector<PatchedStage> patched;
-	Vector<TransformCorrectionMap> correction_maps;
+	Vector<SpvTransformCorrectionMap> correction_maps;
 	patched.resize(p_spirv.size());
 	correction_maps.resize(p_spirv.size());
+
+	// The max_set + 1 is where we want to put the push constant emulation uniform.
+	uint32_t max_set = 0;
+	for (uint32_t i = 0; i < p_spirv.size(); i++) {
+		max_set = MAX(p_shader.uniform_sets.size() - 1, max_set);
+	}
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
@@ -151,7 +157,11 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				(const uint8_t *)stage_spirv.ptr(), stage_spirv.size() * sizeof(uint32_t));
 #endif
 
-		TransformCorrectionMap map = (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
+		SpvTransformCorrectionMap map = (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
+
+		// Ensure our push constant emulation uniform is at the max_set + 1, rather than detecting for each shader.
+		spirv_webgpu_transform_correction_write_immediates_set(&map, max_set + 1);
+
 		uint32_t *combimg_out_spv = nullptr;
 		uint32_t combimg_out_count = 0;
 		spirv_webgpu_transform_combimgsampsplitter_alloc(in_spirv.ptrw(), in_spirv.size(), &combimg_out_spv, &combimg_out_count, &map);
@@ -168,9 +178,18 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		uint32_t storagecube_out_count = 0;
 		spirv_webgpu_transform_storagecubepatch_alloc(isnanisinf_out_spv, isnanisinf_out_count, &storagecube_out_spv, &storagecube_out_count, &map);
 
+		uint32_t *immediates_out_spv = nullptr;
+		uint32_t immediates_out_count = 0;
+		spirv_webgpu_transform_immediatespatch_alloc(storagecube_out_spv, storagecube_out_count, &immediates_out_spv, &immediates_out_count, &map);
+
+		// uint32_t *bindingarray_out_spv = nullptr;
+		// uint32_t bindingarray_out_count = 0;
+		// spirv_webgpu_transform_splitbindingarray_alloc(immediates_out_spv, immediates_out_count, &bindingarray_out_spv, &bindingarray_out_count, &map);
+
 		uint32_t *pruneunuseddref_out_spv = nullptr;
 		uint32_t pruneunuseddref_out_count = 0;
-		spirv_webgpu_transform_pruneunuseddref_alloc(storagecube_out_spv, storagecube_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
+		// spirv_webgpu_transform_pruneunuseddref_alloc(bindingarray_out_spv, bindingarray_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
+		spirv_webgpu_transform_pruneunuseddref_alloc(immediates_out_spv, immediates_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
 
 		Vector<uint8_t> out_spirv;
 		out_spirv.resize(pruneunuseddref_out_count * sizeof(uint32_t));
@@ -184,16 +203,18 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		spirv_webgpu_transform_drefsplitter_free(dref_out_spv);
 		spirv_webgpu_transform_isnanisinfpatch_free(isnanisinf_out_spv);
 		spirv_webgpu_transform_storagecubepatch_free(storagecube_out_spv);
+		spirv_webgpu_transform_immediatespatch_free(immediates_out_spv);
+		// spirv_webgpu_transform_splitbindingarray_free(bindingarray_out_spv);
 		spirv_webgpu_transform_pruneunuseddref_free(pruneunuseddref_out_spv);
 	}
 
 	ERR_FAIL_COND_V_MSG(correction_maps.size() > 2, false, "Unexpected, more than 2 stages in one shader");
-	TransformCorrectionMap correction_map = (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
+	SpvTransformCorrectionMap correction_map = (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 	if (correction_maps.size() == 1) {
 		correction_map = correction_maps[0];
 	} else if (correction_maps.size() == 2) {
-		TransformCorrectionMap left_map = correction_maps[0];
-		TransformCorrectionMap right_map = correction_maps[1];
+		SpvTransformCorrectionMap left_map = correction_maps[0];
+		SpvTransformCorrectionMap right_map = correction_maps[1];
 
 		Vector<uint8_t> &left_spirv = patched.write[0].spirv;
 		Vector<uint8_t> &right_spirv = patched.write[1].spirv;
@@ -307,12 +328,12 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 			u.corrections.clear();
 			u.binding_hints.clear();
-			if (correction_map != (TransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
+			if (correction_map != (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL) {
 				uint16_t *corrections_raw = nullptr;
 				uint32_t correction_count = 0;
-				TransformCorrectionStatus status = spirv_webgpu_transform_correction_map_index(
+				uint8_t status = spirv_webgpu_transform_correction_sets_index(
 						correction_map, set_idx, uniform_refl.binding, &corrections_raw, &correction_count);
-				if (status == SPIRV_WEBGPU_TRANSFORM_CORRECTION_STATUS_SOME) {
+				if (status != 0) {
 					for (uint32_t k = 0; k < correction_count; k++) {
 						u.corrections.push_back((uint32_t)corrections_raw[k]);
 					}

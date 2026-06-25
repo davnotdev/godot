@@ -226,7 +226,7 @@ private:
 
 			COMPUTE_SET_PIPELINE,
 			COMPUTE_SET_BIND_GROUP,
-			COMPUTE_SET_PUSH_IMMEDIATES,
+			COMPUTE_SET_IMMEDIATES,
 			COMPUTE_DISPATCH_WORKGROUPS,
 			COMPUTE_DISPATCH_WORKGROUPS_INDIRECT,
 		};
@@ -351,9 +351,9 @@ private:
 			RenderSetVertexBuffer render_set_vertex_buffer;
 			RenderSetIndexBuffer render_set_index_buffer;
 			RenderSetBlendConstant render_set_blend_constant;
-			RenderSetImmediates render_set_push_constants;
+			RenderSetImmediates render_set_immediates;
 
-			ComputeSetImmediates compute_set_push_constants;
+			ComputeSetImmediates compute_set_immediates;
 			ComputeDispatchWorkgroups compute_dispatch_workgroups;
 			ComputeDispatchWorkgroupsIndirect compute_dispatch_workgroups_indirect;
 
@@ -392,8 +392,13 @@ private:
 		bool has_compute_commands = false;
 		bool is_render_pass_active = false;
 		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
+
+		// Per frame push constant buffer pool
+		HashMap<uint64_t, Vector<WGPUBuffer>> push_constant_buffer_pool;
+		Vector<Pair<uint64_t, WGPUBuffer>> push_constant_buffer_used;
 	};
 
+	WGPUBuffer _push_constant_buffer_acquire(CommandBufferInfo &p_command_buffer_info, uint64_t p_size);
 	void _flush_active_command_pass(CommandBufferInfo &p_command_buffer_info);
 
 public:
@@ -449,6 +454,10 @@ private:
 
 		WGPUShaderStage stage_flags;
 		WGPUShaderStage push_constant_stage_flags;
+		uint64_t push_constant_size;
+
+		WGPUBindGroupLayout push_constant_layout = nullptr;
+		int64_t push_constant_set_index = -1;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
@@ -495,6 +504,11 @@ private:
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
 			const HashSet<uint32_t> *p_binding_mask);
+	WGPUBindGroup _push_constant_bind_group_create(
+			const ShaderInfo *p_shader_info,
+			WGPUBuffer p_buffer,
+			uint64_t p_offset,
+			uint64_t p_size);
 
 	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
 	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
@@ -517,8 +531,7 @@ private:
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<OriginalBindingIndex> &p_used_original_bindings
-	);
+			const HashSet<OriginalBindingIndex> &p_used_original_bindings);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these

@@ -76,7 +76,18 @@ layout(push_constant, std430) uniform Params {
 	float glow_map_strength;
 
 	uint glow_mode;
+#ifndef WEBGPU_USED
 	float glow_levels[7];
+#else
+	// WGSL array fields must be 16-byte aligned.
+	float glow_levels_0;
+	float glow_levels_1;
+	float glow_levels_2;
+	float glow_levels_3;
+	float glow_levels_4;
+	float glow_levels_5;
+	float glow_levels_6;
+#endif
 
 	float exposure;
 	float white;
@@ -372,32 +383,50 @@ vec3 gather_glow(SAMPLER_FORMAT tex, vec2 uv) { // sample all selected glow leve
 
 	vec3 glow = vec3(0.0f);
 
-	if (params.glow_levels[0] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 0).rgb * params.glow_levels[0];
+#ifndef WEBGPU_USED
+	float glow_levels_0 = params.glow_levels[0];
+	float glow_levels_1 = params.glow_levels[1];
+	float glow_levels_2 = params.glow_levels[2];
+	float glow_levels_3 = params.glow_levels[3];
+	float glow_levels_4 = params.glow_levels[4];
+	float glow_levels_5 = params.glow_levels[5];
+	float glow_levels_6 = params.glow_levels[6];
+#else
+	float glow_levels_0 = params.glow_levels_0;
+	float glow_levels_1 = params.glow_levels_1;
+	float glow_levels_2 = params.glow_levels_2;
+	float glow_levels_3 = params.glow_levels_3;
+	float glow_levels_4 = params.glow_levels_4;
+	float glow_levels_5 = params.glow_levels_5;
+	float glow_levels_6 = params.glow_levels_6;
+#endif
+
+	if (glow_levels_0 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 0).rgb * glow_levels_0;
 	}
 
-	if (params.glow_levels[1] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 1).rgb * params.glow_levels[1];
+	if (glow_levels_1 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 1).rgb * glow_levels_1;
 	}
 
-	if (params.glow_levels[2] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 2).rgb * params.glow_levels[2];
+	if (glow_levels_2 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 2).rgb * glow_levels_2;
 	}
 
-	if (params.glow_levels[3] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 3).rgb * params.glow_levels[3];
+	if (glow_levels_3 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 3).rgb * glow_levels_3;
 	}
 
-	if (params.glow_levels[4] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 4).rgb * params.glow_levels[4];
+	if (glow_levels_4 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 4).rgb * glow_levels_4;
 	}
 
-	if (params.glow_levels[5] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 5).rgb * params.glow_levels[5];
+	if (glow_levels_5 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 5).rgb * glow_levels_5;
 	}
 
-	if (params.glow_levels[6] > 0.0001) {
-		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 6).rgb * params.glow_levels[6];
+	if (glow_levels_6 > 0.0001) {
+		glow += GLOW_TEXTURE_SAMPLE(tex, uv, 6).rgb * glow_levels_6;
 	}
 
 	glow = glow * params.luminance_multiplier;

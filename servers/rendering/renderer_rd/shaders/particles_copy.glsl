@@ -69,7 +69,23 @@ layout(push_constant, std430) uniform Params {
 	uint motion_vectors_current_offset;
 	uint flags;
 
+#ifndef WEBGPU_USED
 	float inv_emission_transform[12];
+#else
+	// WGSL array fields must be 16-byte aligned.
+	float inv_emission_transform_0;
+	float inv_emission_transform_1;
+	float inv_emission_transform_2;
+	float inv_emission_transform_3;
+	float inv_emission_transform_4;
+	float inv_emission_transform_5;
+	float inv_emission_transform_6;
+	float inv_emission_transform_7;
+	float inv_emission_transform_8;
+	float inv_emission_transform_9;
+	float inv_emission_transform_10;
+	float inv_emission_transform_11;
+#endif
 
 	uint align_channel_filter;
 	uint align_axis;
@@ -318,11 +334,17 @@ void main() {
 			// In global mode, bring 2D particles to local coordinates
 			// as they will be drawn with the node position as origin.
 			mat4 inv_emission_transform;
+#ifndef WEBGPU_USED
 			inv_emission_transform[0] = vec4(params.inv_emission_transform[0], params.inv_emission_transform[1], params.inv_emission_transform[2], 0.0);
 			inv_emission_transform[1] = vec4(params.inv_emission_transform[3], params.inv_emission_transform[4], params.inv_emission_transform[5], 0.0);
 			inv_emission_transform[2] = vec4(params.inv_emission_transform[6], params.inv_emission_transform[7], params.inv_emission_transform[8], 0.0);
 			inv_emission_transform[3] = vec4(params.inv_emission_transform[9], params.inv_emission_transform[10], params.inv_emission_transform[11], 1.0);
-
+#else
+			inv_emission_transform[0] = vec4(params.inv_emission_transform_0, params.inv_emission_transform_1, params.inv_emission_transform_2, 0.0);
+			inv_emission_transform[1] = vec4(params.inv_emission_transform_3, params.inv_emission_transform_4, params.inv_emission_transform_5, 0.0);
+			inv_emission_transform[2] = vec4(params.inv_emission_transform_6, params.inv_emission_transform_7, params.inv_emission_transform_8, 0.0);
+			inv_emission_transform[3] = vec4(params.inv_emission_transform_9, params.inv_emission_transform_10, params.inv_emission_transform_11, 1.0);
+#endif
 			txform = inv_emission_transform * txform;
 		}
 	} else {
