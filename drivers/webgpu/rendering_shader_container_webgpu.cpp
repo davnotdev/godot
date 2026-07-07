@@ -182,14 +182,13 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		uint32_t immediates_out_count = 0;
 		spirv_webgpu_transform_immediatespatch_alloc(storagecube_out_spv, storagecube_out_count, &immediates_out_spv, &immediates_out_count, &map);
 
-		// uint32_t *bindingarray_out_spv = nullptr;
-		// uint32_t bindingarray_out_count = 0;
-		// spirv_webgpu_transform_splitbindingarray_alloc(immediates_out_spv, immediates_out_count, &bindingarray_out_spv, &bindingarray_out_count, &map);
+		uint32_t *bindingarray_out_spv = nullptr;
+		uint32_t bindingarray_out_count = 0;
+		spirv_webgpu_transform_splitbindingarray_alloc(immediates_out_spv, immediates_out_count, &bindingarray_out_spv, &bindingarray_out_count, &map);
 
 		uint32_t *pruneunuseddref_out_spv = nullptr;
 		uint32_t pruneunuseddref_out_count = 0;
-		// spirv_webgpu_transform_pruneunuseddref_alloc(bindingarray_out_spv, bindingarray_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
-		spirv_webgpu_transform_pruneunuseddref_alloc(immediates_out_spv, immediates_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
+		spirv_webgpu_transform_pruneunuseddref_alloc(bindingarray_out_spv, bindingarray_out_count, &pruneunuseddref_out_spv, &pruneunuseddref_out_count);
 
 		Vector<uint8_t> out_spirv;
 		out_spirv.resize(pruneunuseddref_out_count * sizeof(uint32_t));
@@ -204,7 +203,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		spirv_webgpu_transform_isnanisinfpatch_free(isnanisinf_out_spv);
 		spirv_webgpu_transform_storagecubepatch_free(storagecube_out_spv);
 		spirv_webgpu_transform_immediatespatch_free(immediates_out_spv);
-		// spirv_webgpu_transform_splitbindingarray_free(bindingarray_out_spv);
+		spirv_webgpu_transform_splitbindingarray_free(bindingarray_out_spv);
 		spirv_webgpu_transform_pruneunuseddref_free(pruneunuseddref_out_spv);
 	}
 

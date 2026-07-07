@@ -447,6 +447,7 @@ public:
 	/****************/
 
 private:
+	// Much of this data is debug related.
 	struct ShaderInfo {
 		WGPU_NULLABLE WGPUShaderModule vertex_shader;
 		WGPU_NULLABLE WGPUShaderModule fragment_shader;
@@ -471,6 +472,7 @@ private:
 		HashMap<uint32_t, HashSet<OriginalBindingIndex>> used_original_bindings;
 
 		String shader_name;
+		Vector<String> shader_contents;
 		WGPUPipelineLayout pipeline_layout;
 
 		HashMap<uint32_t, CharString> vertex_override_layout;

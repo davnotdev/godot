@@ -60,9 +60,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
-		// New to spec, waiting for proper support
+		// New to spec, waiting for proper support in wgpu
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
-		// I haven't looked into these
 
 		// Binding Array related
 		(WGPUFeatureName)WGPUNativeFeature_TextureBindingArray,
@@ -102,7 +101,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.maxDynamicStorageBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
 				.maxSampledTexturesPerShaderStage = 49,
 				.maxSamplersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
-				.maxStorageBuffersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
+				.maxStorageBuffersPerShaderStage = 12,
 				.maxStorageTexturesPerShaderStage = 15,
 				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
 				.maxUniformBuffersPerShaderStage = 32768 + 272,
@@ -1378,14 +1377,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			WGPUBindGroupLayoutEntry layout_entry = {};
 			layout_entry.binding = info.binding + wgpu_binding_offset;
 			layout_entry.visibility = shader_stage;
-			WGPUBindGroupLayoutEntryExtras *layout_entry_extras = ALLOCA_SINGLE(WGPUBindGroupLayoutEntryExtras);
-			*layout_entry_extras = (WGPUBindGroupLayoutEntryExtras){
-				.chain = (WGPUChainedStruct){
-						.sType = (WGPUSType)WGPUSType_BindGroupLayoutEntryExtras,
-				},
-				.count = 1,
-			};
-			layout_entry.nextInChain = &layout_entry_extras->chain;
 
 			// Used to build `used_original_bindings`.
 			int set_original_entry_count = bind_group_layout_entries[set_idx].size();
@@ -1399,17 +1390,12 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					layout_entry.sampler = (WGPUSamplerBindingLayout){
 						.type = sampler_binding_type,
 					};
-					layout_entry_extras->count = info.length;
 					if (!pruned) {
 						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
 					}
 
 					for (int i = 0; i < u.corrections.size(); i++) {
 						const uint32_t correction = u.corrections[i];
-						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON &&
-								correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
-							continue;
-						}
 						wgpu_binding_offset += 1;
 						WGPUBindGroupLayoutEntry correction_entry = layout_entry;
 						correction_entry.binding = info.binding + wgpu_binding_offset;
@@ -1424,6 +1410,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								memdelete(shader_info);
 								ERR_FAIL_V_MSG(ShaderID(), "Expected sampler, got combined image sampler");
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY:
+								break;
 						}
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
@@ -1445,39 +1433,44 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = multisampled,
 					};
-					if (!pruned) {
-						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
-					}
 
 					WGPUBindGroupLayoutEntry sampler_layout = layout_entry;
+					sampler_layout.binding += 1;
 					sampler_layout.texture.sampleType = WGPUTextureSampleType_BindingNotUsed;
 					sampler_layout.sampler = (WGPUSamplerBindingLayout){
 						.type = WGPUSamplerBindingType_Filtering,
 					};
+					wgpu_binding_offset += 1;
+
+					if (!pruned) {
+						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+						bind_group_layout_entries.write[set_idx].push_back(sampler_layout);
+					}
 
 					bool corrected_combimg_sampler = false;
 					for (int i = 0; i < u.corrections.size(); i++) {
 						const uint32_t correction = u.corrections[i];
-
-						wgpu_binding_offset += 1;
-						WGPUBindGroupLayoutEntry correction_entry = sampler_layout;
-						correction_entry.binding = info.binding + wgpu_binding_offset;
-
 						switch (correction) {
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR:
-								correction_entry.texture.sampleType = WGPUTextureSampleType_Float;
 								memdelete(shader_info);
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON:
-								correction_entry.texture.sampleType = WGPUTextureSampleType_Depth;
 								memdelete(shader_info);
 								ERR_FAIL_V_MSG(ShaderID(), "WebGpu cannot consider the dref split of a combined image sampler");
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								corrected_combimg_sampler = true;
 								break;
-						}
-						if (!pruned) {
-							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY:
+								WGPUBindGroupLayoutEntry texture_layout = layout_entry;
+								WGPUBindGroupLayoutEntry sampler_layout = layout_entry;
+								texture_layout.binding = info.binding + wgpu_binding_offset + 1;
+								sampler_layout.binding = info.binding + wgpu_binding_offset + 2;
+								wgpu_binding_offset += 2;
+								if (!pruned) {
+									bind_group_layout_entries.write[set_idx].push_back(texture_layout);
+									bind_group_layout_entries.write[set_idx].push_back(sampler_layout);
+								}
+								break;
 						}
 					}
 
@@ -1485,8 +1478,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						memdelete(shader_info);
 						ERR_FAIL_V_MSG(ShaderID(), "WebGpu correction for combined image sampler unexpectedly skipped");
 					}
-
-					// TODO: Figure out array of combined image samplers.
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					bool pruned = u.base_hint.type == WebGpuBindingHintType::UNUSED;
@@ -1516,7 +1507,6 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type),
 						.multisampled = multisampled,
 					};
-					layout_entry_extras->count = info.length;
 
 					if (!pruned) {
 						bind_group_layout_entries.write[set_idx].push_back(layout_entry);
@@ -1539,6 +1529,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED:
 								memdelete(shader_info);
 								ERR_FAIL_V_MSG(ShaderID(), "Expected texture, got combined image sampler");
+							case SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY:
+								break;
 						}
 						if (!pruned) {
 							bind_group_layout_entries.write[set_idx].push_back(correction_entry);
@@ -1573,8 +1565,18 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 						.format = webgpu_texture_format_from_rd(info.image_format),
 						.viewDimension = viewDimension,
 					};
-					layout_entry_extras->count = info.length;
+
 					bind_group_layout_entries.write[set_idx].push_back(layout_entry);
+
+					for (int i = 0; i < u.corrections.size(); i++) {
+						const uint32_t correction = u.corrections[i];
+						wgpu_binding_offset += 1;
+						if (correction == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY) {
+							WGPUBindGroupLayoutEntry array_entry = layout_entry;
+							array_entry.binding = layout_entry.binding + wgpu_binding_offset;
+							bind_group_layout_entries.write[set_idx].push_back(array_entry);
+						}
+					}
 				} break;
 				case UNIFORM_TYPE_INPUT_ATTACHMENT: {
 					const WebGpuBindingHint &input_hint = u.base_hint;
@@ -1680,6 +1682,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 					.length = source_size,
 			},
 		};
+
+		shader_info->shader_contents.push_back(String((const char *)decompressed_code.ptr()));
 
 		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
 			.nextInChain = &source.chain,
@@ -1800,95 +1804,49 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 		int binding_correction_count = (p_set_binding_corrections.has(uniform.binding) ? (int)p_set_binding_corrections[uniform.binding].size() : 0);
 		switch (uniform.type) {
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER: {
+				uint32_t array_index = 0;
 				for (int i = -1; i < binding_correction_count; i++) {
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
-						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON && correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
-							continue;
+						if (correction == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY) {
+							array_index += 1;
 						}
 						binding_offset += 1;
 					}
 
 					WGPUBindGroupEntry entry = {};
 					entry.binding = uniform.binding + binding_offset;
-					if (uniform.ids.size() == 1) {
-						entry.sampler = (WGPUSampler)uniform.ids[0].id;
-					} else {
-						WGPUSampler *uniform_samplers = ALLOCA_ARRAY(WGPUSampler, uniform.ids.size());
-
-						for (uint32_t j = 0; j < uniform.ids.size(); j++) {
-							WGPUSampler sampler = (WGPUSampler)uniform.ids[j].id;
-							uniform_samplers[j] = sampler;
-						}
-
-						WGPUBindGroupEntryExtras *entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
-						*entry_extras = (WGPUBindGroupEntryExtras){
-							.chain = (WGPUChainedStruct){
-									.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
-							},
-							.samplers = uniform_samplers,
-							.samplerCount = (size_t)uniform.ids.size(),
-						};
-						entry.nextInChain = (WGPUChainedStruct *)entry_extras;
-					}
+					entry.sampler = (WGPUSampler)uniform.ids[array_index].id;
 					entries.push_back(entry);
 				}
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
-				bool is_array = uniform.ids.size() != 2;
-				WGPUSampler single_sampler = nullptr;
-				WGPUSampler *uniform_samplers = nullptr;
-				uint32_t uniform_count = 0;
+				uint32_t array_index = 0;
 
-				WGPUBindGroupEntry texture_entry = {};
-				texture_entry.binding = uniform.binding + binding_offset;
-
-				if (!is_array) {
-					single_sampler = (WGPUSampler)uniform.ids[0].id;
-					TextureInfo *texture_info = (TextureInfo *)uniform.ids[1].id;
-					texture_entry.textureView = texture_info->get_view_with_format();
-				} else {
-					uniform_count = uniform.ids.size() / 2;
-					uniform_samplers = ALLOCA_ARRAY(WGPUSampler, uniform_count);
-					WGPUTextureView *uniform_texture_views = ALLOCA_ARRAY(WGPUTextureView, uniform_count);
-
-					for (uint32_t i = 0; i < uniform_count; i++) {
-						uniform_samplers[i] = (WGPUSampler)uniform.ids[i * 2 + 0].id;
-						TextureInfo *texture_info = (TextureInfo *)uniform.ids[i * 2 + 1].id;
-						uniform_texture_views[i] = texture_info->get_view_with_format();
+				for (int i = -1; i < binding_correction_count; i++) {
+					if (i >= 0) {
+						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
+						if (correction == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY) {
+							array_index += 1;
+							binding_offset += 1;
+						}
+						if (correction == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_COMBINED) {
+							continue;
+						}
 					}
 
-					WGPUBindGroupEntryExtras *texture_view_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
-					*texture_view_entry_extras = (WGPUBindGroupEntryExtras){
-						.chain = (WGPUChainedStruct){
-								.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
-						},
-						.textureViews = uniform_texture_views,
-						.textureViewCount = uniform_count,
-					};
-					texture_entry.nextInChain = (WGPUChainedStruct *)texture_view_entry_extras;
-				}
-				entries.push_back(texture_entry);
+					WGPUBindGroupEntry texture_entry = {};
+					texture_entry.binding = uniform.binding + binding_offset;
 
-				int sampler_entry_count = binding_correction_count > 0 ? binding_correction_count : 1;
-				for (int i = 0; i < sampler_entry_count; i++) {
+					TextureInfo *texture_info = (TextureInfo *)uniform.ids[array_index * 2 + 1].id;
+					texture_entry.textureView = texture_info->get_view_with_format();
+					entries.push_back(texture_entry);
+
 					binding_offset += 1;
 
 					WGPUBindGroupEntry sampler_entry = {};
 					sampler_entry.binding = uniform.binding + binding_offset;
-					if (!is_array) {
-						sampler_entry.sampler = single_sampler;
-					} else {
-						WGPUBindGroupEntryExtras *sampler_entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
-						*sampler_entry_extras = (WGPUBindGroupEntryExtras){
-							.chain = (WGPUChainedStruct){
-									.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
-							},
-							.samplers = uniform_samplers,
-							.samplerCount = uniform_count,
-						};
-						sampler_entry.nextInChain = (WGPUChainedStruct *)sampler_entry_extras;
-					}
+					sampler_entry.sampler = (WGPUSampler)uniform.ids[array_index * 2 + 0].id;
 					entries.push_back(sampler_entry);
 				}
 			} break;
@@ -1896,14 +1854,15 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_IMAGE:
 			case RenderingDeviceCommons::UNIFORM_TYPE_INPUT_ATTACHMENT: {
+				uint32_t array_index = 0;
 				for (int i = -1; i < binding_correction_count; i++) {
 					ERR_FAIL_COND_V(
 							(uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE && uniform.type != RenderingDeviceCommons::UNIFORM_TYPE_IMAGE) && binding_correction_count != 0,
 							nullptr);
 					if (i >= 0) {
 						uint32_t correction = p_set_binding_corrections[uniform.binding][i];
-						if (correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_COMPARISON && correction != SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_DREF_REGULAR) {
-							continue;
+						if (correction == SPIRV_WEBGPU_TRANSFORM_CORRECTION_TYPE_SPLIT_BINDING_ARRAY) {
+							array_index += 1;
 						}
 						binding_offset += 1;
 					}
@@ -1911,27 +1870,8 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 					WGPUBindGroupEntry entry = {};
 					entry.binding = uniform.binding + binding_offset;
 
-					if (uniform.ids.size() == 1) {
-						TextureInfo *texture_info = (TextureInfo *)uniform.ids[0].id;
-						entry.textureView = texture_info->get_view_with_format();
-					} else {
-						WGPUTextureView *uniform_texture_views = ALLOCA_ARRAY(WGPUTextureView, uniform.ids.size());
-
-						for (uint32_t j = 0; j < uniform.ids.size(); j++) {
-							TextureInfo *texture_info = (TextureInfo *)uniform.ids[j].id;
-							uniform_texture_views[j] = texture_info->get_view_with_format();
-						}
-
-						WGPUBindGroupEntryExtras *entry_extras = ALLOCA_SINGLE(WGPUBindGroupEntryExtras);
-						*entry_extras = (WGPUBindGroupEntryExtras){
-							.chain = (WGPUChainedStruct){
-									.sType = (WGPUSType)WGPUSType_BindGroupEntryExtras,
-							},
-							.textureViews = uniform_texture_views,
-							.textureViewCount = (size_t)uniform.ids.size(),
-						};
-						entry.nextInChain = (WGPUChainedStruct *)entry_extras;
-					}
+					TextureInfo *texture_info = (TextureInfo *)uniform.ids[array_index].id;
+					entry.textureView = texture_info->get_view_with_format();
 					entries.push_back(entry);
 				}
 			} break;
@@ -2033,6 +1973,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_select_bind_group_from_uniform_set(U
 
 WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<uint32_t> &p_used_original_bindings, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<uint32_t> *p_binding_mask) {
 	// TODO: Watch out! Now that dynamic bindings exist, this may not always work out.
+	// TODO TODO TODO: AHHHHHHHHHH
 
 	HashMap<uint32_t, const WGPUBindGroupLayoutEntry *> entry_by_binding;
 	for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
@@ -2291,8 +2232,8 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	LocalVector<BoundUniform> pruned_uniforms = _prune_bind_group_uniforms(p_uniforms, p_set_index, shader_info->used_original_bindings);
-	WGPUBindGroup bind_group = _bind_group_create(pruned_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index], nullptr);
+	// TODO TODO TODO: AHHHHHHHHH
+	WGPUBindGroup bind_group = _bind_group_create(p_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index], &shader_info->used_set_bindings[p_set_index]);
 
 	HashMap<uint32_t, BoundUniform> saved_uniforms;
 	for (uint32_t i = 0; i < p_uniforms.size(); i++) {
