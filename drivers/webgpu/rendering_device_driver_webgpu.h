@@ -7,6 +7,8 @@
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
 
+#include <spirv_webgpu_transform.h>
+
 class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	// TODO: Comb through the code and use this type.
 	// Often, we mix `uint32_t`'s that mean different things.
@@ -464,12 +466,16 @@ private:
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
 		Vector<Vector<WGPUBindGroupLayoutEntry>> bind_group_layout_entries;
 
-		HashMap<uint32_t, HashMap<uint32_t, Vector<uint32_t>>> set_binding_corrections;
-		HashMap<uint32_t, HashMap<uint32_t, WebGpuBindingHint>> set_binding_hints;
+		// It is crucially important that we save ALL corrections, even of pruned bindings.
+		// Pruned bindings can still affect the offset of our bindings.
+		HashMap<uint32_t, HashMap<OriginalBindingIndex, Vector<uint32_t>>> set_binding_corrections;
+		HashMap<uint32_t, HashMap<CorrectedBindingIndex, WebGpuBindingHint>> set_binding_hints;
 
 		// TODO: Should we actually store both original and corrected indices? There must be a better abstraction here.
+		// Used to mask out pruned bindings in _mock_bind_group_create.
 		HashMap<uint32_t, HashSet<CorrectedBindingIndex>> used_set_bindings;
-		HashMap<uint32_t, HashSet<OriginalBindingIndex>> used_original_bindings;
+		// Used to accurately recreate a set of resources in _mock_bind_group_create.
+		HashMap<uint32_t, HashMap<OriginalBindingIndex, UniformType>> used_original_bindings_map;
 
 		String shader_name;
 		Vector<String> shader_contents;
@@ -491,11 +497,37 @@ public:
 	/**** UNIFORM SET ****/
 	/*********************/
 
+	class CorrectedBinding {
+	public:
+		// Used to index the `p_bindings` passed in.
+		uint32_t input_idx;
+		// Binding indices as seen from a WGSL shader.
+		CorrectedBindingIndex corrected_binding_idx;
+		// Index of uniforms[_].
+		uint32_t original_array_idx;
+		// Index of uniform.ids[_].
+		uint32_t binding_id_idx;
+		UniformType original_type;
+		Pair<SpvTransformCorrectionType, bool> maybe_correction;
+	};
+
 private:
+	enum class BindingIndexType {
+		NONE,
+		ORIGINAL,
+		CORRECTED,
+	};
+	// Unified logic for index correction.
+	Vector<CorrectedBinding> _correct_binding_indices(
+			const Vector<Pair<uint32_t, UniformType>> &p_bindings,
+			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
+			const HashSet<uint32_t> *p_pruned_bindings = nullptr,
+			BindingIndexType p_mask_type = BindingIndexType::NONE);
+
 	struct UniformSetInfo {
 		// NOTE: We save uniforms in case we need to recreate a bind group for a slight pipeline variation at draw time.
 		// Perhaps we can make an API trait to fight against this instead?
-		HashMap<uint32_t, BoundUniform> saved_uniforms;
+		HashMap<OriginalBindingIndex, BoundUniform> saved_uniforms;
 		Vector<WGPUBindGroup> bind_groups;
 		HashMap<WGPUBindGroupLayout, WGPUBindGroup> cached;
 		Vector<BufferDynamicInfo *> dynamic_buffers;
@@ -505,7 +537,7 @@ private:
 			const VectorView<BoundUniform> &p_uniforms,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<uint32_t> *p_binding_mask);
+			const HashSet<CorrectedBindingIndex> *p_binding_mask);
 	WGPUBindGroup _push_constant_bind_group_create(
 			const ShaderInfo *p_shader_info,
 			WGPUBuffer p_buffer,
@@ -525,15 +557,15 @@ private:
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<OriginalBindingIndex> &p_used_original_bindings,
-			const HashMap<uint32_t, BoundUniform> &p_override_uniforms,
-			const HashSet<uint32_t> *p_binding_mask);
+			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
+			const HashMap<OriginalBindingIndex, BoundUniform> &p_override_uniforms,
+			const HashSet<CorrectedBindingIndex> *p_binding_mask);
 
 	WGPUBindGroup _mock_bind_group_create_or_get(
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<OriginalBindingIndex> &p_used_original_bindings);
+			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these

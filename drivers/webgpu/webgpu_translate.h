@@ -1,5 +1,5 @@
-#ifndef WEBGPU_TRANS_H
-#define WEBGPU_TRANS_H
+#ifndef WEBGPU_TRANSLATE_H
+#define WEBGPU_TRANSLATE_H
 
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"

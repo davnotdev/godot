@@ -1,4 +1,4 @@
-#include "webgpu_trans.h"
+#include "webgpu_translate.h"
 
 #include "naga.h"
 

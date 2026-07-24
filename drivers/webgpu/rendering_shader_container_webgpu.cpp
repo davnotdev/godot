@@ -7,7 +7,7 @@
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
-#include "drivers/webgpu/webgpu_trans.h"
+#include "drivers/webgpu/webgpu_translate.h"
 
 #include <thirdparty/spirv-reflect/spirv_reflect.h>
 
@@ -293,7 +293,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			hint_set = &merged_binding_hints.get(set_idx);
 		}
 
-		uint32_t wgpu_binding_offset = 0;
+		uint32_t binding_offset = 0;
 		for (uint32_t binding_idx = 0; binding_idx < set_refl.size(); binding_idx++) {
 			const ReflectUniform &uniform_refl = set_refl[binding_idx];
 			UniformData &u = webgpu_uniform_data.write[global_idx];
@@ -318,7 +318,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				u.image_access = (uint32_t)RDC::ShaderUniform::ImageAccess::ReadOnly;
 			}
 
-			uint32_t base_post = uniform_refl.binding + wgpu_binding_offset;
+			uint32_t base_post = uniform_refl.binding + binding_offset;
 			if (hint_set && hint_set->has(base_post)) {
 				u.base_hint = webgpu_binding_hint_from_trans(hint_set->get(base_post));
 			} else {
@@ -339,8 +339,8 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 				}
 			}
 			for (int k = 0; k < u.corrections.size(); k++) {
-				wgpu_binding_offset += 1;
-				uint32_t corr_post = uniform_refl.binding + wgpu_binding_offset;
+				binding_offset += 1;
+				uint32_t corr_post = uniform_refl.binding + binding_offset;
 				WebGpuBindingHint hint;
 				if (hint_set && hint_set->has(corr_post)) {
 					hint = webgpu_binding_hint_from_trans(hint_set->get(corr_post));
