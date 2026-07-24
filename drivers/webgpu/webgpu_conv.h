@@ -2,6 +2,7 @@
 #define WEBGPU_CONV_H
 
 #include "servers/rendering/rendering_device.h"
+
 #include <webgpu.h>
 #include <wgpu.h>
 
@@ -37,5 +38,140 @@ bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format);
 WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format);
 uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTextureAspect aspect);
 FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat format);
+
+// TODO: This needs to account for texture tiers.
+// https://www.w3.org/TR/webgpu/#texture-formats
+static const WGPUTextureFormat WEBGPU_CORE_SUPPORTED_FORMATS[] = {
+	// 8-bit formats.
+	WGPUTextureFormat_R8Unorm,
+	WGPUTextureFormat_R8Snorm,
+	WGPUTextureFormat_R8Uint,
+	WGPUTextureFormat_R8Sint,
+
+	// 16-bit formats.
+	// WGPUTextureFormat_R16Unorm,
+	// WGPUTextureFormat_R16Snorm,
+
+	WGPUTextureFormat_R16Uint,
+	WGPUTextureFormat_R16Sint,
+	WGPUTextureFormat_R16Float,
+	WGPUTextureFormat_RG8Unorm,
+	WGPUTextureFormat_RG8Snorm,
+	WGPUTextureFormat_RG8Uint,
+	WGPUTextureFormat_RG8Sint,
+
+	// 32-bit formats.
+	WGPUTextureFormat_R32Uint,
+	WGPUTextureFormat_R32Sint,
+	WGPUTextureFormat_R32Float,
+
+	// WGPUTextureFormat_RG16Unorm,
+	// WGPUTextureFormat_RG16Snorm,
+
+	WGPUTextureFormat_RG16Uint,
+	WGPUTextureFormat_RG16Sint,
+	WGPUTextureFormat_RG16Float,
+	WGPUTextureFormat_RGBA8Unorm,
+	WGPUTextureFormat_RGBA8UnormSrgb,
+	WGPUTextureFormat_RGBA8Snorm,
+	WGPUTextureFormat_RGBA8Uint,
+	WGPUTextureFormat_RGBA8Sint,
+	WGPUTextureFormat_BGRA8Unorm,
+	WGPUTextureFormat_BGRA8UnormSrgb,
+	// Packed 32-bit formats
+	WGPUTextureFormat_RGB9E5Ufloat,
+	WGPUTextureFormat_RGBA8Uint,
+	WGPUTextureFormat_RGBA8Sint,
+	WGPUTextureFormat_BGRA8Unorm,
+	WGPUTextureFormat_BGRA8UnormSrgb,
+	// Packed 32-bit formats.
+	WGPUTextureFormat_RGB9E5Ufloat,
+	WGPUTextureFormat_RGB10A2Uint,
+	WGPUTextureFormat_RGB10A2Unorm,
+	WGPUTextureFormat_RG11B10Ufloat,
+
+	// 64-bit formats.
+	WGPUTextureFormat_RG32Uint,
+	WGPUTextureFormat_RG32Sint,
+	WGPUTextureFormat_RG32Float,
+
+	// WGPUTextureFormat_RGBA16Unorm,
+	// WGPUTextureFormat_RGBA16Snorm,
+
+	WGPUTextureFormat_RGBA16Uint,
+	WGPUTextureFormat_RGBA16Sint,
+	WGPUTextureFormat_RGBA16Float,
+
+	// 128-bit formats.
+	WGPUTextureFormat_RGBA32Uint,
+	WGPUTextureFormat_RGBA32Sint,
+	WGPUTextureFormat_RGBA32Float,
+
+	// Depth/stencil formats.
+	WGPUTextureFormat_Stencil8,
+	WGPUTextureFormat_Depth16Unorm,
+	WGPUTextureFormat_Depth24Plus,
+	WGPUTextureFormat_Depth24PlusStencil8,
+	WGPUTextureFormat_Depth32Float,
+	WGPUTextureFormat_Depth32FloatStencil8,
+
+	// BC compressed formats.
+	// WGPUTextureFormat_BC1RGBAUnorm,
+	// WGPUTextureFormat_BC1RGBAUnormSrgb,
+	// WGPUTextureFormat_BC2RGBAUnorm,
+	// WGPUTextureFormat_BC2RGBAUnormSrgb,
+	// WGPUTextureFormat_BC3RGBAUnorm,
+	// WGPUTextureFormat_BC3RGBAUnormSrgb,
+	// WGPUTextureFormat_BC4RUnorm,
+	// WGPUTextureFormat_BC4RSnorm,
+	// WGPUTextureFormat_BC5RGUnorm,
+	// WGPUTextureFormat_BC5RGSnorm,
+	// WGPUTextureFormat_BC6HRGBUfloat,
+	// WGPUTextureFormat_BC6HRGBFloat,
+	// WGPUTextureFormat_BC7RGBAUnorm,
+	// WGPUTextureFormat_BC7RGBAUnormSrgb,
+
+	// ETC2 compressed formats.
+	// WGPUTextureFormat_ETC2RGB8Unorm,
+	// WGPUTextureFormat_ETC2RGB8UnormSrgb,
+	// WGPUTextureFormat_ETC2RGB8A1Unorm,
+	// WGPUTextureFormat_ETC2RGB8A1UnormSrgb,
+	// WGPUTextureFormat_ETC2RGBA8Unorm,
+	// WGPUTextureFormat_ETC2RGBA8UnormSrgb,
+	// WGPUTextureFormat_EACR11Unorm,
+	// WGPUTextureFormat_EACR11Snorm,
+	// WGPUTextureFormat_EACRG11Unorm,
+	// WGPUTextureFormat_EACRG11Snorm,
+
+	// ASTC compressed formats.
+	// WGPUTextureFormat_ASTC4x4Unorm,
+	// WGPUTextureFormat_ASTC4x4UnormSrgb,
+	// WGPUTextureFormat_ASTC5x4Unorm,
+	// WGPUTextureFormat_ASTC5x4UnormSrgb,
+	// WGPUTextureFormat_ASTC5x5Unorm,
+	// WGPUTextureFormat_ASTC5x5UnormSrgb,
+	// WGPUTextureFormat_ASTC6x5Unorm,
+	// WGPUTextureFormat_ASTC6x5UnormSrgb,
+	// WGPUTextureFormat_ASTC6x6Unorm,
+	// WGPUTextureFormat_ASTC6x6UnormSrgb,
+	// WGPUTextureFormat_ASTC8x5Unorm,
+	// WGPUTextureFormat_ASTC8x5UnormSrgb,
+	// WGPUTextureFormat_ASTC8x6Unorm,
+	// WGPUTextureFormat_ASTC8x6UnormSrgb,
+	// WGPUTextureFormat_ASTC8x8Unorm,
+	// WGPUTextureFormat_ASTC8x8UnormSrgb,
+	// WGPUTextureFormat_ASTC10x5Unorm,
+	// WGPUTextureFormat_ASTC10x5UnormSrgb,
+	// WGPUTextureFormat_ASTC10x6Unorm,
+	// WGPUTextureFormat_ASTC10x6UnormSrgb,
+	// WGPUTextureFormat_ASTC10x8Unorm,
+	// WGPUTextureFormat_ASTC10x8UnormSrgb,
+	// WGPUTextureFormat_ASTC10x10Unorm,
+	// WGPUTextureFormat_ASTC10x10UnormSrgb,
+	// WGPUTextureFormat_ASTC12x10Unorm,
+	// WGPUTextureFormat_ASTC12x10UnormSrgb,
+	// WGPUTextureFormat_ASTC12x12Unorm,
+	// WGPUTextureFormat_ASTC12x12UnormSrgb,
+};
 
 #endif // WEBGPU_CONV_H

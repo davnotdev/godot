@@ -113,22 +113,25 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	String shader_name_str = String::utf8(shader_name.ptr(), shader_name.length());
 
 	// HACK: I will ignore these shaders until a better workaround is found.
-	if (shader_name_str.contains("GiShader")) {
-		ERR_FAIL_V_MSG(false, "Refusing to compile GiShader*");
-	}
-	// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
-	if (shader_name_str.contains("ClusterDebugShaderRD:0")) {
-		ERR_FAIL_V_MSG(false, "Refusing to compile ClusterDebugShaderRD*");
-	}
-	// HACK: The hall of bad shaders:
-	// if (shader_name_str.contains("CopyToFbShaderRD:0")) {
-	// 	ERR_FAIL_V_MSG(false, "Refusing to compile CopyToFbShaderRD:0");
-	// }
-	if (shader_name_str.contains("BokehDofRasterShaderRD:0")) {
-		ERR_FAIL_V_MSG(false, "Refusing to compile BokehDofRasterShaderRD:0");
-	}
-	if (shader_name_str.contains("CubeToDpShaderRD:0")) {
-		ERR_FAIL_V_MSG(false, "Refusing to compile CubeToDpShaderRD:0");
+	Vector<String> skip_shaders = {
+		"GiShader",
+
+		// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
+		"ClusterDebugShaderRD:0",
+		// />
+
+		"BokehDofRasterShaderRD:0",
+		"CubeToDpShaderRD:0",
+
+		// HACK: Requires vertex writable storage.
+		"VoxelGiDebugShaderRD",
+		// />
+	};
+
+	for (const String &name : skip_shaders) {
+		if (shader_name_str.contains(name)) {
+			ERR_FAIL_V_MSG(false, vformat("Refusing to compile %s", name));
+		}
 	}
 
 	struct PatchedStage {

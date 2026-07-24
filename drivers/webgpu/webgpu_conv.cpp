@@ -1,4 +1,5 @@
 #include "webgpu_conv.h"
+
 #include "webgpu.h"
 
 // TODO: This is currently only used for R16_UNORM and R16_SNORM from https://github.com/davnotdev/wgpu-native/tree/godot-webgpu
@@ -567,8 +568,18 @@ WGPUShaderStage webgpu_shader_stage_from_rd(RDD::ShaderStage p_shader_stage) {
 		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_CONTROL:
 		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION:
 		case RenderingDeviceCommons::SHADER_STAGE_TESSELATION_EVALUATION_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_RAYGEN:
+		case RenderingDeviceCommons::SHADER_STAGE_ANY_HIT:
+		case RenderingDeviceCommons::SHADER_STAGE_CLOSEST_HIT:
+		case RenderingDeviceCommons::SHADER_STAGE_INTERSECTION:
+		case RenderingDeviceCommons::SHADER_STAGE_RAYGEN_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_ANY_HIT_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_CLOSEST_HIT_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_MISS_BIT:
+		case RenderingDeviceCommons::SHADER_STAGE_INTERSECTION_BIT:
 		case RenderingDeviceCommons::SHADER_STAGE_MAX:
 			return WGPUShaderStage_None;
+			break;
 	}
 }
 

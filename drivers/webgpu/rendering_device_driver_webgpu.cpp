@@ -54,11 +54,12 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// This is a fairly new feature.
 		// We can switch to this in the future, but for now, we have push constant emulation.
 		// (WGPUFeatureName)WGPUNativeFeature_Immediates,
-		// Need changes in Godot (default textures use 16bit I believe)
+
+		// `wgpu` needs to add support for "texture-formats-tier1", "texture-formats-tier2", and "subgroups", see:
+		// - https://github.com/gfx-rs/wgpu/issues/5555
+		// - https://github.com/gfx-rs/wgpu/issues/8122
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
-		// Wating on "texture-formats-tier1" to be exposed
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
-		// New to spec, waiting for proper support in wgpu
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
 
 		// Binding Array related
@@ -69,8 +70,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// (WGPUFeatureName)WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing,
 		// (WGPUFeatureName)WGPUNativeFeature_StorageTextureArrayNonUniformIndexing,
 
-		// Avoidable
-		(WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
+		// Avoidable / Unused
+		// (WGPUFeatureName)WGPUNativeFeature_VertexWritableStorage,
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirect,
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
@@ -661,15 +662,15 @@ Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_textur
 }
 
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
-	// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
-	BitField<RDD::TextureUsageBits> supported = INT64_MAX;
-
-	// HACK: Here are the formats we dislike.
-	if (p_format == DATA_FORMAT_ASTC_4x4_SRGB_BLOCK || p_format == DATA_FORMAT_R32G32B32_SFLOAT || p_format == DATA_FORMAT_BC1_RGB_UNORM_BLOCK) {
-		return 0;
+	for (WGPUTextureFormat format : WEBGPU_CORE_SUPPORTED_FORMATS) {
+		if (webgpu_texture_format_from_rd(p_format) == format) {
+			// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
+			BitField<RDD::TextureUsageBits> supported = INT64_MAX;
+			return supported;
+		}
 	}
 
-	return supported;
+	return 0;
 }
 
 bool RenderingDeviceDriverWebGpu::texture_can_make_shared_with_format(TextureID p_texture, DataFormat p_format, bool &r_raw_reinterpretation) {
