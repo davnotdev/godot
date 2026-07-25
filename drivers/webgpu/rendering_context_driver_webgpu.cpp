@@ -11,24 +11,29 @@
 
 #include "core/error/error_macros.h"
 
-static void handle_request_adapter(WGPURequestAdapterStatus status,
-		WGPUAdapter adapter, WGPUStringView message,
-		void *userdata, void *_) {
+static void handle_request_adapter(WGPURequestAdapterStatus p_status,
+		WGPUAdapter p_adapter, WGPUStringView p_message,
+		void *p_userdata, void *_) {
+	String message = String::utf8(p_message.data, p_message.length);
 	ERR_FAIL_COND_V_MSG(
-			status != WGPURequestAdapterStatus_Success, (void)0,
-			vformat("Failed to get wgpu adapter: %s", message.data));
+			p_status != WGPURequestAdapterStatus_Success, (void)0,
+			vformat("Failed to get wgpu adapter: %s", message));
 
-	WGPUAdapterInfo info;
-	wgpuAdapterGetInfo(adapter, &info);
+	WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
+	ERR_FAIL_COND_V_MSG(
+			wgpuAdapterGetInfo(p_adapter, &info) != WGPUStatus_Success, (void)0,
+			"Failed to get wgpu adapter info.");
 
 	RenderingContextDriver::Device device;
-	device.name = String(info.device.data);
+	device.name = String::utf8(info.device.data, info.device.length);
 	device.vendor = info.vendorID;
 	device.type = (RenderingContextDriver::DeviceType)info.adapterType;
 
-	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)userdata;
+	wgpuAdapterInfoFreeMembers(info);
+
+	RenderingContextDriverWebGpu *context = (RenderingContextDriverWebGpu *)p_userdata;
 	context->adapter_push_back(
-			adapter, device);
+			p_adapter, device);
 }
 
 RenderingContextDriverWebGpu::RenderingContextDriverWebGpu() {
@@ -45,6 +50,10 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 }
 
 Error RenderingContextDriverWebGpu::initialize() {
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	static const WGPUInstanceFeatureName requiredFeatures[] = { WGPUInstanceFeatureName_TimedWaitAny };
+#endif
+
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
 	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
@@ -53,12 +62,18 @@ Error RenderingContextDriverWebGpu::initialize() {
 		.backends = WGPUInstanceBackend_Vulkan
 	};
 #endif
+
 	WGPUInstanceDescriptor instance_descriptor = (WGPUInstanceDescriptor){
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 		.nextInChain = &instance_extras.chain
 #endif
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+				.requiredFeatureCount = 1,
+		.requiredFeatures = requiredFeatures,
+#endif
 	};
 	instance = wgpuCreateInstance(&instance_descriptor);
+	ERR_FAIL_NULL_V_MSG(instance, ERR_CANT_CREATE, "Failed to create wgpu instance.");
 
 	WGPURequestAdapterOptions adapter_options = {};
 	WGPURequestAdapterCallbackInfo adapter_callback_info = {
@@ -79,8 +94,9 @@ Error RenderingContextDriverWebGpu::initialize() {
 			&adapter_options,
 			adapter_callback_info);
 
-	// NOTE: Currently unimplemented in wgpu.
-	// wgpuInstanceProcessEvents(instance);
+	wgpuInstanceProcessEvents(instance);
+
+	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable wgpu adapter found.");
 
 	return OK;
 }
@@ -99,9 +115,13 @@ bool RenderingContextDriverWebGpu::device_supports_present(uint32_t p_device_ind
 	DEV_ASSERT(p_device_index < adapters.size());
 	WGPUAdapter adapter = adapters[p_device_index];
 	Surface *surface = (Surface *)p_surface;
-	WGPUSurfaceCapabilities caps;
-	wgpuSurfaceGetCapabilities(surface->surface, adapter, &caps);
-	return caps.formatCount != 0;
+	WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT;
+	if (wgpuSurfaceGetCapabilities(surface->surface, adapter, &caps) != WGPUStatus_Success) {
+		return false;
+	}
+	bool supported = caps.formatCount != 0;
+	wgpuSurfaceCapabilitiesFreeMembers(caps);
+	return supported;
 }
 
 RenderingDeviceDriver *RenderingContextDriverWebGpu::driver_create() {

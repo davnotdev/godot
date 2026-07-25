@@ -29,9 +29,24 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
 	if (p_status != WGPURequestDeviceStatus_Success) {
-		print_line("[WGPU]", String::utf8(p_message.data, p_message.length));
+		print_line("[WEBGPU]", String::utf8(p_message.data, p_message.length));
 	}
 	*(WGPUDevice *)userdata = p_device;
+}
+
+static void handle_uncaptured_error(WGPUDevice const *_device, WGPUErrorType p_type,
+		WGPUStringView p_message, void *_userdata1, void *_userdata2) {
+	String message = String::utf8(p_message.data, p_message.length);
+	ERR_PRINT(vformat("[WEBGPU] error: %s", message));
+}
+
+static void handle_device_lost(WGPUDevice const *_device, WGPUDeviceLostReason p_reason,
+		WGPUStringView p_message, void *_userdata1, void *_userdata2) {
+	if (p_reason == WGPUDeviceLostReason_Destroyed) {
+		return;
+	}
+	String message = String::utf8(p_message.data, p_message.length);
+	ERR_PRINT(vformat("[WEBGPU] Device lost: %s", message));
 }
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
@@ -40,18 +55,10 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
 		if (p_level <= WGPU_LOG_LEVEL) {
 			String message = String::utf8(p_message.data, p_message.length);
-			print_line("[WGPU]", message);
+			print_line("[WEBGPU]", message);
 		}
 	},
 			nullptr);
-#endif
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
-	wgpuDeviceSetLoggingCallback(device, (WGPULoggingCallbackInfo){
-												 .callback = [](WGPULoggingType p_type, WGPUStringView p_message, void *, void *) {
-													 String message = String::utf8(p_message.data, p_message.length);
-													 print_line("[DAWN]", message);
-												 },
-										 });
 #endif
 #endif
 
@@ -157,6 +164,13 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
 		.requiredFeatures = required_features,
 		.requiredLimits = &required_limits,
+		.deviceLostCallbackInfo = (WGPUDeviceLostCallbackInfo){
+				.mode = WGPUCallbackMode_AllowSpontaneous,
+				.callback = handle_device_lost,
+		},
+		.uncapturedErrorCallbackInfo = (WGPUUncapturedErrorCallbackInfo){
+				.callback = handle_uncaptured_error,
+		},
 	};
 	WGPURequestDeviceCallbackInfo device_callback_info = (WGPURequestDeviceCallbackInfo){
 		.mode = WGPUCallbackMode_AllowProcessEvents,
@@ -164,7 +178,20 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.userdata1 = &this->device,
 	};
 	wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
-	ERR_FAIL_COND_V(!this->device, FAILED);
+	wgpuInstanceProcessEvents(context_driver->instance_get());
+
+	ERR_FAIL_NULL_V_MSG(this->device, FAILED, "Failed to create wgpu device.");
+
+#ifdef WGPU_LOG_LEVEL
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	wgpuDeviceSetLoggingCallback(device, (WGPULoggingCallbackInfo){
+												 .callback = [](WGPULoggingType p_type, WGPUStringView p_message, void *, void *) {
+													 String message = String::utf8(p_message.data, p_message.length);
+													 print_line("[DAWN]", message);
+												 },
+										 });
+#endif
+#endif
 
 	queue = wgpuDeviceGetQueue(device);
 	ERR_FAIL_COND_V(!this->queue, FAILED);
@@ -2829,16 +2856,22 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 		if (attachment.is_depth_stencil || attachment.is_depth_stencil_read_only) {
 			TextureID attachment_texture_id = framebuffer_info->attachments[i];
 			TextureInfo *attachment_texture = (TextureInfo *)attachment_texture_id.id;
+
+			const bool has_depth = webgpu_texture_format_has_depth_aspect(attachment.format);
+			const bool has_stencil = webgpu_texture_format_has_stencil_aspect(attachment.format);
+			const bool use_depth = has_depth && !attachment.is_depth_stencil_read_only;
+			const bool use_stencil = has_stencil && !attachment.is_depth_stencil_read_only;
+
 			maybe_depth_stencil_attachment.first = (WGPURenderPassDepthStencilAttachment){
 				.view = attachment_texture->get_default_view(),
-				.depthLoadOp = attachment.load_op,
-				.depthStoreOp = attachment.store_op,
+				.depthLoadOp = use_depth ? attachment.load_op : WGPULoadOp_Undefined,
+				.depthStoreOp = use_depth ? attachment.store_op : WGPUStoreOp_Undefined,
 				.depthClearValue = p_clear_values[i].depth,
-				.depthReadOnly = attachment.is_depth_stencil_read_only,
-				.stencilLoadOp = attachment.stencil_load_op,
-				.stencilStoreOp = attachment.stencil_store_op,
+				.depthReadOnly = has_depth && attachment.is_depth_stencil_read_only,
+				.stencilLoadOp = use_stencil ? attachment.stencil_load_op : WGPULoadOp_Undefined,
+				.stencilStoreOp = use_stencil ? attachment.stencil_store_op : WGPUStoreOp_Undefined,
 				.stencilClearValue = p_clear_values[i].stencil,
-				.stencilReadOnly = attachment.is_depth_stencil_read_only,
+				.stencilReadOnly = has_stencil && attachment.is_depth_stencil_read_only,
 			};
 			maybe_depth_stencil_attachment.second = true;
 		} else {
@@ -3376,28 +3409,42 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 
 	const RenderPassAttachmentInfo *depth_attachment = render_pass_info->get_depth_attachment();
 	if (depth_attachment) {
+		const bool use_stencil = p_depth_stencil_state.enable_stencil &&
+				webgpu_texture_format_has_stencil_aspect(depth_attachment->format);
+		const bool use_depth = webgpu_texture_format_has_depth_aspect(depth_attachment->format);
+
+		WGPUStencilFaceState stencil_front = (WGPUStencilFaceState){
+			.compare = WGPUCompareFunction_Always,
+			.failOp = WGPUStencilOperation_Keep,
+			.depthFailOp = WGPUStencilOperation_Keep,
+			.passOp = WGPUStencilOperation_Keep,
+		};
+		WGPUStencilFaceState stencil_back = stencil_front;
+		if (use_stencil) {
+			stencil_front = (WGPUStencilFaceState){
+				.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.front_op.compare),
+				.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.fail),
+				.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.depth_fail),
+				.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.pass),
+			};
+			stencil_back = (WGPUStencilFaceState){
+				.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.back_op.compare),
+				.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.fail),
+				.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.depth_fail),
+				.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.pass),
+			};
+		}
+
 		depth_stencil_state = (WGPUDepthStencilState){
 			.format = depth_attachment->format,
-			.depthWriteEnabled = p_depth_stencil_state.enable_depth_write ? WGPUOptionalBool_True : WGPUOptionalBool_False,
-			.depthCompare = webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator),
-			.stencilFront =
-					(WGPUStencilFaceState){
-							.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.front_op.compare),
-							.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.fail),
-							.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.depth_fail),
-							.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.front_op.pass),
-					},
-			.stencilBack =
-					(WGPUStencilFaceState){
-							.compare = webgpu_compare_mode_from_rd(p_depth_stencil_state.back_op.compare),
-							.failOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.fail),
-							.depthFailOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.depth_fail),
-							.passOp = webgpu_stencil_operation_from_rd(p_depth_stencil_state.back_op.pass),
-					},
+			.depthWriteEnabled = (use_depth && p_depth_stencil_state.enable_depth_write) ? WGPUOptionalBool_True : WGPUOptionalBool_False,
+			.depthCompare = use_depth ? webgpu_compare_mode_from_rd(p_depth_stencil_state.depth_compare_operator) : WGPUCompareFunction_Always,
+			.stencilFront = stencil_front,
+			.stencilBack = stencil_back,
 			// NOTE: We assume stencil read masks are the same for both front and back.
 			// This is how wgpu does it, see https://github.com/gfx-rs/wgpu/blob/6405dcf611a336eb7d3bf9de7b78d7d0b3d3b48d/wgpu-hal/src/vulkan/device.rs#L1778
-			.stencilReadMask = p_depth_stencil_state.front_op.compare_mask,
-			.stencilWriteMask = p_depth_stencil_state.front_op.write_mask,
+			.stencilReadMask = use_stencil ? p_depth_stencil_state.front_op.compare_mask : 0,
+			.stencilWriteMask = use_stencil ? p_depth_stencil_state.front_op.write_mask : 0,
 			.depthBias = (int32_t)p_rasterization_state.depth_bias_constant_factor,
 			.depthBiasSlopeScale = p_rasterization_state.depth_bias_slope_factor,
 			.depthBiasClamp = p_rasterization_state.depth_bias_clamp,
@@ -3688,7 +3735,7 @@ uint64_t RenderingDeviceDriverWebGpu::get_lazily_memory_used() {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
-	WGPULimits limits;
+	WGPULimits limits = (WGPULimits){};
 
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	WGPUNativeLimits extras;

@@ -72,6 +72,32 @@ static WebGpuBindingHint webgpu_binding_hint_from_trans(const WebGpuTranslateBin
 	return out;
 }
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+// Cater to Tint's stricter WGSL enforcement.
+static const char WEBGPU_WGSL_PRELUDE[] =
+		"enable subgroups;\n"
+		"diagnostic(off, derivative_uniformity);\n"
+		"diagnostic(off, subgroup_uniformity);\n";
+
+static CharString _prepend_wgsl_prelude(const CharString &p_wgsl) {
+	const int prelude_length = (int)sizeof(WEBGPU_WGSL_PRELUDE) - 1;
+	const int body_length = p_wgsl.length();
+
+	CharString out;
+	Error err = out.resize_uninitialized(prelude_length + body_length + 1);
+	ERR_FAIL_COND_V_MSG(err != OK, p_wgsl, "Failed to allocate WGSL with prelude.");
+
+	char *dst = out.ptrw();
+	memcpy(dst, WEBGPU_WGSL_PRELUDE, prelude_length);
+	if (body_length > 0) {
+		memcpy(dst + prelude_length, p_wgsl.ptr(), body_length);
+	}
+	dst[prelude_length + body_length] = '\0';
+
+	return out;
+}
+#endif
+
 const uint32_t RenderingShaderContainerWebGpu::FORMAT_VERSION = 1;
 
 uint32_t RenderingShaderContainerWebGpu::_format() const {
@@ -256,16 +282,21 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 #endif
 
 		ConvertResult result = webgpu_translate_spirv_to_wgsl((const uint32_t *)spv_bytes.ptr(), spv_bytes.size() / sizeof(uint32_t));
+
 		if (result.error_string != nullptr) {
 			print_line("[WGPU] WGSL compilation ", shader_name_str, "on step", (int)result.failure_stage, ":", result.error_string.ptr());
 			return false;
 		}
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+		wgsl_sources.write[i] = _prepend_wgsl_prelude(result.wgsl_string);
+#else
 		wgsl_sources.write[i] = result.wgsl_string;
+#endif
 
 #ifdef DEBUG_SHADERS
 		_debug_dump_shader(DEBUG_SHADERS_POST_TRANSLATION_LOCATION, shader_name_str, patched[i].shader_stage,
-				(const uint8_t *)result.wgsl_string.ptr(), (size_t)result.wgsl_string.length());
+				(const uint8_t *)wgsl_sources[i].ptr(), (size_t)wgsl_sources[i].length());
 #endif
 
 		for (KeyValue<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> &set_kv : result.binding_hints) {

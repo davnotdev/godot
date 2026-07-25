@@ -1228,6 +1228,30 @@ bool webgpu_texture_format_is_depth_stencil(WGPUTextureFormat p_format) {
 	}
 }
 
+bool webgpu_texture_format_has_depth_aspect(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Depth16Unorm:
+		case WGPUTextureFormat_Depth24Plus:
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32Float:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
+bool webgpu_texture_format_has_stencil_aspect(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_Stencil8:
+		case WGPUTextureFormat_Depth24PlusStencil8:
+		case WGPUTextureFormat_Depth32FloatStencil8:
+			return true;
+		default:
+			return false;
+	}
+}
+
 WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format) {
 	switch (p_format) {
 		case WGPUTextureFormat_Depth24PlusStencil8:
