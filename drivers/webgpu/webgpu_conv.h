@@ -4,7 +4,10 @@
 #include "servers/rendering/rendering_device.h"
 
 #include <webgpu.h>
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 #include <wgpu.h>
+#endif
 
 WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buffer_usage);
 WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format);
@@ -23,7 +26,15 @@ WGPUTextureAspect webgpu_texture_aspect_from_rd_format(RDD::DataFormat p_data_fo
 WGPUBlendOperation webgpu_blend_operation_from_rd(RDD::BlendOperation p_blend_operation);
 WGPUBlendFactor webgpu_blend_factor_from_rd(RDD::BlendFactor p_blend_factor);
 WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_stencil_operation);
+
+// HACK: `wgpu` does not support swizzle: https://github.com/gfx-rs/wgpu/issues/1028
+// Currently, our fork has it patched in for Vulkan-only.
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+WGPUComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle);
+#endif
+
 WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type);
 
 RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format);

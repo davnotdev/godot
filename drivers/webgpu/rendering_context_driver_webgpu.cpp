@@ -1,5 +1,8 @@
-#include "webgpu.h"
-#include "wgpu.h"
+#include <webgpu.h>
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+#include <wgpu.h>
+#endif
 
 #ifdef WEBGPU_ENABLED
 
@@ -42,15 +45,18 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 }
 
 Error RenderingContextDriverWebGpu::initialize() {
-	// Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
-	//
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
 	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
 		.chain = (WGPUChainedStruct){
 				.sType = (WGPUSType)WGPUSType_InstanceExtras },
 		.backends = WGPUInstanceBackend_Vulkan
 	};
+#endif
 	WGPUInstanceDescriptor instance_descriptor = (WGPUInstanceDescriptor){
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 		.nextInChain = &instance_extras.chain
+#endif
 	};
 	instance = wgpuCreateInstance(&instance_descriptor);
 

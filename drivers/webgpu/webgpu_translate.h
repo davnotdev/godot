@@ -4,7 +4,7 @@
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
 
-#include "webgpu.h"
+#include <webgpu.h>
 
 #include <cstdint>
 

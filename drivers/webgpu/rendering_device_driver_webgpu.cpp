@@ -2,7 +2,6 @@
 
 #include "rendering_context_driver_webgpu.h"
 #include "rendering_shader_container_webgpu.h"
-#include "webgpu.h"
 #include "webgpu_conv.h"
 
 #include "core/error/error_macros.h"
@@ -10,7 +9,11 @@
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
 
+#include <webgpu.h>
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 #include <wgpu.h>
+#endif
 
 #include <cstdint>
 #include <cstring>
@@ -33,6 +36,7 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 
 Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
 #ifdef WGPU_LOG_LEVEL
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
 		if (p_level <= WGPU_LOG_LEVEL) {
 			String message = String::utf8(p_message.data, p_message.length);
@@ -40,6 +44,15 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		}
 	},
 			nullptr);
+#endif
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	wgpuDeviceSetLoggingCallback(device, (WGPULoggingCallbackInfo){
+												 .callback = [](WGPULoggingType p_type, WGPUStringView p_message, void *, void *) {
+													 String message = String::utf8(p_message.data, p_message.length);
+													 print_line("[DAWN]", message);
+												 },
+										 });
+#endif
 #endif
 
 	adapter = context_driver->adapter_get(p_device_index);
@@ -51,16 +64,22 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		WGPUFeatureName_Float32Filterable,
 		WGPUFeatureName_TextureCompressionBC,
 
-		// This is a fairly new feature.
-		// We can switch to this in the future, but for now, we have push constant emulation.
-		// (WGPUFeatureName)WGPUNativeFeature_Immediates,
-
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+		WGPUFeatureName_TextureFormatsTier1,
+		WGPUFeatureName_TextureFormatsTier2,
+		WGPUFeatureName_Subgroups,
+		WGPUFeatureName_TextureComponentSwizzle,
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 		// `wgpu` needs to add support for "texture-formats-tier1", "texture-formats-tier2", and "subgroups", see:
 		// - https://github.com/gfx-rs/wgpu/issues/5555
 		// - https://github.com/gfx-rs/wgpu/issues/8122
 		(WGPUFeatureName)WGPUNativeFeature_TextureFormat16bitNorm,
 		(WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures,
 		(WGPUFeatureName)WGPUNativeFeature_Subgroup,
+#endif
+		// This is a fairly new feature.
+		// We can switch to this in the future, but for now, we have push constant emulation.
+		// (WGPUFeatureName)WGPUNativeFeature_Immediates,
 
 		// Binding Array related
 		// We can switch to this in the future if implemented, but now we have binding array splitting.
@@ -76,8 +95,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
 
-	// NOTE: These tweaks are ONLY REQUIRED FOR FORWARD+.
-	// Forward Mobile should still be fully supported under the default limits.
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	WGPUNativeLimits required_native_limits = (WGPUNativeLimits){
 		.chain = (WGPUChainedStruct){
 				.sType = (WGPUSType)WGPUSType_NativeLimits,
@@ -86,10 +104,13 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED,
 		.maxBindingArrayElementsPerShaderStage = 256,
 	};
+#endif
 
 	WGPULimits required_limits =
 			(WGPULimits){
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 				.nextInChain = (WGPUChainedStruct *)&required_native_limits,
+#endif
 				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
 				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
@@ -280,9 +301,15 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 			.mode = WGPUCallbackMode_AllowProcessEvents,
 			.callback = handle_buffer_map,
 		};
-		wgpuBufferMapAsync(
+		WGPUFuture future = wgpuBufferMapAsync(
 				buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+		WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
+		wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+		(void)future;
 		wgpuDevicePoll(device, true, nullptr);
+#endif
 	} else {
 		buffer_info->is_transfer_first_map = false;
 	}
@@ -456,6 +483,20 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureComponentSwizzleDescriptor,
+		},
+		.swizzle = (WGPUTextureComponentSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -468,6 +509,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
 		},
 	};
+#endif
 
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
 
@@ -517,6 +559,20 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		}
 	}
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureComponentSwizzleDescriptor,
+		},
+		.swizzle = (WGPUTextureComponentSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -529,6 +585,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
 		},
 	};
+#endif
 
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
@@ -553,6 +610,20 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
 	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
+		.chain = (WGPUChainedStruct){
+				.next = nullptr,
+				.sType = (WGPUSType)WGPUSType_TextureComponentSwizzleDescriptor,
+		},
+		.swizzle = (WGPUTextureComponentSwizzle){
+				.r = webgpu_component_swizzle_from_rd(p_view.swizzle_r),
+				.g = webgpu_component_swizzle_from_rd(p_view.swizzle_g),
+				.b = webgpu_component_swizzle_from_rd(p_view.swizzle_b),
+				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
+		},
+	};
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 	WGPUTextureViewDescriptorExtras texture_view_desc_extras = (WGPUTextureViewDescriptorExtras){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -565,6 +636,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 				.a = webgpu_component_swizzle_from_rd(p_view.swizzle_a),
 		},
 	};
+#endif
 
 	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
@@ -1126,20 +1198,38 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					wgpuRenderPassEncoderDrawIndexed(render_encoder, data.index_count, data.instance_count, data.first_index, data.base_vertex, data.first_instance);
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT: {
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+					PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
+					wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count, nullptr, 0);
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 					PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
 					wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+#endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT: {
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 					PassEncoderCommand::RenderMultiDrawIndirectCount data = command.render_multi_draw_indirect_count;
 					wgpuRenderPassEncoderMultiDrawIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+#else
+					CRASH_NOW_MSG("wgpuRenderPassEncoderMultiDrawIndirectCount unsupported");
+#endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT: {
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+					PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
+					wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count, nullptr, 0);
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 					PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
 					wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+#endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 					PassEncoderCommand::RenderMultiDrawIndexedIndirectCount data = command.render_multi_draw_indexed_indirect_count;
 					wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(render_encoder, data.indirect_buffer, data.indirect_offset, data.count_buffer, data.count_offset, data.max_count);
+#else
+					CRASH_NOW_MSG("wgpuRenderPassEncoderMultiDrawIndexedIndirectCount unsupported");
+#endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_VERTEX_BUFFER: {
 					PassEncoderCommand::RenderSetVertexBuffer data = command.render_set_vertex_buffer;
@@ -3598,9 +3688,13 @@ uint64_t RenderingDeviceDriverWebGpu::get_lazily_memory_used() {
 }
 
 uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
-	WGPUNativeLimits extras;
 	WGPULimits limits;
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	WGPUNativeLimits extras;
 	limits.nextInChain = &extras.chain;
+#endif
+
 	wgpuDeviceGetLimits(device, &limits);
 	return rd_limit_from_webgpu(p_limit, limits);
 }

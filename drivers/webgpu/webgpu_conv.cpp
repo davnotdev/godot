@@ -1,10 +1,5 @@
 #include "webgpu_conv.h"
 
-#include "webgpu.h"
-
-// TODO: This is currently only used for R16_UNORM and R16_SNORM from https://github.com/davnotdev/wgpu-native/tree/godot-webgpu
-#include <wgpu.h>
-
 WGPUBufferUsage webgpu_buffer_usage_from_rd(BitField<RDD::BufferUsageBits> p_buffer_usage) {
 	uint32_t ret = 0;
 	// Only use MapWrite or MapRead if these are CPU buffers.
@@ -39,7 +34,6 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 	WGPUTextureFormat ret = WGPUTextureFormat_Undefined;
 
 	// See https://www.w3.org/TR/webgpu/#enumdef-gputextureformat
-	// TODO: The BC, ETC2, and ASTC compressed formats have been left out.
 	// NOTE: Please also update `webgpu_bytes_per_row_from_format` and `rd_texture_format_from_webgpu` alongside this.
 	switch (p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_R8_UNORM:
@@ -64,10 +58,10 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 			ret = WGPUTextureFormat_R16Float;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16_UNORM:
-			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_R16Unorm;
+			ret = WGPUTextureFormat_R16Unorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16_SNORM:
-			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_R16Snorm;
+			ret = WGPUTextureFormat_R16Snorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R32_UINT:
 			ret = WGPUTextureFormat_R32Uint;
@@ -98,6 +92,12 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT:
 			ret = WGPUTextureFormat_RG16Float;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_UNORM:
+			ret = WGPUTextureFormat_RG16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16_SNORM:
+			ret = WGPUTextureFormat_RG16Snorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R8G8B8A8_UNORM:
 			ret = WGPUTextureFormat_RGBA8Unorm;
@@ -136,8 +136,10 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 			ret = WGPUTextureFormat_RGBA16Sint;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM:
-			// HACK: Native format here, careful now!
-			ret = (WGPUTextureFormat)WGPUNativeTextureFormat_Rgba16Unorm;
+			ret = WGPUTextureFormat_RGBA16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SNORM:
+			ret = WGPUTextureFormat_RGBA16Snorm;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT:
 			ret = WGPUTextureFormat_RGBA16Float;
@@ -154,11 +156,24 @@ WGPUTextureFormat webgpu_texture_format_from_rd(RDD::DataFormat p_data_format) {
 		case RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UNORM_PACK32:
 			ret = WGPUTextureFormat_RGB10A2Unorm;
 			break;
+		case RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UINT_PACK32:
+			ret = WGPUTextureFormat_RGB10A2Uint;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_B10G11R11_UFLOAT_PACK32:
+			ret = WGPUTextureFormat_RG11B10Ufloat;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+			ret = WGPUTextureFormat_RGB9E5Ufloat;
+			break;
+
 		case RDD::DataFormat::DATA_FORMAT_S8_UINT:
 			ret = WGPUTextureFormat_Stencil8;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_D16_UNORM:
 			ret = WGPUTextureFormat_Depth16Unorm;
+			break;
+		case RDD::DataFormat::DATA_FORMAT_X8_D24_UNORM_PACK32:
+			ret = WGPUTextureFormat_Depth24Plus;
 			break;
 		case RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT:
 			ret = WGPUTextureFormat_Depth24PlusStencil8;
@@ -698,8 +713,6 @@ WGPUStencilOperation webgpu_stencil_operation_from_rd(RDD::StencilOperation p_st
 	}
 }
 
-inline RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_format);
-
 RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 	RDD::DataFormat ret = RDD::DataFormat::DATA_FORMAT_MAX;
 
@@ -725,6 +738,12 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 			break;
 		case WGPUTextureFormat_R16Float:
 			ret = RDD::DataFormat::DATA_FORMAT_R16_SFLOAT;
+			break;
+		case WGPUTextureFormat_R16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_UNORM;
+			break;
+		case WGPUTextureFormat_R16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16_SNORM;
 			break;
 
 		case WGPUTextureFormat_R32Uint:
@@ -758,6 +777,12 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 			break;
 		case WGPUTextureFormat_RG16Float:
 			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SFLOAT;
+			break;
+		case WGPUTextureFormat_RG16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_UNORM;
+			break;
+		case WGPUTextureFormat_RG16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16_SNORM;
 			break;
 
 		case WGPUTextureFormat_RGBA8Unorm:
@@ -802,6 +827,12 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 		case WGPUTextureFormat_RGBA16Float:
 			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SFLOAT;
 			break;
+		case WGPUTextureFormat_RGBA16Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM;
+			break;
+		case WGPUTextureFormat_RGBA16Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_R16G16B16A16_SNORM;
+			break;
 
 		case WGPUTextureFormat_RGBA32Uint:
 			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_UINT;
@@ -813,11 +844,27 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 			ret = RDD::DataFormat::DATA_FORMAT_R32G32B32A32_SFLOAT;
 			break;
 
+		case WGPUTextureFormat_RGB10A2Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UNORM_PACK32;
+			break;
+		case WGPUTextureFormat_RGB10A2Uint:
+			ret = RDD::DataFormat::DATA_FORMAT_A2B10G10R10_UINT_PACK32;
+			break;
+		case WGPUTextureFormat_RG11B10Ufloat:
+			ret = RDD::DataFormat::DATA_FORMAT_B10G11R11_UFLOAT_PACK32;
+			break;
+		case WGPUTextureFormat_RGB9E5Ufloat:
+			ret = RDD::DataFormat::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+			break;
+
 		case WGPUTextureFormat_Stencil8:
 			ret = RDD::DataFormat::DATA_FORMAT_S8_UINT;
 			break;
 		case WGPUTextureFormat_Depth16Unorm:
 			ret = RDD::DataFormat::DATA_FORMAT_D16_UNORM;
+			break;
+		case WGPUTextureFormat_Depth24Plus:
+			ret = RDD::DataFormat::DATA_FORMAT_X8_D24_UNORM_PACK32;
 			break;
 		case WGPUTextureFormat_Depth24PlusStencil8:
 			ret = RDD::DataFormat::DATA_FORMAT_D24_UNORM_S8_UINT;
@@ -829,25 +876,193 @@ RDD::DataFormat rd_texture_format_from_webgpu(WGPUTextureFormat p_format) {
 			ret = RDD::DataFormat::DATA_FORMAT_D32_SFLOAT_S8_UINT;
 			break;
 
+		case WGPUTextureFormat_BC1RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC1_RGBA_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC1RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC1_RGBA_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC2RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC2_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC2RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC2_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC3RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC3_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC3RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC3_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC4RUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC4RSnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC4_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC5RGUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC5RGSnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC5_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC6HRGBUfloat:
+			ret = RDD::DataFormat::DATA_FORMAT_BC6H_UFLOAT_BLOCK;
+			break;
+		case WGPUTextureFormat_BC6HRGBFloat:
+			ret = RDD::DataFormat::DATA_FORMAT_BC6H_SFLOAT_BLOCK;
+			break;
+
+		case WGPUTextureFormat_BC7RGBAUnorm:
+			ret = RDD::DataFormat::DATA_FORMAT_BC7_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_BC7RGBAUnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_BC7_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGB8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGB8A1Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ETC2RGBA8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_EACR11Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_EACR11Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_EACRG11Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11G11_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_EACRG11Snorm:
+			ret = RDD::DataFormat::DATA_FORMAT_EAC_R11G11_SNORM_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC4x4Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_4x4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC4x4UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_4x4_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC5x4Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x4_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC5x4UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x4_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC5x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC5x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_5x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC6x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC6x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC6x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC6x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_6x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC8x8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC8x8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_8x8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x5Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x5_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x5UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x5_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x6Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x6_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x6UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x6_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x8Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x8_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x8UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x8_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC10x10Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x10_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC10x10UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_10x10_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC12x10Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x10_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC12x10UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x10_SRGB_BLOCK;
+			break;
+
+		case WGPUTextureFormat_ASTC12x12Unorm:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x12_UNORM_BLOCK;
+			break;
+		case WGPUTextureFormat_ASTC12x12UnormSrgb:
+			ret = RDD::DataFormat::DATA_FORMAT_ASTC_12x12_SRGB_BLOCK;
+			break;
+
 		default:
-			ret = rd_texture_format_from_webgpu_native((WGPUNativeTextureFormat)p_format);
 			break;
 	}
 
 	return ret;
-}
-
-RDD::DataFormat rd_texture_format_from_webgpu_native(WGPUNativeTextureFormat p_format) {
-	switch (p_format) {
-		case WGPUNativeTextureFormat_R16Unorm:
-			return RDD::DataFormat::DATA_FORMAT_R16_UNORM;
-		case WGPUNativeTextureFormat_R16Snorm:
-			return RDD::DataFormat::DATA_FORMAT_R16_SNORM;
-		case WGPUNativeTextureFormat_Rgba16Unorm:
-			return RDD::DataFormat::DATA_FORMAT_R16G16B16A16_UNORM;
-		default:
-			return RDD::DataFormat::DATA_FORMAT_MAX;
-	}
 }
 
 uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) {
@@ -948,6 +1163,27 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 	}
 }
 
+#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+// TODO: dawn
+WGPUComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
+	switch (p_texture_swizzle) {
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_ZERO:
+			return WGPUComponentSwizzle_Zero;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_ONE:
+			return WGPUComponentSwizzle_One;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_R:
+			return WGPUComponentSwizzle_R;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_G:
+			return WGPUComponentSwizzle_G;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_B:
+			return WGPUComponentSwizzle_B;
+		case RenderingDeviceCommons::TEXTURE_SWIZZLE_A:
+			return WGPUComponentSwizzle_A;
+		default:
+			return WGPUComponentSwizzle_Undefined;
+	}
+}
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
 	switch (p_texture_swizzle) {
 		case RDD::TextureSwizzle::TEXTURE_SWIZZLE_ZERO:
@@ -966,6 +1202,7 @@ WGPUNativeTextureComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureS
 			return WGPUNativeTextureComponentSwizzle_Identity;
 	}
 }
+#endif
 
 WGPUTextureSampleType webgpu_texture_sample_type_from_shader_uniform(RDD::ShaderUniform::TextureSampleType p_texture_sample_type) {
 	switch (p_texture_sample_type) {
@@ -1003,32 +1240,6 @@ WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p
 }
 
 uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTextureAspect aspect) {
-	switch ((WGPUNativeTextureFormat)format) {
-		case WGPUNativeTextureFormat_R16Unorm:
-		case WGPUNativeTextureFormat_R16Snorm:
-			return 2;
-		case WGPUNativeTextureFormat_Rg16Unorm:
-		case WGPUNativeTextureFormat_Rg16Snorm:
-			return 4;
-		case WGPUNativeTextureFormat_Rgba16Unorm:
-		case WGPUNativeTextureFormat_Rgba16Snorm:
-			return 8;
-		case WGPUNativeTextureFormat_NV12:
-			/*
-			if (aspect == WGPUTextureAspect_Plane0) {
-				return 1;
-			}
-			if (aspect == WGPUTextureAspect_Plane1) {
-				return 2;
-			}
-			*/
-			return UINT32_MAX;
-		// TODO: New format I know nothing about
-		case WGPUNativeTextureFormat_P010:
-			CRASH_NOW_MSG("TODO");
-			break;
-	}
-
 	switch (format) {
 		case WGPUTextureFormat_R8Unorm:
 		case WGPUTextureFormat_R8Snorm:
@@ -1041,8 +1252,8 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 		case WGPUTextureFormat_RG8Snorm:
 		case WGPUTextureFormat_RG8Uint:
 		case WGPUTextureFormat_RG8Sint:
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_R16Unorm:
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_R16Snorm:
+		case WGPUTextureFormat_R16Unorm:
+		case WGPUTextureFormat_R16Snorm:
 		case WGPUTextureFormat_R16Uint:
 		case WGPUTextureFormat_R16Sint:
 		case WGPUTextureFormat_R16Float:
@@ -1056,8 +1267,8 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 		case WGPUTextureFormat_RGBA8Sint:
 		case WGPUTextureFormat_BGRA8Unorm:
 		case WGPUTextureFormat_BGRA8UnormSrgb:
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_Rg16Unorm:
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_Rg16Snorm:
+		case WGPUTextureFormat_RG16Unorm:
+		case WGPUTextureFormat_RG16Snorm:
 		case WGPUTextureFormat_RG16Uint:
 		case WGPUTextureFormat_RG16Sint:
 		case WGPUTextureFormat_RG16Float:
@@ -1071,8 +1282,8 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 		case WGPUTextureFormat_Depth32Float:
 			return 4;
 
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_Rgba16Unorm:
-		// case (WGPUTextureFormat)WGPUNativeTextureFormat_Rgba16Snorm:
+		case WGPUTextureFormat_RGBA16Unorm:
+		case WGPUTextureFormat_RGBA16Snorm:
 		case WGPUTextureFormat_RGBA16Uint:
 		case WGPUTextureFormat_RGBA16Sint:
 		case WGPUTextureFormat_RGBA16Float:
@@ -1167,21 +1378,6 @@ uint32_t webgpu_texture_format_block_copy_size(WGPUTextureFormat format, WGPUTex
 }
 
 FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat format) {
-	switch ((WGPUNativeTextureFormat)format) {
-		case WGPUNativeTextureFormat_R16Unorm:
-		case WGPUNativeTextureFormat_R16Snorm:
-		case WGPUNativeTextureFormat_Rg16Unorm:
-		case WGPUNativeTextureFormat_Rg16Snorm:
-		case WGPUNativeTextureFormat_Rgba16Unorm:
-		case WGPUNativeTextureFormat_Rgba16Snorm:
-		case WGPUNativeTextureFormat_NV12:
-			return (FormatBlockDimension){ 1, 1 };
-		// TODO: New format I know nothing about
-		case WGPUNativeTextureFormat_P010:
-			CRASH_NOW_MSG("TODO");
-			break;
-	}
-
 	switch (format) {
 		case WGPUTextureFormat_R8Unorm:
 		case WGPUTextureFormat_R8Snorm:
@@ -1189,8 +1385,8 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_R8Sint:
 		case WGPUTextureFormat_R16Uint:
 		case WGPUTextureFormat_R16Sint:
-		// case WGPUTextureFormat_R16Unorm:
-		// case WGPUTextureFormat_R16Snorm:
+		case WGPUTextureFormat_R16Unorm:
+		case WGPUTextureFormat_R16Snorm:
 		case WGPUTextureFormat_R16Float:
 		case WGPUTextureFormat_RG8Unorm:
 		case WGPUTextureFormat_RG8Snorm:
@@ -1201,8 +1397,8 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_R32Float:
 		case WGPUTextureFormat_RG16Uint:
 		case WGPUTextureFormat_RG16Sint:
-		// case WGPUTextureFormat_Rg16Unorm:
-		// case WGPUTextureFormat_Rg16Snorm:
+		case WGPUTextureFormat_RG16Unorm:
+		case WGPUTextureFormat_RG16Snorm:
 		case WGPUTextureFormat_RG16Float:
 		case WGPUTextureFormat_RGBA8Unorm:
 		case WGPUTextureFormat_RGBA8UnormSrgb:
@@ -1221,8 +1417,8 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_RG32Float:
 		case WGPUTextureFormat_RGBA16Uint:
 		case WGPUTextureFormat_RGBA16Sint:
-		// case WGPUTextureFormat_RGBA16Unorm:
-		// case WGPUTextureFormat_RGBA16Snorm:
+		case WGPUTextureFormat_RGBA16Unorm:
+		case WGPUTextureFormat_RGBA16Snorm:
 		case WGPUTextureFormat_RGBA16Float:
 		case WGPUTextureFormat_RGBA32Uint:
 		case WGPUTextureFormat_RGBA32Sint:

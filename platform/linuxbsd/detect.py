@@ -73,6 +73,13 @@ def get_opts():
             "Path to the AccessKit C SDK",
             os.path.join(deps_folder, "accesskit"),
         ),
+        EnumVariable(
+            "webgpu_backend",
+            "WebGPU backend library / platform",
+            "wgpu-desktop",
+            ["dawn-desktop", "wgpu-desktop"],
+            ignorecase=2
+        ),
     ]
 
 
@@ -538,6 +545,11 @@ def configure(env: "SConsEnvironment"):
 
     if env["webgpu"]:
         env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+        if env["webgpu_backend"] == "dawn-desktop":
+            env.Append(CPPDEFINES=["WEBGPU_BACKEND_DAWN_DESKTOP"])
+        elif env["webgpu_backend"] == "wgpu-desktop":
+            env.Append(CPPDEFINES=["WEBGPU_BACKEND_WGPU_DESKTOP"])
+            pass
 
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED", "RD_ENABLED"])
