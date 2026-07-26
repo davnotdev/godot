@@ -2219,7 +2219,12 @@ void GI::SDFGI::render_region(Ref<RenderSceneBuffersRD> p_render_buffers, int p_
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 
 		bool half_size = true; //much faster, very little difference
+
+#ifdef WEBGPU_ENABLED
+		const int optimized_jf_group_size = (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) ? 4 : 8;
+#else
 		static const int optimized_jf_group_size = 8;
+#endif
 
 		if (half_size) {
 			push_constant.grid_size >>= 1;

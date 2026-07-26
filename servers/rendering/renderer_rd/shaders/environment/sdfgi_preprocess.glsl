@@ -9,7 +9,11 @@
 #endif
 
 #ifdef MODE_JUMPFLOOD_OPTIMIZED
+#ifdef WEBGPU_USED
+#define GROUP_SIZE 4
+#else
 #define GROUP_SIZE 8
+#endif
 
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
 

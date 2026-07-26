@@ -102,63 +102,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
 
-#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-	WGPUNativeLimits required_native_limits = (WGPUNativeLimits){
-		.chain = (WGPUChainedStruct){
-				.sType = (WGPUSType)WGPUSType_NativeLimits,
-		},
-		.maxImmediateSize = 128,
-		.maxNonSamplerBindings = WGPU_LIMIT_U32_UNDEFINED,
-		.maxBindingArrayElementsPerShaderStage = 256,
-	};
-#endif
-
-	WGPULimits required_limits =
-			(WGPULimits){
-#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-				.nextInChain = (WGPUChainedStruct *)&required_native_limits,
-#endif
-				.maxTextureDimension1D = WGPU_LIMIT_U32_UNDEFINED,
-				.maxTextureDimension2D = WGPU_LIMIT_U32_UNDEFINED,
-				.maxTextureDimension3D = WGPU_LIMIT_U32_UNDEFINED,
-				.maxTextureArrayLayers = WGPU_LIMIT_U32_UNDEFINED,
-				.maxBindGroups = 5,
-				.maxBindGroupsPlusVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
-				.maxBindingsPerBindGroup = WGPU_LIMIT_U32_UNDEFINED,
-				.maxDynamicUniformBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
-				.maxDynamicStorageBuffersPerPipelineLayout = WGPU_LIMIT_U32_UNDEFINED,
-				.maxSampledTexturesPerShaderStage = 49,
-				.maxSamplersPerShaderStage = WGPU_LIMIT_U32_UNDEFINED,
-				.maxStorageBuffersPerShaderStage = 12,
-				.maxStorageTexturesPerShaderStage = 15,
-				// NOTE: I'm not sure why Godot uses 32768 + 272 of these...
-				.maxUniformBuffersPerShaderStage = 32768 + 272,
-				// NOTE: This is my system's max buffer size, needed for some godot examples.
-				// .maxUniformBufferBindingSize = 1953653104,
-				// .maxStorageBufferBindingSize = 1953653104,
-				// These are the limits for lavapipe (CPU vulkan implementation)
-				// .maxUniformBufferBindingSize = 65536,
-				// .maxStorageBufferBindingSize = 134217728,
-				// New Limits? Not sure but these will go away soon anyway (hopefully).
-				.maxUniformBufferBindingSize = 746153060,
-				.maxStorageBufferBindingSize = 746153060,
-				.minUniformBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
-				.minStorageBufferOffsetAlignment = WGPU_LIMIT_U32_UNDEFINED,
-				.maxVertexBuffers = WGPU_LIMIT_U32_UNDEFINED,
-				// NOTE: Some examples need a higher buffer size?
-				.maxBufferSize = 2147483647,
-				.maxVertexAttributes = WGPU_LIMIT_U32_UNDEFINED,
-				.maxVertexBufferArrayStride = WGPU_LIMIT_U32_UNDEFINED,
-				.maxInterStageShaderVariables = WGPU_LIMIT_U32_UNDEFINED,
-				.maxColorAttachments = WGPU_LIMIT_U32_UNDEFINED,
-				.maxColorAttachmentBytesPerSample = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeWorkgroupStorageSize = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeInvocationsPerWorkgroup = 1024,
-				.maxComputeWorkgroupSizeX = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeWorkgroupSizeY = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeWorkgroupSizeZ = WGPU_LIMIT_U32_UNDEFINED,
-				.maxComputeWorkgroupsPerDimension = WGPU_LIMIT_U32_UNDEFINED,
-			};
+	WGPULimits required_limits = WGPU_LIMITS_INIT;
+	required_limits.maxBindGroups = 5;
+	required_limits.maxSampledTexturesPerShaderStage = 48;
+	required_limits.maxStorageBuffersPerShaderStage = 12;
+	required_limits.maxStorageTexturesPerShaderStage = 15;
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
