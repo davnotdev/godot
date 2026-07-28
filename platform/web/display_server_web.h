@@ -32,6 +32,12 @@
 
 #include "godot_js.h"
 
+#ifdef WEBGPU_ENABLED
+#include "servers/rendering/rendering_device.h"
+#include "drivers/webgpu/rendering_context_driver_webgpu.h"
+#include "drivers/webgpu/rendering_device_driver_webgpu.h"
+#endif
+
 #include "core/input/input_enums.h"
 #include "core/os/keyboard.h"
 #include "servers/display/display_server.h"
@@ -62,6 +68,11 @@ private:
 
 #ifdef GLES3_ENABLED
 	EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webgl_ctx = 0;
+#endif
+
+#ifdef RD_ENABLED
+	RenderingContextDriver *rendering_context = nullptr;
+	RenderingDevice *rendering_device = nullptr;
 #endif
 
 	HashMap<int64_t, CharString> utterance_ids;

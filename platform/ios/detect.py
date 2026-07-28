@@ -51,6 +51,7 @@ def get_flags():
         "target": "template_debug",
         "use_volk": False,
         "metal": True,
+        "webgpu": False,
         "supported": ["metal", "mono"],
         "builtin_pcre2_with_jit": False,
     }

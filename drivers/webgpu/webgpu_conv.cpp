@@ -1163,8 +1163,7 @@ uint64_t rd_limit_from_webgpu(RDD::Limit p_selected_limit, WGPULimits p_limits) 
 	}
 }
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
-// TODO: dawn
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 WGPUComponentSwizzle webgpu_component_swizzle_from_rd(RDD::TextureSwizzle p_texture_swizzle) {
 	switch (p_texture_swizzle) {
 		case RenderingDeviceCommons::TEXTURE_SWIZZLE_ZERO:

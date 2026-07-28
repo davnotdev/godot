@@ -4,7 +4,7 @@
 #include "servers/rendering/rendering_context_driver.h"
 #include "servers/rendering/rendering_device_driver.h"
 
-#include <webgpu.h>
+#include "webgpu_platform.h"
 
 class RenderingContextDriverWebGpu : public RenderingContextDriver {
 private:

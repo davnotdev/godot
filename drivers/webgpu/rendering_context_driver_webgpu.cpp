@@ -1,13 +1,10 @@
-#include <webgpu.h>
-
-#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-#include <wgpu.h>
-#endif
 
 #ifdef WEBGPU_ENABLED
 
 #include "rendering_context_driver_webgpu.h"
+
 #include "rendering_device_driver_webgpu.h"
+#include "webgpu_platform.h"
 
 #include "core/error/error_macros.h"
 
@@ -17,12 +14,12 @@ static void handle_request_adapter(WGPURequestAdapterStatus p_status,
 	String message = String::utf8(p_message.data, p_message.length);
 	ERR_FAIL_COND_V_MSG(
 			p_status != WGPURequestAdapterStatus_Success, (void)0,
-			vformat("Failed to get wgpu adapter: %s", message));
+			vformat("Failed to get WebGPU adapter: %s", message));
 
 	WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
 	ERR_FAIL_COND_V_MSG(
 			wgpuAdapterGetInfo(p_adapter, &info) != WGPUStatus_Success, (void)0,
-			"Failed to get wgpu adapter info.");
+			"Failed to get WebGPU adapter info.");
 
 	RenderingContextDriver::Device device;
 	device.name = String::utf8(info.device.data, info.device.length);
@@ -50,8 +47,8 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 }
 
 Error RenderingContextDriverWebGpu::initialize() {
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
-	static const WGPUInstanceFeatureName requiredFeatures[] = { WGPUInstanceFeatureName_TimedWaitAny };
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	static const WGPUInstanceFeatureName required_features[] = { WGPUInstanceFeatureName_TimedWaitAny };
 #endif
 
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
@@ -63,15 +60,15 @@ Error RenderingContextDriverWebGpu::initialize() {
 	};
 #endif
 
-	WGPUInstanceDescriptor instance_descriptor = (WGPUInstanceDescriptor){
+	WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-		.nextInChain = &instance_extras.chain
+	instance_descriptor.nextInChain = &instance_extras.chain;
 #endif
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
-				.requiredFeatureCount = 1,
-		.requiredFeatures = requiredFeatures,
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	instance_descriptor.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUInstanceFeatureName);
+	instance_descriptor.requiredFeatures = required_features;
 #endif
-	};
+
 	instance = wgpuCreateInstance(&instance_descriptor);
 	ERR_FAIL_NULL_V_MSG(instance, ERR_CANT_CREATE, "Failed to create wgpu instance.");
 
@@ -85,18 +82,32 @@ Error RenderingContextDriverWebGpu::initialize() {
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_HighPerformance;
-	wgpuInstanceRequestAdapter(instance,
+	WGPUFuture high_power_future = wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
 			adapter_callback_info);
 
 	adapter_options.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
-	wgpuInstanceRequestAdapter(instance,
+	WGPUFuture low_power_future = wgpuInstanceRequestAdapter(instance,
 			&adapter_options,
 			adapter_callback_info);
 
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	WGPUFutureWaitInfo wait_infos[] = {
+		{ .future = high_power_future, .completed = false },
+		{ .future = low_power_future, .completed = false },
+	};
+	for (WGPUFutureWaitInfo &wait_info : wait_infos) {
+		WGPUWaitStatus wait_status = wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX);
+		ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, ERR_CANT_CREATE,
+				"Failed to wait on WebGPU adapter request.");
+	}
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	(void)high_power_future;
+	(void)low_power_future;
 	wgpuInstanceProcessEvents(instance);
+#endif
 
-	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable wgpu adapter found.");
+	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
 
 	return OK;
 }
@@ -133,7 +144,7 @@ void RenderingContextDriverWebGpu::driver_free(RenderingDeviceDriver *p_driver) 
 }
 
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpu::surface_create(const void *p_platform_data) {
-	DEV_ASSERT(false && "Surface creation should not be called on the platform-agnostic version of the driver.");
+	print_error("Surface creation should not be called on the platform-agnostic version of the driver.");
 	return SurfaceID();
 }
 
@@ -245,7 +256,7 @@ void RenderingContextDriverWebGpu::adapter_push_back(WGPUAdapter p_adapter, Devi
 }
 
 void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGPUDevice p_device) {
-	WGPUSurfaceCapabilities capabilities;
+	WGPUSurfaceCapabilities capabilities = WGPU_SURFACE_CAPABILITIES_INIT;
 	wgpuSurfaceGetCapabilities(surface, p_adapter, &capabilities);
 
 	// Godot only supports these swapchain formats.

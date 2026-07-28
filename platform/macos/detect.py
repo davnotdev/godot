@@ -88,6 +88,7 @@ def get_flags():
         "arch": detect_arch(),
         "use_volk": False,
         "metal": True,
+        "webgpu": False,
         "supported": ["library", "metal", "mono"],
     }
 

@@ -81,6 +81,7 @@ def get_flags():
         "arch": "arm64",
         "target": "template_debug",
         "supported": ["mono"],
+        "webgpu": False,
     }
 
 

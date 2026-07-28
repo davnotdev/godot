@@ -50,6 +50,10 @@
 #include "drivers/gles3/rasterizer_gles3.h"
 #endif
 
+#if defined(RD_ENABLED)
+#include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
+#endif
+
 #include <emscripten.h>
 #include <png.h>
 
@@ -1006,6 +1010,9 @@ Vector<String> DisplayServerWeb::get_rendering_drivers_func() {
 #ifdef GLES3_ENABLED
 	drivers.push_back("opengl3");
 #endif
+#ifdef WEBGPU_ENABLED
+	drivers.push_back("webgpu");
+#endif
 	return drivers;
 }
 
@@ -1131,7 +1138,7 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 	// Expose method for requesting quit.
 	godot_js_os_request_quit_cb(request_quit_callback);
 
-#ifdef GLES3_ENABLED
+#if defined(GLES3_ENABLED)
 	bool webgl2_inited = false;
 	if (godot_js_display_has_webgl(2)) {
 		EmscriptenWebGLContextAttributes attributes;
@@ -1157,6 +1164,24 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 				"Unable to initialize WebGL 2 video driver");
 		RasterizerDummy::make_current();
 	}
+#elif defined(WEBGPU_ENABLED)
+	rendering_context = memnew(RenderingContextDriverWebGpu);
+	rendering_context->initialize();
+
+	rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, nullptr);
+
+	rendering_device = memnew(RenderingDevice);
+	if (rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID) != OK) {
+		memdelete(rendering_device);
+		rendering_device = nullptr;
+		memdelete(rendering_context);
+		rendering_context = nullptr;
+		r_error = ERR_UNAVAILABLE;
+		return;
+	}
+	rendering_device->screen_create(DisplayServerEnums::MAIN_WINDOW_ID);
+
+	RendererCompositorRD::make_current();
 #else
 	RasterizerDummy::make_current();
 #endif

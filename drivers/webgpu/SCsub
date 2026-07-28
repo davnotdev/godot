@@ -16,12 +16,18 @@ if env["webgpu_backend"] == "dawn-desktop":
 elif env["webgpu_backend"] == "wgpu-desktop":
     env.Prepend(LIBS=["wgpu_native"])
     thirdparty_dirs.append("#thirdparty/wgpu")
+elif env["webgpu_backend"] == "emdawnwebgpu":
+    # See platform/web/detect.py
+    pass
+else:
+    raise ValueError(
+        'Unsupported "webgpu_backend=%s" for platform "%s".' % (env["webgpu_backend"], env["platform"])
+    )
 
 # Use WebGpu headers
 env.Prepend(CPPPATH=thirdparty_dirs)
 
 # Godot source files
-
 driver_obj = []
 
 env.add_source_files(driver_obj, "*.cpp")

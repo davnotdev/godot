@@ -3,17 +3,12 @@
 #include "rendering_context_driver_webgpu.h"
 #include "rendering_shader_container_webgpu.h"
 #include "webgpu_conv.h"
+#include "webgpu_platform.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
-
-#include <webgpu.h>
-
-#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-#include <wgpu.h>
-#endif
 
 #include <cstdint>
 #include <cstring>
@@ -71,7 +66,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		WGPUFeatureName_Float32Filterable,
 		WGPUFeatureName_TextureCompressionBC,
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 		WGPUFeatureName_TextureFormatsTier1,
 		WGPUFeatureName_TextureFormatsTier2,
 		WGPUFeatureName_Subgroups,
@@ -125,8 +120,16 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.callback = handle_request_device,
 		.userdata1 = &this->device,
 	};
-	wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
+	WGPUFuture device_future = wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	WGPUFutureWaitInfo wait_info = { .future = device_future, .completed = false };
+	WGPUWaitStatus wait_status = wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
+	ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, FAILED,
+			"Failed to wait on WebGPU device request.");
+#elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	(void)device_future;
 	wgpuInstanceProcessEvents(context_driver->instance_get());
+#endif
 
 	ERR_FAIL_NULL_V_MSG(this->device, FAILED, "Failed to create wgpu device.");
 
@@ -278,7 +281,7 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 		};
 		WGPUFuture future = wgpuBufferMapAsync(
 				buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 		WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
 		wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
@@ -458,7 +461,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -534,7 +537,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 		}
 	}
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -585,7 +588,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
 	TextureInfo *texture_info = (TextureInfo *)p_original_texture.id;
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 	WGPUTextureComponentSwizzleDescriptor texture_view_desc_extras = (WGPUTextureComponentSwizzleDescriptor){
 		.chain = (WGPUChainedStruct){
 				.next = nullptr,
@@ -1179,6 +1182,8 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 					PassEncoderCommand::RenderMultiDrawIndirect data = command.render_multi_draw_indirect;
 					wgpuRenderPassEncoderMultiDrawIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+#else
+					CRASH_NOW_MSG("wgpuRenderPassEncoderMultiDrawIndirect unsupported");
 #endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDIRECT_COUNT: {
@@ -1196,6 +1201,8 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 					PassEncoderCommand::RenderMultiDrawIndexedIndirect data = command.render_multi_draw_indexed_indirect;
 					wgpuRenderPassEncoderMultiDrawIndexedIndirect(render_encoder, data.indirect_buffer, data.indirect_offset, data.count);
+#else
+					CRASH_NOW_MSG("wgpuRenderPassEncoderMultiDrawIndexedIndirect unsupported");
 #endif
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_MULTI_DRAW_INDEXED_INDIRECT_COUNT: {
@@ -3403,8 +3410,6 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	}
 
 	// pipeline_descriptor.multisample
-	// NOTE: In a future version of wgpu, multisample.mask will be `u64`.
-	static_assert(sizeof(WGPUMultisampleState) == 24);
 	// TODO: Assert that p_format.samples follows this behavior.
 	uint32_t sample_count = pow(2, (uint32_t)p_multisample_state.sample_count);
 	pipeline_descriptor.multisample = (WGPUMultisampleState){

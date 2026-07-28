@@ -2,7 +2,7 @@
 #define NAGA_FFI_H
 
 #include <stdint.h>
-#include <stdlib.h>
+#include <stddef.h>
 
 #define NAGA_FFI_VERSION 28
 #define NAGA_NULLABLE
