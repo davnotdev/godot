@@ -29,4 +29,10 @@ struct WebGpuBindingHint {
 	WebGpuBindingHint() {}
 };
 
+#define WEBGPU_MAX_BIND_GROUPS 4
+// This should just be 128 up to minUniformBufferOffsetAlignment.
+#define WEBGPU_MAX_IMMEDIATE_SIZE 256
+
+#define WEBGPU_PUSH_CONSTANT_EMULATION_BUFFER_ENTRIES 1028
+
 #endif

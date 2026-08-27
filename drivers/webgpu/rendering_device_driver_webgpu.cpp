@@ -98,7 +98,8 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	};
 
 	WGPULimits required_limits = WGPU_LIMITS_INIT;
-	required_limits.maxBindGroups = 5;
+	required_limits.maxBindGroups = WEBGPU_MAX_BIND_GROUPS;
+	required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
 	required_limits.maxSampledTexturesPerShaderStage = 48;
 	required_limits.maxStorageBuffersPerShaderStage = 12;
 	required_limits.maxStorageTexturesPerShaderStage = 15;
@@ -168,6 +169,16 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		.primitive_supported = false,
 		.attachment_supported = false,
 	};
+
+	// Initialize push constant emulation buffer.
+	WGPUBufferDescriptor push_constant_buffer_desc = (WGPUBufferDescriptor){
+		.nextInChain = nullptr,
+		.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform,
+		.size = WEBGPU_MAX_IMMEDIATE_SIZE * WEBGPU_PUSH_CONSTANT_EMULATION_BUFFER_ENTRIES,
+		.mappedAtCreation = false,
+
+	};
+	push_constant_emulation_buffer = wgpuDeviceCreateBuffer(device, &push_constant_buffer_desc);
 
 	return OK;
 }
@@ -950,30 +961,6 @@ void RenderingDeviceDriverWebGpu::command_pool_free(CommandPoolID p_cmd_pool) {
 
 // ----- BUFFER -----
 
-WGPUBuffer RenderingDeviceDriverWebGpu::_push_constant_buffer_acquire(CommandBufferInfo &p_command_buffer_info, uint64_t p_size) {
-	if (p_size == 0) {
-		return nullptr;
-	}
-
-	uint64_t aligned_size = STEPIFY(p_size, 256);
-	WGPUBuffer buffer = nullptr;
-	Vector<WGPUBuffer> *free_list = p_command_buffer_info.push_constant_buffer_pool.getptr(aligned_size);
-	if (free_list != nullptr && !free_list->is_empty()) {
-		buffer = free_list->get(free_list->size() - 1);
-		free_list->remove_at(free_list->size() - 1);
-	} else {
-		WGPUBufferDescriptor buffer_desc = (WGPUBufferDescriptor){
-			.nextInChain = nullptr,
-			.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform,
-			.size = aligned_size,
-			.mappedAtCreation = false,
-		};
-		buffer = wgpuDeviceCreateBuffer(device, &buffer_desc);
-	}
-	p_command_buffer_info.push_constant_buffer_used.push_back(Pair<uint64_t, WGPUBuffer>(aligned_size, buffer));
-	return buffer;
-}
-
 void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &p_command_buffer_info) {
 	WGPUComputePassEncoder compute_encoder = nullptr;
 	if (p_command_buffer_info.has_compute_commands) {
@@ -983,7 +970,7 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 	}
 
 	// `wgpu` skips binding most bind groups if one is missing.
-	// To remedy this, we need to bind missing bind groups before after setting the pipeline but before an "effective" command.
+	// To remedy this, we need to bind missing bind groups after setting the pipeline but before an "effective" command.
 	// Additionally, we need to preserve previously bound groups on compatible bind group layouts across pipelines.
 
 	PipelineInfo *current_pipeline = nullptr;
@@ -1000,9 +987,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 			bool clear = false;
 			for (KeyValue<uint32_t, WGPUBindGroupLayout> &kv : bound_layouts) {
 				ShaderInfo *shader_info = (ShaderInfo *)command.set_pipeline.pipeline_info->shader_id.id;
-				if ((int64_t)kv.key == shader_info->push_constant_set_index) {
-					continue;
-				}
 				if (kv.key >= shader_info->bind_group_layouts.size() || shader_info->bind_group_layouts[kv.key] != kv.value) {
 					clear = true;
 					break;
@@ -1040,7 +1024,13 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					for (uint32_t set_idx = 0; set_idx < shader_info->bind_group_layout_descs.size(); set_idx++) {
 						const WGPUBindGroupLayoutDescriptor &desc = shader_info->bind_group_layout_descs[set_idx];
 						if (!bound_layouts.has(set_idx)) {
-							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(desc, shader_info->bind_group_layouts[set_idx], shader_info->set_binding_corrections[set_idx], shader_info->used_original_bindings_map[set_idx]);
+							uint32_t p_push_constant_size = shader_info->push_constant_size > 0 && shader_info->standalone_push_constant_layout == nullptr ? shader_info->push_constant_size : 0;
+							WGPUBindGroup mock_group = this->_mock_bind_group_create_or_get(
+									desc,
+									shader_info->bind_group_layouts[set_idx],
+									shader_info->set_binding_corrections[set_idx],
+									shader_info->used_original_bindings_map[set_idx],
+									set_idx == shader_info->bind_group_layout_descs.size() - 1 ? p_push_constant_size : 0);
 							groups.push_back(Pair(set_idx, mock_group));
 						}
 					}
@@ -1049,20 +1039,46 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 		}
 	}
 
-	if (compute_encoder) {
-		uint64_t total_push_constant_size = 0;
+	// Fill up our push constant emulation buffer in our render order (compute then render).
+	{
+		uint32_t offset = 0;
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
 			const PassEncoderCommand &command = p_command_buffer_info.commands[i];
 			if (command.type == PassEncoderCommand::CommandType::COMPUTE_SET_IMMEDIATES) {
-				total_push_constant_size += STEPIFY(command.compute_set_immediates.offset + command.compute_push_constants.size(), 256);
+				wgpuQueueWriteBuffer(
+						queue,
+						push_constant_emulation_buffer,
+						offset + command.compute_set_immediates.offset,
+						command.compute_push_constants.ptr(),
+						command.compute_push_constants.size());
+			}
+			if (command.is_dispatch_call()) {
+				offset += WEBGPU_MAX_IMMEDIATE_SIZE;
 			}
 		}
-		WGPUBuffer push_constant_buffer = _push_constant_buffer_acquire(p_command_buffer_info, total_push_constant_size);
-		uint32_t push_constant_offset = 0;
+		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
+			const PassEncoderCommand &command = p_command_buffer_info.commands[i];
+			if (command.type == PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES) {
+				wgpuQueueWriteBuffer(
+						queue,
+						push_constant_emulation_buffer,
+						offset + command.render_set_immediates.offset,
+						command.render_push_constants.ptr(),
+						command.render_push_constants.size());
+			}
+			if (command.is_draw_call()) {
+				offset += WEBGPU_MAX_IMMEDIATE_SIZE;
+			}
+		}
+	}
+
+	uint32_t push_constant_offset = 0;
+
+	if (compute_encoder) {
 		ShaderInfo *current_shader = nullptr;
 
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
-			PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
+			const PassEncoderCommand &command = p_command_buffer_info.commands.write[i];
 
 			if (compute_mock_bind_groups.has(i)) {
 				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = compute_mock_bind_groups.get(i);
@@ -1073,6 +1089,10 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				}
 			}
 
+			if (command.is_dispatch_call()) {
+				push_constant_offset += WEBGPU_MAX_IMMEDIATE_SIZE;
+			}
+
 			switch (command.type) {
 				case PassEncoderCommand::CommandType::COMPUTE_SET_PIPELINE: {
 					PassEncoderCommand::SetPipeline data = command.set_pipeline;
@@ -1081,20 +1101,31 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
+
+					// If this bind group contains a push constant emulation buffer, handle that offset.
+					Vector<uint32_t> offsets = command.dynamic_offsets;
+					if (data.group_index == current_shader->bind_group_layout_descs.size() - 1 &&
+							current_shader && current_shader->push_constant_size > 0 &&
+							current_shader->standalone_push_constant_group == nullptr) {
+						offsets.push_back(push_constant_offset);
+					}
+
 					wgpuComputePassEncoderSetBindGroup(compute_encoder, data.group_index, data.bind_group,
-							(size_t)command.dynamic_offsets.size(),
-							command.dynamic_offsets.is_empty() ? nullptr : command.dynamic_offsets.ptr());
+							(size_t)offsets.size(),
+							offsets.is_empty() ? nullptr : offsets.ptr());
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_SET_IMMEDIATES: {
-					PassEncoderCommand::ComputeSetImmediates data = command.compute_set_immediates;
-					uint32_t write_size = (uint32_t)command.compute_push_constants.size();
-					wgpuQueueWriteBuffer(queue, push_constant_buffer, push_constant_offset + data.offset, command.compute_push_constants.ptr(), write_size);
+					// PassEncoderCommand::ComputeSetImmediates data = command.compute_set_immediates;
+					// wgpuComputePassEncoderSetImmediates(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
 
-					if (current_shader && current_shader->push_constant_set_index >= 0) {
-						WGPUBindGroup push_group = _push_constant_bind_group_create(current_shader, push_constant_buffer, push_constant_offset, current_shader->push_constant_size);
-						wgpuComputePassEncoderSetBindGroup(compute_encoder, (uint32_t)current_shader->push_constant_set_index, push_group, 0, nullptr);
+					if (current_shader && current_shader->push_constant_size > 0 && current_shader->standalone_push_constant_group) {
+						wgpuComputePassEncoderSetBindGroup(
+								compute_encoder,
+								current_shader->bind_group_layout_descs.size(),
+								current_shader->standalone_push_constant_group,
+								0,
+								nullptr);
 					}
-					push_constant_offset += STEPIFY(data.offset + write_size, 256);
 				} break;
 				case PassEncoderCommand::CommandType::COMPUTE_DISPATCH_WORKGROUPS: {
 					PassEncoderCommand::ComputeDispatchWorkgroups data = command.compute_dispatch_workgroups;
@@ -1125,15 +1156,6 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 	}
 
 	if (render_encoder) {
-		uint64_t total_push_constant_size = 0;
-		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
-			const PassEncoderCommand &command = p_command_buffer_info.commands[i];
-			if (command.type == PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES) {
-				total_push_constant_size += STEPIFY(command.render_set_immediates.offset + command.render_push_constants.size(), 256);
-			}
-		}
-		WGPUBuffer push_constant_buffer = _push_constant_buffer_acquire(p_command_buffer_info, total_push_constant_size);
-		uint32_t push_constant_offset = 0;
 		ShaderInfo *current_shader = nullptr;
 
 		for (uint32_t i = 0; i < p_command_buffer_info.commands.size(); i++) {
@@ -1143,10 +1165,16 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				const Vector<Pair<uint32_t, WGPUBindGroup>> &mock_bindings = render_mock_bind_groups.get(i);
 				for (uint32_t mb_idx = 0; mb_idx < mock_bindings.size(); mb_idx++) {
 					uint32_t set_idx = mock_bindings[mb_idx].first;
+
 					WGPUBindGroup bind_group = mock_bindings[mb_idx].second;
 					wgpuRenderPassEncoderSetBindGroup(render_encoder, set_idx, bind_group, 0, nullptr);
 				}
 			}
+
+			if (command.is_draw_call()) {
+				push_constant_offset += WEBGPU_MAX_IMMEDIATE_SIZE;
+			}
+
 			switch (command.type) {
 				case PassEncoderCommand::CommandType::RENDER_SET_VIEWPORT: {
 					PassEncoderCommand::RenderSetViewport data = command.render_set_viewport;
@@ -1163,9 +1191,18 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_BIND_GROUP: {
 					PassEncoderCommand::SetBindGroup data = command.set_bind_group;
+
+					// If this bind group contains a push constant emulation buffer, handle that offset.
+					Vector<uint32_t> offsets = command.dynamic_offsets;
+					if (data.group_index == current_shader->bind_group_layout_descs.size() - 1 &&
+							current_shader && current_shader->push_constant_size > 0 &&
+							current_shader->standalone_push_constant_group == nullptr) {
+						offsets.push_back(push_constant_offset);
+					}
+
 					wgpuRenderPassEncoderSetBindGroup(render_encoder, data.group_index, data.bind_group,
-							(size_t)command.dynamic_offsets.size(),
-							command.dynamic_offsets.is_empty() ? nullptr : command.dynamic_offsets.ptr());
+							(size_t)offsets.size(),
+							offsets.is_empty() ? nullptr : offsets.ptr());
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_DRAW: {
 					PassEncoderCommand::RenderDraw data = command.render_draw;
@@ -1226,15 +1263,16 @@ void RenderingDeviceDriverWebGpu::_flush_active_command_pass(CommandBufferInfo &
 					wgpuRenderPassEncoderSetBlendConstant(render_encoder, &data.color);
 				} break;
 				case PassEncoderCommand::CommandType::RENDER_SET_IMMEDIATES: {
-					const PassEncoderCommand::RenderSetImmediates &data = command.render_set_immediates;
-					uint32_t write_size = (uint32_t)command.render_push_constants.size();
-					wgpuQueueWriteBuffer(queue, push_constant_buffer, push_constant_offset + data.offset, command.render_push_constants.ptr(), write_size);
-
-					if (current_shader && current_shader->push_constant_set_index >= 0) {
-						WGPUBindGroup push_group = _push_constant_bind_group_create(current_shader, push_constant_buffer, push_constant_offset, current_shader->push_constant_size);
-						wgpuRenderPassEncoderSetBindGroup(render_encoder, (uint32_t)current_shader->push_constant_set_index, push_group, 0, nullptr);
+					// PassEncoderCommand::ComputeSetImmediates data = command.compute_set_immediates;
+					// wgpuComputePassEncoderSetImmediates(compute_encoder, data.offset, command.compute_push_constants.size(), command.compute_push_constants.ptr());
+					if (current_shader && current_shader->push_constant_size > 0 && current_shader->standalone_push_constant_group) {
+						wgpuRenderPassEncoderSetBindGroup(
+								render_encoder,
+								current_shader->bind_group_layout_descs.size(),
+								current_shader->standalone_push_constant_group,
+								0,
+								nullptr);
 					}
-					push_constant_offset += STEPIFY(data.offset + write_size, 256);
 				} break;
 				default:
 					break;
@@ -1264,14 +1302,6 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
-
-	// Flush push constant buffers back into the pool.
-	for (int i = 0; i < command_buffer_info->push_constant_buffer_used.size(); i++) {
-		const Pair<uint64_t, WGPUBuffer> &used = command_buffer_info->push_constant_buffer_used[i];
-		command_buffer_info->push_constant_buffer_pool[used.first].push_back(used.second);
-	}
-	command_buffer_info->push_constant_buffer_used.clear();
-
 	WGPUCommandEncoderDescriptor desc = (WGPUCommandEncoderDescriptor){};
 	command_buffer_info->encoder = wgpuDeviceCreateCommandEncoder(device, &desc);
 
@@ -1756,6 +1786,38 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		}
 	}
 
+	WGPUShaderStage push_constant_stages = (WGPUShaderStage)0;
+	bool lone_push_constant_group = false;
+	for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
+		if (refl.push_constant_stages.has_flag((ShaderStage)(1 << k))) {
+			push_constant_stages |= webgpu_shader_stage_from_rd((ShaderStage)k);
+		}
+	}
+	WGPUBindGroupLayoutEntry push_constant_entry = (WGPUBindGroupLayoutEntry){
+		.nextInChain = nullptr,
+		.binding = 0,
+		.visibility = push_constant_stages,
+		.buffer = (WGPUBufferBindingLayout){
+				.type = WGPUBufferBindingType_Uniform,
+				// We use dynamic offsets if this is not a `lone_push_constant_group` (currently unset).
+				.hasDynamicOffset = true,
+				.minBindingSize = 0,
+
+		},
+	};
+	shader_info->push_constant_stage_flags = push_constant_stages;
+	shader_info->push_constant_size = refl.push_constant_size;
+	if (shader_info->push_constant_size > 0) {
+		if (bind_group_layout_entries.size() > WEBGPU_MAX_BIND_GROUPS - 1) {
+			Vector<WGPUBindGroupLayoutEntry> &last_group = bind_group_layout_entries.write[bind_group_layout_entries.size() - 1];
+			WGPUBindGroupLayoutEntry entry = push_constant_entry;
+			entry.binding = last_group.size();
+			last_group.push_back(entry);
+		} else {
+			lone_push_constant_group = true;
+		}
+	}
+
 	for (uint32_t set_idx = 0; set_idx < (uint32_t)bind_group_layout_entries.size(); set_idx++) {
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
 			.entryCount = (size_t)bind_group_layout_entries[set_idx].size(),
@@ -1769,35 +1831,31 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 		shader_info->bind_group_layout_descs.push_back(bind_group_layout_desc);
 	}
 
-	WGPUShaderStage push_constant_stages = (WGPUShaderStage)0;
-	for (uint32_t k = 0; k < SHADER_STAGE_MAX; k++) {
-		if (refl.push_constant_stages.has_flag((ShaderStage)(1 << k))) {
-			push_constant_stages |= webgpu_shader_stage_from_rd((ShaderStage)k);
-		}
-	}
-	shader_info->push_constant_stage_flags = push_constant_stages;
-	shader_info->push_constant_size = refl.push_constant_size;
-	if (shader_info->push_constant_size > 0) {
-		WGPUBindGroupLayoutEntry entry = (WGPUBindGroupLayoutEntry){
-			.nextInChain = nullptr,
-			.binding = 0,
-			.visibility = push_constant_stages,
-			.buffer = (WGPUBufferBindingLayout){
-					.type = WGPUBufferBindingType_Uniform,
-					.hasDynamicOffset = false,
-					.minBindingSize = 0,
-
-			},
-		};
+	if (lone_push_constant_group) {
+		WGPUBindGroupLayoutEntry layout_entry = push_constant_entry;
+		layout_entry.buffer.hasDynamicOffset = false;
 		WGPUBindGroupLayoutDescriptor bind_group_layout_desc = (WGPUBindGroupLayoutDescriptor){
 			.nextInChain = nullptr,
 			.entryCount = 1,
-			.entries = &entry,
+			.entries = &layout_entry,
 		};
 		WGPUBindGroupLayout push_constant_layout = wgpuDeviceCreateBindGroupLayout(device, &bind_group_layout_desc);
-		shader_info->push_constant_set_index = (int64_t)shader_info->bind_group_layouts.size();
-		shader_info->push_constant_layout = push_constant_layout;
+		shader_info->standalone_push_constant_layout = push_constant_layout;
 		shader_info->bind_group_layouts.push_back(push_constant_layout);
+
+		WGPUBindGroupEntry entry = {};
+		entry.binding = 0;
+		entry.buffer = push_constant_emulation_buffer;
+		entry.offset = 0;
+		entry.size = shader_info->push_constant_size;
+
+		WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
+			.layout = push_constant_layout,
+			.entryCount = 1,
+			.entries = &entry,
+		};
+		WGPUBindGroup push_constant_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
+		shader_info->standalone_push_constant_group = push_constant_group;
 	}
 
 	// Superceded by immediates patching.
@@ -1975,7 +2033,7 @@ Vector<RenderingDeviceDriverWebGpu::CorrectedBinding> RenderingDeviceDriverWebGp
 	return corrected_bindings;
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<CorrectedBindingIndex> *p_binding_mask) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<CorrectedBindingIndex> *p_binding_mask, uint32_t p_push_constant_size) {
 	Vector<WGPUBindGroupEntry> entries;
 
 	Vector<Pair<uint32_t, UniformType>> index_bindings_input;
@@ -2058,31 +2116,24 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 		}
 	}
 
+	if (p_push_constant_size > 0) {
+		WGPUBindGroupEntry buffer_entry = (WGPUBindGroupEntry){
+			.binding = (uint32_t)entries.size(),
+			.buffer = push_constant_emulation_buffer,
+			.offset = 0,
+			.size = p_push_constant_size,
+		};
+		entries.push_back(buffer_entry);
+	}
+
 	WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
 		.layout = p_layout,
 		.entryCount = (size_t)entries.size(),
 		.entries = entries.ptr(),
 	};
 	WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &bind_group_desc);
+
 	return bind_group;
-}
-
-WGPUBindGroup RenderingDeviceDriverWebGpu::_push_constant_bind_group_create(const ShaderInfo *p_shader_info, WGPUBuffer p_buffer, uint64_t p_offset, uint64_t p_size) {
-	// TODO: Hey! Cache me before I cause any trouble.
-	DEV_ASSERT(p_shader_info->push_constant_layout != nullptr);
-
-	WGPUBindGroupEntry entry = {};
-	entry.binding = 0;
-	entry.buffer = p_buffer;
-	entry.offset = p_offset;
-	entry.size = p_size;
-
-	WGPUBindGroupDescriptor bind_group_desc = (WGPUBindGroupDescriptor){
-		.layout = p_shader_info->push_constant_layout,
-		.entryCount = 1,
-		.entries = &entry,
-	};
-	return wgpuDeviceCreateBindGroup(device, &bind_group_desc);
 }
 
 LocalVector<RenderingDeviceDriverWebGpu::BoundUniform> RenderingDeviceDriverWebGpu::_prune_bind_group_uniforms(const VectorView<BoundUniform> &p_uniforms, uint32_t p_set_idx, const HashMap<uint32_t, HashSet<uint32_t>> &p_pruned_set_bindings) {
@@ -2107,14 +2158,24 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_select_bind_group_from_uniform_set(U
 	} else {
 		const HashSet<uint32_t> &binding_mask = p_shader_info->used_set_bindings[p_set_index];
 
-		WGPUBindGroup bind_group = _mock_bind_group_create(p_shader_info->bind_group_layout_descs[p_set_index], p_shader_info->bind_group_layouts[p_set_index], p_shader_info->set_binding_corrections[p_set_index], p_shader_info->used_original_bindings_map[p_set_index], p_uniform_set_info->saved_uniforms, &binding_mask);
+		WGPUBindGroup bind_group = _mock_bind_group_create(
+				p_shader_info->bind_group_layout_descs[p_set_index],
+				p_shader_info->bind_group_layouts[p_set_index],
+				p_shader_info->set_binding_corrections[p_set_index],
+				p_shader_info->used_original_bindings_map[p_set_index],
+				p_uniform_set_info->saved_uniforms,
+				&binding_mask,
+				p_set_index == p_shader_info->bind_group_layout_descs.size() - 1 &&
+								p_shader_info->push_constant_size > 0 && p_shader_info->standalone_push_constant_layout == nullptr
+						? p_shader_info->push_constant_size
+						: 0);
 		p_uniform_set_info->bind_groups.push_back(bind_group);
 		p_uniform_set_info->cached.insert(layout, bind_group);
 		return bind_group;
 	}
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<CorrectedBindingIndex> *p_binding_mask) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map, const HashMap<uint32_t, BoundUniform> &p_override_uniforms, const HashSet<CorrectedBindingIndex> *p_binding_mask, uint32_t p_push_constant_size) {
 	HashMap<uint32_t, const WGPUBindGroupLayoutEntry *> entry_by_binding;
 	for (uint32_t i = 0; i < p_descriptor.entryCount; i++) {
 		entry_by_binding.insert(p_descriptor.entries[i].binding, &p_descriptor.entries[i]);
@@ -2202,15 +2263,22 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 				.ids = std::move(ids) });
 	}
 
-	WGPUBindGroup bind_group = _bind_group_create(uniforms, p_layout, p_set_binding_corrections, p_binding_mask);
+	WGPUBindGroup bind_group = _bind_group_create(uniforms, p_layout, p_set_binding_corrections, p_binding_mask, p_push_constant_size);
 	return bind_group;
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<uint32_t, UniformType> &p_used_original_bindings_map) {
+WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create_or_get(const WGPUBindGroupLayoutDescriptor &p_descriptor, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashMap<uint32_t, UniformType> &p_used_original_bindings_map, uint32_t p_push_constant_map) {
 	if (this->mock_bind_groups.has(p_layout)) {
 		return this->mock_bind_groups.get(p_layout);
 	} else {
-		WGPUBindGroup bind_group = _mock_bind_group_create(p_descriptor, p_layout, p_set_binding_corrections, p_used_original_bindings_map, {}, nullptr);
+		WGPUBindGroup bind_group = _mock_bind_group_create(
+				p_descriptor,
+				p_layout,
+				p_set_binding_corrections,
+				p_used_original_bindings_map,
+				{},
+				nullptr,
+				p_push_constant_map);
 		this->mock_bind_groups.insert(p_layout, bind_group);
 		return bind_group;
 	}
@@ -2368,7 +2436,15 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
-	WGPUBindGroup bind_group = _bind_group_create(p_uniforms, shader_info->bind_group_layouts[p_set_index], shader_info->set_binding_corrections[p_set_index], &shader_info->used_set_bindings[p_set_index]);
+	WGPUBindGroup bind_group = _bind_group_create(
+			p_uniforms,
+			shader_info->bind_group_layouts[p_set_index],
+			shader_info->set_binding_corrections[p_set_index],
+			&shader_info->used_set_bindings[p_set_index],
+			p_set_index == shader_info->bind_group_layout_descs.size() - 1 &&
+							shader_info->push_constant_size > 0 && shader_info->standalone_push_constant_layout == nullptr
+					? shader_info->push_constant_size
+					: 0);
 
 	HashMap<uint32_t, BoundUniform> saved_uniforms;
 	for (uint32_t i = 0; i < p_uniforms.size(); i++) {
@@ -2409,6 +2485,7 @@ void RenderingDeviceDriverWebGpu::uniform_set_free(UniformSetID p_uniform_set) {
 }
 
 uint32_t RenderingDeviceDriverWebGpu::uniform_sets_get_dynamic_offsets(VectorView<UniformSetID> p_uniform_sets, ShaderID p_shader, uint32_t p_first_set_index, uint32_t p_set_count) const {
+	// TODO: Include those related to push constant emulation.
 	// Pretty much what Vulkan does.
 	uint32_t mask = 0u;
 	uint32_t shift = 0u;

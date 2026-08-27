@@ -144,14 +144,12 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 		// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
 		"ClusterDebugShaderRD:0",
-		// />
 
 		"BokehDofRasterShaderRD:0",
 		"CubeToDpShaderRD:0",
 
 		// HACK: Requires vertex writable storage.
 		"VoxelGiDebugShaderRD",
-		// />
 	};
 
 	for (const String &name : skip_shaders) {
@@ -169,11 +167,11 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	patched.resize(p_spirv.size());
 	correction_maps.resize(p_spirv.size());
 
-	// The max_set + 1 is where we want to put the push constant emulation uniform.
-	uint32_t max_set = 0;
-	for (uint32_t i = 0; i < p_spirv.size(); i++) {
-		max_set = MAX(p_shader.uniform_sets.size() - 1, max_set);
-	}
+	// uint32_t max_set = 0;
+	// for (uint32_t i = 0; i < p_spirv.size(); i++) {
+	// 	max_set = MAX(p_shader.uniform_sets.size() - 1, max_set);
+	// }
+	const uint32_t immediates_set = MIN((uint32_t)p_shader.uniform_sets.size(), (uint32_t)(WEBGPU_MAX_BIND_GROUPS - 1));
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
 		Span<uint32_t> stage_spirv = p_spirv[i].spirv();
@@ -188,8 +186,11 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 		SpvTransformCorrectionMap map = (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 
-		// Ensure our push constant emulation uniform is at the max_set + 1, rather than detecting for each shader.
-		spirv_webgpu_transform_correction_write_immediates_set(&map, max_set + 1);
+		// spirv_webgpu_transform_correction_write_immediates_set(&map, WEBGPU_MAX_BIND_GROUPS - 1, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_MAX_PLUS_ONE_UP_TO);
+		spirv_webgpu_transform_correction_write_immediates_set(&map, immediates_set, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_ABSOLUTE);
+
+		// If we had all the bind groups in the world:
+		// spirv_webgpu_transform_correction_write_immediates_set(&map, max_set + 1, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_DEFAULT);
 
 		uint32_t *combimg_out_spv = nullptr;
 		uint32_t combimg_out_count = 0;

@@ -394,13 +394,8 @@ private:
 		bool has_compute_commands = false;
 		bool is_render_pass_active = false;
 		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
-
-		// Per frame push constant buffer pool
-		HashMap<uint64_t, Vector<WGPUBuffer>> push_constant_buffer_pool;
-		Vector<Pair<uint64_t, WGPUBuffer>> push_constant_buffer_used;
 	};
 
-	WGPUBuffer _push_constant_buffer_acquire(CommandBufferInfo &p_command_buffer_info, uint64_t p_size);
 	void _flush_active_command_pass(CommandBufferInfo &p_command_buffer_info);
 
 public:
@@ -456,11 +451,12 @@ private:
 		WGPU_NULLABLE WGPUShaderModule compute_shader;
 
 		WGPUShaderStage stage_flags;
+
 		WGPUShaderStage push_constant_stage_flags;
 		uint64_t push_constant_size;
-
-		WGPUBindGroupLayout push_constant_layout = nullptr;
-		int64_t push_constant_set_index = -1;
+		// Exists only if the push constant stands in its own bind group.
+		WGPUBindGroupLayout standalone_push_constant_layout = nullptr;
+		WGPUBindGroup standalone_push_constant_group = nullptr;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
@@ -477,8 +473,10 @@ private:
 		// Used to accurately recreate a set of resources in _mock_bind_group_create.
 		HashMap<uint32_t, HashMap<OriginalBindingIndex, UniformType>> used_original_bindings_map;
 
+		// I have found these crucial for debugging.
 		String shader_name;
 		Vector<String> shader_contents;
+
 		WGPUPipelineLayout pipeline_layout;
 
 		HashMap<uint32_t, CharString> vertex_override_layout;
@@ -537,12 +535,8 @@ private:
 			const VectorView<BoundUniform> &p_uniforms,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashSet<CorrectedBindingIndex> *p_binding_mask);
-	WGPUBindGroup _push_constant_bind_group_create(
-			const ShaderInfo *p_shader_info,
-			WGPUBuffer p_buffer,
-			uint64_t p_offset,
-			uint64_t p_size);
+			const HashSet<CorrectedBindingIndex> *p_binding_mask,
+			uint32_t p_push_constant_size);
 
 	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
 	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.
@@ -559,17 +553,21 @@ private:
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
 			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
 			const HashMap<OriginalBindingIndex, BoundUniform> &p_override_uniforms,
-			const HashSet<CorrectedBindingIndex> *p_binding_mask);
+			const HashSet<CorrectedBindingIndex> *p_binding_mask,
+			uint32_t p_push_constant_size);
 
 	WGPUBindGroup _mock_bind_group_create_or_get(
 			const WGPUBindGroupLayoutDescriptor &p_descriptor,
 			WGPUBindGroupLayout p_layout,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
-			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map);
+			const HashMap<OriginalBindingIndex, UniformType> &p_used_original_bindings_map,
+			uint32_t p_push_constant_size);
 
 	// When Godot skips a bind group, create and cache a "mock" bind group we can use for binding.
 	// TODO: deallocate these
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
+
+	WGPUBuffer push_constant_emulation_buffer;
 
 	// TODO: Hey, how are we freeing these resources?
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
