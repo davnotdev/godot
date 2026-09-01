@@ -72,7 +72,7 @@ static WebGpuBindingHint webgpu_binding_hint_from_trans(const WebGpuTranslateBin
 	return out;
 }
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 // Cater to Tint's stricter WGSL enforcement.
 static const char WEBGPU_WGSL_PRELUDE[] =
 		"enable subgroups;\n"
@@ -150,6 +150,10 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 		// HACK: Requires vertex writable storage.
 		"VoxelGiDebugShaderRD",
+
+		// HACK: Not going mess with the sleeping beast right now.
+		// Not enough storage textures among other issues.
+		"Sdfgi",
 	};
 
 	for (const String &name : skip_shaders) {
@@ -289,7 +293,7 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 			return false;
 		}
 
-#ifdef WEBGPU_BACKEND_DAWN_DESKTOP
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 		wgsl_sources.write[i] = _prepend_wgsl_prelude(result.wgsl_string);
 #else
 		wgsl_sources.write[i] = result.wgsl_string;

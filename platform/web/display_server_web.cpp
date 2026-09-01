@@ -70,11 +70,18 @@ DisplayServerWeb *DisplayServerWeb::get_singleton() {
 // Window (canvas)
 bool DisplayServerWeb::check_size_force_redraw() {
 	bool size_changed = godot_js_display_size_update() != 0;
-	if (size_changed && rect_changed_callback.is_valid()) {
+	if (size_changed) {
 		Size2i window_size = window_get_size();
-		Variant size = Rect2i(Point2i(), window_size); // TODO use window_get_position if implemented.
-		rect_changed_callback.call(size);
-		emscripten_set_canvas_element_size(canvas_id, window_size.x, window_size.y);
+#ifdef RD_ENABLED
+		if (rendering_context) {
+			rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, window_size.x, window_size.y);
+		}
+#endif
+		if (rect_changed_callback.is_valid()) {
+			Variant size = Rect2i(Point2i(), window_size); // TODO use window_get_position if implemented.
+			rect_changed_callback.call(size);
+			emscripten_set_canvas_element_size(canvas_id, window_size.x, window_size.y);
+		}
 	}
 	return size_changed;
 }
@@ -1165,10 +1172,16 @@ DisplayServerWeb::DisplayServerWeb(const String &p_rendering_driver, DisplayServ
 		RasterizerDummy::make_current();
 	}
 #elif defined(WEBGPU_ENABLED)
-	rendering_context = memnew(RenderingContextDriverWebGpu);
+	rendering_context = memnew(RenderingContextDriverWebGpuWeb);
 	rendering_context->initialize();
 
-	rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, nullptr);
+	RenderingContextDriverWebGpuWeb::WindowPlatformData wpd;
+	wpd.canvas_id = canvas_id;
+	rendering_context->window_create(DisplayServerEnums::MAIN_WINDOW_ID, &wpd);
+
+	Size2i canvas_size = window_get_size();
+	rendering_context->window_set_size(DisplayServerEnums::MAIN_WINDOW_ID, canvas_size.width, canvas_size.height);
+	rendering_context->window_set_vsync_mode(DisplayServerEnums::MAIN_WINDOW_ID, p_vsync_mode);
 
 	rendering_device = memnew(RenderingDevice);
 	if (rendering_device->initialize(rendering_context, DisplayServerEnums::MAIN_WINDOW_ID) != OK) {

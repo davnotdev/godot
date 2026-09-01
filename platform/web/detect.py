@@ -275,14 +275,14 @@ def configure(env: "SConsEnvironment"):
         # env.Append(LINKFLAGS=["--closure=1"])
 
         env.Append(CCFLAGS=["--use-port=emdawnwebgpu"])
-        env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI"])
+        # env.Append(LINKFLAGS=["--use-port=emdawnwebgpu"])
+        # env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sJSPI"])
+        env.Append(LINKFLAGS=["--use-port=emdawnwebgpu", "-sASYNCIFY=1", "-sASYNCIFY_STACK_SIZE=65536"])
         if env["webgpu_backend"]:
             env.Append(CPPDEFINES=["WEBGPU_BACKEND_EMDAWN"])
         else:
             print_error('Unsupported "webgpu_backend=%s" for platform "web"' % env["webgpu_backend"])
             sys.exit(255)
-
-
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])
@@ -359,7 +359,8 @@ def configure(env: "SConsEnvironment"):
         "HEAPF32",
         "HEAPF64",
     ]
-    env["EXPORTED_RUNTIME_METHODS"] += ["callMain", "cwrap"] + heap_arrays
+    # TODO(davnotdev): Check me! `wasmTable` may or may not need to be exported.
+    env["EXPORTED_RUNTIME_METHODS"] += ["callMain", "cwrap", "wasmTable"] + heap_arrays
     env["EXPORTED_FUNCTIONS"] += ["_malloc", "_free"]
 
     # Add code that allow exiting runtime.

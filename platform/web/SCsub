@@ -30,6 +30,9 @@ web_files = [
     "os_web.cpp",
 ]
 
+if env["webgpu"]:
+    web_files.append("rendering_context_driver_webgpu_web.cpp")
+
 if env["target"] == "editor":
     env.add_source_files(web_files, "editor/*.cpp")
 

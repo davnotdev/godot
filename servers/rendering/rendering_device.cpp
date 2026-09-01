@@ -894,11 +894,14 @@ Error RenderingDevice::_insert_staging_block(StagingBuffers &p_staging_buffers) 
 
 	block.frame_used = 0;
 	block.fill_amount = 0;
-	block.data_ptr = driver->buffer_map(block.driver_id);
 
-	if (block.data_ptr == nullptr) {
-		driver->buffer_free(block.driver_id);
-		return ERR_CANT_CREATE;
+	if (p_staging_buffers.usage_bits.has_flag(RDD::BUFFER_USAGE_TRANSFER_FROM_BIT)) {
+		block.data_ptr = driver->buffer_map(block.driver_id);
+
+		if (block.data_ptr == nullptr) {
+			driver->buffer_free(block.driver_id);
+			return ERR_CANT_CREATE;
+		}
 	}
 
 	p_staging_buffers.blocks.insert(p_staging_buffers.current, block);

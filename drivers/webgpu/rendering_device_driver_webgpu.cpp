@@ -99,10 +99,11 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	WGPULimits required_limits = WGPU_LIMITS_INIT;
 	required_limits.maxBindGroups = WEBGPU_MAX_BIND_GROUPS;
-	required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
+	// required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
+	required_limits.maxImmediateSize = 64;
 	required_limits.maxSampledTexturesPerShaderStage = 48;
 	required_limits.maxStorageBuffersPerShaderStage = 12;
-	required_limits.maxStorageTexturesPerShaderStage = 15;
+	required_limits.maxStorageTexturesPerShaderStage = 8;
 
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
@@ -213,13 +214,15 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 		map_mode = 0;
 	}
 
+	const bool maps_at_creation = is_transfer_buffer && (map_mode & WGPUMapMode_Write);
+
 	const uint64_t slice_size = p_size;
 	const uint64_t alloc_size = is_dynamic ? slice_size * frame_count : slice_size;
 
 	WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
 		.usage = usage,
 		.size = STEPIFY(alloc_size, 256),
-		.mappedAtCreation = is_transfer_buffer,
+		.mappedAtCreation = maps_at_creation,
 	};
 	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
 
@@ -241,9 +244,10 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 	BufferInfo *buffer_info = memnew(BufferInfo);
 	buffer_info->size = slice_size;
 	buffer_info->buffer = buffer;
+	buffer_info->usage = usage;
 	buffer_info->map_mode = (WGPUMapMode)map_mode;
-	buffer_info->is_transfer_first_map = is_transfer_buffer;
-	buffer_info->is_mapped = is_transfer_buffer;
+	buffer_info->is_transfer_first_map = maps_at_creation;
+	buffer_info->is_mapped = maps_at_creation;
 
 	return BufferID(buffer_info);
 }
@@ -286,24 +290,37 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	uint64_t size = buffer_info->size;
 
 	if (!buffer_info->is_transfer_first_map) {
-		WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
-			.mode = WGPUCallbackMode_AllowProcessEvents,
-			.callback = handle_buffer_map,
-		};
-		WGPUFuture future = wgpuBufferMapAsync(
-				buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
+		if (buffer_info->map_mode == WGPUMapMode_Write) {
+			// TODO TODO TODO
+			wgpuBufferRelease(buffer_info->buffer);
+			WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
+				.usage = buffer_info->usage,
+				.size = STEPIFY(size, 256),
+				.mappedAtCreation = true,
+			};
+			buffer_info->buffer = wgpuDeviceCreateBuffer(device, &desc);
+		} else {
+			WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
+				.mode = WGPUCallbackMode_AllowProcessEvents,
+				.callback = handle_buffer_map,
+			};
+			WGPUFuture future = wgpuBufferMapAsync(
+					buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-		WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
-		wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
+			WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
+			wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
-		(void)future;
-		wgpuDevicePoll(device, true, nullptr);
+			(void)future;
+			wgpuDevicePoll(device, true, nullptr);
 #endif
+		}
 	} else {
 		buffer_info->is_transfer_first_map = false;
 	}
 	buffer_info->is_mapped = true;
-	const void *data = wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
+	void *data = (buffer_info->map_mode & WGPUMapMode_Write)
+			? wgpuBufferGetMappedRange(buffer_info->buffer, offset, size)
+			: (void *)wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
 	return (uint8_t *)data;
 }
 
@@ -925,12 +942,15 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 
 	// TODO: IMPL
 	// Q: Will we get multiple surfaces?
+	// Only needed for desktop.
+#if !defined(WEBGPU_BACKEND_EMDAWN)
 	for (uint32_t i = 0; i < p_swap_chains.size(); i++) {
 		SwapChainInfo *swapchain = (SwapChainInfo *)p_swap_chains[i].id;
 		RenderingContextDriverWebGpu::Surface *surface = (RenderingContextDriverWebGpu::Surface *)swapchain->surface;
 
 		wgpuSurfacePresent(surface->surface);
 	}
+#endif
 
 	return OK;
 }

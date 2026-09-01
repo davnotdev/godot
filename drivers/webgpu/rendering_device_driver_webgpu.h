@@ -43,6 +43,7 @@ private:
 
 	struct BufferInfo {
 		WGPUBuffer buffer = nullptr;
+		WGPUBufferUsage usage = WGPUBufferUsage_None;
 		WGPUMapMode map_mode = (WGPUMapMode)0;
 		// For dynamic buffers, this is the slice size
 		// the underlying allocation is frame_count * size.
