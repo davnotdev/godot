@@ -71,6 +71,16 @@ SpvTransformOptionalU32 spirv_webgpu_transform_correction_read_immediates_set(
 void spirv_webgpu_transform_correction_write_immediates_set(
 		SpvTransformCorrectionMap *correction_map, uint32_t value, SpvTransformImmediatesSetMode mode);
 
+typedef enum {
+	SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_BINDING_MODE_LAST = 0,
+	SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_BINDING_MODE_ABSOLUTE = 1,
+} SpvTransformImmediatesBindingMode;
+
+SpvTransformOptionalU32 spirv_webgpu_transform_correction_read_immediates_binding(
+		SpvTransformCorrectionMap correction_map);
+void spirv_webgpu_transform_correction_write_immediates_binding(
+		SpvTransformCorrectionMap *correction_map, SpvTransformImmediatesBindingMode mode, SpvTransformOptionalU32 value);
+
 void spirv_webgpu_transform_correction_map_free(SpvTransformCorrectionMap correction_map);
 
 #ifdef __cplusplus

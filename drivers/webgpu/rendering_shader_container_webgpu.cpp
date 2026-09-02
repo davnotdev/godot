@@ -171,10 +171,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 	patched.resize(p_spirv.size());
 	correction_maps.resize(p_spirv.size());
 
-	// uint32_t max_set = 0;
-	// for (uint32_t i = 0; i < p_spirv.size(); i++) {
-	// 	max_set = MAX(p_shader.uniform_sets.size() - 1, max_set);
-	// }
 	const uint32_t immediates_set = MIN((uint32_t)p_shader.uniform_sets.size(), (uint32_t)(WEBGPU_MAX_BIND_GROUPS - 1));
 
 	for (uint32_t i = 0; i < p_spirv.size(); i++) {
@@ -190,7 +186,12 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 		SpvTransformCorrectionMap map = (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 
-		// spirv_webgpu_transform_correction_write_immediates_set(&map, WEBGPU_MAX_BIND_GROUPS - 1, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_MAX_PLUS_ONE_UP_TO);
+		spirv_webgpu_transform_correction_write_immediates_binding(
+				&map,
+				SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_BINDING_MODE_ABSOLUTE,
+				(SpvTransformOptionalU32){
+						.some = true,
+						.value = WEBGPU_PUSH_CONSTANT_EMULATION_BINDING });
 		spirv_webgpu_transform_correction_write_immediates_set(&map, immediates_set, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_ABSOLUTE);
 
 		// If we had all the bind groups in the world:

@@ -314,10 +314,12 @@ private:
 
 		struct RenderSetImmediates {
 			uint32_t offset;
+			uint32_t emulation_offset;
 		};
 
 		struct ComputeSetImmediates {
 			uint32_t offset;
+			uint32_t emulation_offset;
 		};
 
 		struct ComputeDispatchWorkgroups {
@@ -455,9 +457,13 @@ private:
 
 		WGPUShaderStage push_constant_stage_flags;
 		uint64_t push_constant_size;
+		int32_t push_constant_set_index = -1;
 		// Exists only if the push constant stands in its own bind group.
 		WGPUBindGroupLayout standalone_push_constant_layout = nullptr;
 		WGPUBindGroup standalone_push_constant_group = nullptr;
+
+		// Used for flushing mock bind groups with push constant emulation.
+		Vector<uint32_t> set_dynamic_offset_counts;
 
 		Vector<WGPUBindGroupLayout> bind_group_layouts;
 		Vector<WGPUBindGroupLayoutDescriptor> bind_group_layout_descs;
@@ -483,6 +489,11 @@ private:
 		HashMap<uint32_t, CharString> vertex_override_layout;
 		HashMap<uint32_t, CharString> fragment_override_layout;
 		HashMap<uint32_t, CharString> compute_override_layout;
+
+		bool _set_index_has_push_constant_emulation(uint32_t p_set_index) const {
+			return push_constant_size > 0 && standalone_push_constant_layout == nullptr &&
+					push_constant_set_index == (int32_t)p_set_index;
+		}
 	};
 
 public:
@@ -569,6 +580,8 @@ private:
 	HashMap<WGPUBindGroupLayout, WGPUBindGroup> mock_bind_groups;
 
 	WGPUBuffer push_constant_emulation_buffer;
+	uint32_t push_constant_emulation_head = 0;
+	uint32_t _push_constant_emulation_alloc();
 
 	// TODO: Hey, how are we freeing these resources?
 	SamplerID _sampler_mock_binding_create(WGPUSamplerBindingLayout p_layout);
