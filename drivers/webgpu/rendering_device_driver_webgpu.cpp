@@ -260,7 +260,7 @@ bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, Dat
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 	// If async download is in flight, defer cleanup to handler.
-	if (buffer_info->download_map_requested && !buffer_info->download_map_completed) {
+	if (buffer_info->download_callbacks_pending > 0) {
 		buffer_info->freed = true;
 		return;
 	}
@@ -293,15 +293,23 @@ void RenderingDeviceDriverWebGpu::_finish_buffer_download(BufferInfo *buffer_inf
 	wgpuBufferUnmap(buffer_info->buffer);
 }
 
-void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView p_message, void *userdata1, void *_userdata2) {
+void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView p_message, void *userdata1, void *userdata2) {
 	BufferInfo *buffer_info = (BufferInfo *)userdata1;
+	uint32_t download_generation = (uint32_t)(uintptr_t)userdata2;
+
 	if (buffer_info == nullptr) {
 		return;
 	}
 
+	DEV_ASSERT(buffer_info->download_callbacks_pending > 0);
+	buffer_info->download_callbacks_pending--;
+
 	// buffer_free() called while in flight, finish cleanup
 	if (buffer_info->freed) {
-		if (status == WGPUMapAsyncStatus_Success) {
+		if (buffer_info->download_callbacks_pending > 0) {
+			return;
+		}
+		if (wgpuBufferGetMapState(buffer_info->buffer) != WGPUBufferMapState_Unmapped) {
 			wgpuBufferUnmap(buffer_info->buffer);
 		}
 		wgpuBufferRelease(buffer_info->buffer);
@@ -309,6 +317,10 @@ void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, 
 			memfree(buffer_info->download_buffer);
 		}
 		memdelete(buffer_info);
+		return;
+	}
+
+	if (download_generation != buffer_info->download_generation) {
 		return;
 	}
 
@@ -396,10 +408,12 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 
 void RenderingDeviceDriverWebGpu::_buffer_download_start(BufferInfo *buffer_info) {
 	// We use `AllowProcessEvents` to avoid callbacks on other threads.
+	buffer_info->download_generation++;
 	WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
 		.mode = WGPUCallbackMode_AllowProcessEvents,
 		.callback = _handle_buffer_map,
 		.userdata1 = buffer_info,
+		.userdata2 = (void *)(uintptr_t)buffer_info->download_generation,
 	};
 #if defined(WEBGPU_BACKEND_EMDAWN)
 	if (buffer_info->download_buffer == nullptr) {
@@ -412,6 +426,20 @@ void RenderingDeviceDriverWebGpu::_buffer_download_start(BufferInfo *buffer_info
 			buffer_info->buffer, buffer_info->map_mode, 0, buffer_info->size, buffer_map_callback_info);
 	buffer_info->download_map_requested = true;
 	buffer_info->download_map_completed = false;
+	buffer_info->download_callbacks_pending++;
+}
+
+void RenderingDeviceDriverWebGpu::_buffer_release_download_map(BufferInfo *buffer_info) {
+	if (!buffer_info->download_map_requested) {
+		return;
+	}
+
+	buffer_info->download_generation++;
+	buffer_info->download_map_requested = false;
+	buffer_info->download_map_completed = false;
+	if (wgpuBufferGetMapState(buffer_info->buffer) != WGPUBufferMapState_Unmapped) {
+		wgpuBufferUnmap(buffer_info->buffer);
+	}
 }
 
 void RenderingDeviceDriverWebGpu::buffer_prepare_download(BufferID p_buffer) {
@@ -2745,11 +2773,11 @@ void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buf
 
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
 
-	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
-
 	if (buffer_info->is_mapped) {
 		this->buffer_unmap(p_buffer);
 	}
+	_buffer_release_download_map(buffer_info);
+	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
 }
 
 void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {
@@ -2759,6 +2787,11 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
+
+	if (dst_buffer_info->is_mapped) {
+		this->buffer_unmap(p_dst_buffer);
+	}
+	_buffer_release_download_map(dst_buffer_info);
 
 	if (src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write)) {
 		const uint8_t *src_data = (const uint8_t *)src_buffer_info->mapped_data;
@@ -2787,9 +2820,6 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 	} else {
 		if (src_buffer_info->is_mapped) {
 			this->buffer_unmap(p_src_buffer);
-		}
-		if (dst_buffer_info->is_mapped) {
-			this->buffer_unmap(p_dst_buffer);
 		}
 
 		for (uint32_t i = 0; i < p_regions.size(); i++) {
@@ -2962,6 +2992,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 	if (dst_buffer_info->is_mapped) {
 		this->buffer_unmap(p_dst_buffer);
 	}
+	_buffer_release_download_map(dst_buffer_info);
 
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];

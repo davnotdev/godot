@@ -58,7 +58,13 @@ private:
 
 		bool download_map_requested = false;
 		bool download_map_completed = false;
+
 		WGPUFuture download_future = {};
+
+		// Useful mechanism for aborting callbacks.
+		uint32_t download_generation = 0;
+		uint32_t download_callbacks_pending = 0;
+
 		// Cached copy of a download buffer's last known contents.
 		uint8_t *download_buffer = nullptr;
 		bool freed = false;
@@ -78,6 +84,8 @@ private:
 	void _flush_pending_dynamic_buffers();
 
 	void _buffer_download_start(BufferInfo *buffer_info);
+	// Useful to invalidate downloads in flight after `wgpuBufferUnmap`.
+	static void _buffer_release_download_map(BufferInfo *buffer_info);
 	static void _handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView message, void *userdata1, void *userdata2);
 	static void _finish_buffer_download(BufferInfo *buffer_info);
 
