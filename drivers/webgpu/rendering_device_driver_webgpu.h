@@ -53,6 +53,15 @@ private:
 		bool is_transfer_first_map = false;
 		// Tracks the actual GPU-side map state.
 		bool is_mapped = false;
+		// Cached result of the one `wgpuBufferGetMappedRange()`.
+		void *mapped_data = nullptr;
+
+		bool download_map_requested = false;
+		bool download_map_completed = false;
+		WGPUFuture download_future = {};
+		// Cached copy of a download buffer's last known contents.
+		uint8_t *download_buffer = nullptr;
+		bool freed = false;
 
 		uint32_t frame_idx = UINT32_MAX;
 		bool is_dynamic() const { return frame_idx != UINT32_MAX; }
@@ -68,6 +77,10 @@ private:
 	HashSet<BufferDynamicInfo *> dirty_dynamic_buffers;
 	void _flush_pending_dynamic_buffers();
 
+	void _buffer_download_start(BufferInfo *buffer_info);
+	static void _handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView message, void *userdata1, void *userdata2);
+	static void _finish_buffer_download(BufferInfo *buffer_info);
+
 public:
 	virtual BufferID buffer_create(uint64_t p_size, BitField<BufferUsageBits> p_usage, MemoryAllocationType p_allocation_type, uint64_t p_frames_drawn) override final;
 	virtual bool buffer_set_texel_format(BufferID p_buffer, DataFormat p_format) override final;
@@ -75,6 +88,7 @@ public:
 	virtual uint64_t buffer_get_allocation_size(BufferID p_buffer) override final;
 	virtual uint8_t *buffer_map(BufferID p_buffer) override final;
 	virtual void buffer_unmap(BufferID p_buffer) override final;
+	virtual void buffer_prepare_download(BufferID p_buffer) override final;
 	virtual uint8_t *buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) override final;
 	virtual uint64_t buffer_get_dynamic_offsets(Span<BufferID> p_buffers) override final;
 	// TODO: hmm we could use this v4.6

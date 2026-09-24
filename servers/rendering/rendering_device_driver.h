@@ -198,6 +198,9 @@ public:
 	virtual uint64_t buffer_get_allocation_size(BufferID p_buffer) = 0;
 	virtual uint8_t *buffer_map(BufferID p_buffer) = 0;
 	virtual void buffer_unmap(BufferID p_buffer) = 0;
+	// Give backends the opportunity to anticipate download buffers.
+	// This is currently only useful for WebGPU which cannot reliably map a buffer within the same frame.
+	virtual void buffer_prepare_download(BufferID p_buffer) {}
 	virtual uint8_t *buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) = 0;
 	virtual uint64_t buffer_get_dynamic_offsets(Span<BufferID> p_buffers) = 0;
 	virtual void buffer_flush(BufferID p_buffer) {}

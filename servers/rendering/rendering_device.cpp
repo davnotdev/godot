@@ -8172,6 +8172,14 @@ void RenderingDevice::_execute_frame(bool p_present) {
 	// used, the CPU needs to wait on the work to be completed.
 	frames[frame].fence_signaled = true;
 
+	// See `RDD::buffer_prepare_download` for details.
+	for (const RDD::BufferID &buffer_id : frames[frame].download_buffer_staging_buffers) {
+		driver->buffer_prepare_download(buffer_id);
+	}
+	for (const RDD::BufferID &buffer_id : frames[frame].download_texture_staging_buffers) {
+		driver->buffer_prepare_download(buffer_id);
+	}
+
 	if (frame_can_present) {
 		if (separate_present_queue) {
 			// Issue the presentation separately if the presentation queue is different from the main queue.

@@ -259,7 +259,15 @@ bool RenderingDeviceDriverWebGpu::buffer_set_texel_format(BufferID p_buffer, Dat
 
 void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	// If async download is in flight, defer cleanup to handler.
+	if (buffer_info->download_map_requested && !buffer_info->download_map_completed) {
+		buffer_info->freed = true;
+		return;
+	}
 	wgpuBufferRelease(buffer_info->buffer);
+	if (buffer_info->download_buffer != nullptr) {
+		memfree(buffer_info->download_buffer);
+	}
 	if (buffer_info->is_dynamic()) {
 		BufferDynamicInfo *dyn = static_cast<BufferDynamicInfo *>(buffer_info);
 		dirty_dynamic_buffers.erase(dyn);
@@ -277,10 +285,43 @@ uint64_t RenderingDeviceDriverWebGpu::buffer_get_allocation_size(BufferID p_buff
 	return buffer_info->size;
 }
 
-static void handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView _message, void *_userdata1, void *_userdata2) {
-	ERR_FAIL_COND_V_MSG(
-			status != WGPUMapAsyncStatus_Success, (void)0,
-			vformat("Failed to map buffer"));
+void RenderingDeviceDriverWebGpu::_finish_buffer_download(BufferInfo *buffer_info) {
+	const void *mapped = wgpuBufferGetConstMappedRange(buffer_info->buffer, 0, buffer_info->size);
+	if (mapped != nullptr) {
+		memcpy(buffer_info->download_buffer, mapped, buffer_info->size);
+	}
+	wgpuBufferUnmap(buffer_info->buffer);
+}
+
+void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView p_message, void *userdata1, void *_userdata2) {
+	BufferInfo *buffer_info = (BufferInfo *)userdata1;
+	if (buffer_info == nullptr) {
+		return;
+	}
+
+	// buffer_free() called while in flight, finish cleanup
+	if (buffer_info->freed) {
+		if (status == WGPUMapAsyncStatus_Success) {
+			wgpuBufferUnmap(buffer_info->buffer);
+		}
+		wgpuBufferRelease(buffer_info->buffer);
+		if (buffer_info->download_buffer != nullptr) {
+			memfree(buffer_info->download_buffer);
+		}
+		memdelete(buffer_info);
+		return;
+	}
+
+	if (status != WGPUMapAsyncStatus_Success) {
+		ERR_PRINT(vformat("Failed to map buffer for readback: %s", String::utf8(p_message.data, p_message.length)));
+		buffer_info->download_map_requested = false;
+		return;
+	}
+
+	buffer_info->download_map_completed = true;
+	if (buffer_info->download_buffer != nullptr) {
+		_finish_buffer_download(buffer_info);
+	}
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
@@ -290,8 +331,8 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	uint64_t size = buffer_info->size;
 
 	if (!buffer_info->is_transfer_first_map) {
+		// Since async is messy on web platforms, create a new mapped buffer rather than using `wgpuBufferMapAsync`.
 		if (buffer_info->map_mode == WGPUMapMode_Write) {
-			// TODO TODO TODO
 			wgpuBufferRelease(buffer_info->buffer);
 			WGPUBufferDescriptor desc = (WGPUBufferDescriptor){
 				.usage = buffer_info->usage,
@@ -300,18 +341,46 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 			};
 			buffer_info->buffer = wgpuDeviceCreateBuffer(device, &desc);
 		} else {
-			WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
-				.mode = WGPUCallbackMode_AllowProcessEvents,
-				.callback = handle_buffer_map,
-			};
-			WGPUFuture future = wgpuBufferMapAsync(
-					buffer_info->buffer, buffer_info->map_mode, offset, size, buffer_map_callback_info);
-#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-			WGPUFutureWaitInfo wait_info = { .future = future, .completed = false };
-			wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
+			if (!buffer_info->download_map_requested) {
+				// `buffer_prepare_download` was not called ahead of time, try starting now.
+				_buffer_download_start(buffer_info);
+			}
+
+#if defined(WEBGPU_BACKEND_EMDAWN)
+			// On web platforms, async is messy, and blocking is not an option.
+			// We try to anticipate mapping ahead of time using `buffer_prepare_download`.
+			if (!buffer_info->download_map_completed) {
+				wgpuInstanceProcessEvents(context_driver->instance_get());
+			}
+
+			// If our local download has been completed, use that, otherwise, use stale data.
+			if (buffer_info->download_map_completed) {
+				// Fresh data is in the local copy and _finish_buffer_download() already released
+				// the GPU-side map, so a new download can start on the next cycle.
+				buffer_info->download_map_requested = false;
+				buffer_info->download_map_completed = false;
+			}
+
+			buffer_info->is_mapped = true;
+			return buffer_info->download_buffer;
+#else
+			if (!buffer_info->download_map_completed) {
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
+				WGPUFutureWaitInfo wait_info = { .future = buffer_info->download_future, .completed = false };
+				wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
-			(void)future;
-			wgpuDevicePoll(device, true, nullptr);
+				wgpuDevicePoll(device, true, nullptr);
+				if (!buffer_info->download_map_completed) {
+					wgpuInstanceProcessEvents(context_driver->instance_get());
+				}
+#endif
+			}
+
+			buffer_info->download_map_requested = false;
+			if (!buffer_info->download_map_completed) {
+				return nullptr;
+			}
+			buffer_info->download_map_completed = false;
 #endif
 		}
 	} else {
@@ -321,7 +390,40 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	void *data = (buffer_info->map_mode & WGPUMapMode_Write)
 			? wgpuBufferGetMappedRange(buffer_info->buffer, offset, size)
 			: (void *)wgpuBufferGetConstMappedRange(buffer_info->buffer, offset, size);
+	buffer_info->mapped_data = data;
 	return (uint8_t *)data;
+}
+
+void RenderingDeviceDriverWebGpu::_buffer_download_start(BufferInfo *buffer_info) {
+	// We use `AllowProcessEvents` to avoid callbacks on other threads.
+	WGPUBufferMapCallbackInfo buffer_map_callback_info = (WGPUBufferMapCallbackInfo){
+		.mode = WGPUCallbackMode_AllowProcessEvents,
+		.callback = _handle_buffer_map,
+		.userdata1 = buffer_info,
+	};
+#if defined(WEBGPU_BACKEND_EMDAWN)
+	if (buffer_info->download_buffer == nullptr) {
+		buffer_info->download_buffer = (uint8_t *)memalloc(buffer_info->size);
+		memset(buffer_info->download_buffer, 0, buffer_info->size);
+	}
+#endif
+
+	buffer_info->download_future = wgpuBufferMapAsync(
+			buffer_info->buffer, buffer_info->map_mode, 0, buffer_info->size, buffer_map_callback_info);
+	buffer_info->download_map_requested = true;
+	buffer_info->download_map_completed = false;
+}
+
+void RenderingDeviceDriverWebGpu::buffer_prepare_download(BufferID p_buffer) {
+	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+	if (buffer_info->map_mode != WGPUMapMode_Read) {
+		return;
+	}
+	if (buffer_info->is_mapped || buffer_info->download_map_requested) {
+		return;
+	}
+
+	_buffer_download_start(buffer_info);
 }
 
 void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
@@ -331,8 +433,11 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	}
 	buffer_info->is_transfer_first_map = false;
 	buffer_info->is_mapped = false;
+	buffer_info->mapped_data = nullptr;
 
-	wgpuBufferUnmap(buffer_info->buffer);
+	if (wgpuBufferGetMapState(buffer_info->buffer) == WGPUBufferMapState_Mapped) {
+		wgpuBufferUnmap(buffer_info->buffer);
+	}
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) {
@@ -486,6 +591,9 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 		.viewFormatCount = (size_t)view_formats.size(),
 		.viewFormats = view_formats.ptr(),
 	};
+
+	ERR_FAIL_COND_V_MSG(texture_format == WGPUTextureFormat_Undefined, TextureID(),
+			vformat("WebGPU has no format for RD format %d.", (int)p_format.format));
 
 	WGPUTexture texture = wgpuDeviceCreateTexture(device, &texture_desc);
 
@@ -718,9 +826,12 @@ void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
 	uint32_t block_width = block_dimensions.block_dim_x;
 	uint32_t block_height = block_dimensions.block_dim_y;
 
-	uint32_t width = texture_info->texture_desc.size.width;
-	uint32_t height = texture_info->texture_desc.size.height;
+	uint32_t width = MAX(1u, texture_info->texture_desc.size.width >> p_subresource.mipmap);
+	uint32_t height = MAX(1u, texture_info->texture_desc.size.height >> p_subresource.mipmap);
 	uint32_t depth = texture_info->texture_desc.size.depthOrArrayLayers;
+	if (texture_info->texture_desc.dimension == WGPUTextureDimension_3D) {
+		depth = MAX(1u, depth >> p_subresource.mipmap);
+	}
 
 	uint32_t blocks_per_row =
 			(width + block_width - 1) / block_width;
@@ -2649,16 +2760,42 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 	BufferInfo *src_buffer_info = (BufferInfo *)p_src_buffer.id;
 	BufferInfo *dst_buffer_info = (BufferInfo *)p_dst_buffer.id;
 
-	for (uint32_t i = 0; i < p_regions.size(); i++) {
-		BufferCopyRegion region = p_regions[i];
-		wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 256));
-	}
+	if (src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write)) {
+		const uint8_t *src_data = (const uint8_t *)src_buffer_info->mapped_data;
 
-	if (src_buffer_info->is_mapped) {
-		this->buffer_unmap(p_src_buffer);
-	}
-	if (dst_buffer_info->is_mapped) {
-		this->buffer_unmap(p_dst_buffer);
+		for (uint32_t i = 0; i < p_regions.size(); i++) {
+			BufferCopyRegion region = p_regions[i];
+			if (region.size == 0) {
+				continue;
+			}
+			uint64_t copy_size = STEPIFY(region.size, 4);
+
+			WGPUBufferDescriptor intermediate_desc = (WGPUBufferDescriptor){
+				.usage = WGPUBufferUsage_CopySrc,
+				.size = copy_size,
+				.mappedAtCreation = true,
+			};
+			WGPUBuffer intermediate_buffer = wgpuDeviceCreateBuffer(device, &intermediate_desc);
+			void *intermediate_data = wgpuBufferGetMappedRange(intermediate_buffer, 0, copy_size);
+			memcpy(intermediate_data, src_data + region.src_offset, region.size);
+			wgpuBufferUnmap(intermediate_buffer);
+
+			wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, intermediate_buffer, 0, dst_buffer_info->buffer, region.dst_offset, copy_size);
+
+			wgpuBufferRelease(intermediate_buffer);
+		}
+	} else {
+		if (src_buffer_info->is_mapped) {
+			this->buffer_unmap(p_src_buffer);
+		}
+		if (dst_buffer_info->is_mapped) {
+			this->buffer_unmap(p_dst_buffer);
+		}
+
+		for (uint32_t i = 0; i < p_regions.size(); i++) {
+			BufferCopyRegion region = p_regions[i];
+			wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, src_buffer_info->buffer, region.src_offset, dst_buffer_info->buffer, region.dst_offset, STEPIFY(region.size, 4));
+		}
 	}
 }
 
@@ -2699,8 +2836,6 @@ void RenderingDeviceDriverWebGpu::command_copy_texture(CommandBufferID p_cmd_buf
 			.depthOrArrayLayers = (uint32_t)region.size.z,
 		};
 
-		// WebGPU requires copy extents to be multiples of the compressed block size.
-		// For uncompressed formats, block_w/block_h are 1 so this is a no-op.
 		uint32_t block_w = 1, block_h = 1;
 		get_compressed_image_format_block_dimensions(src_texture_info->rd_texture_format, block_w, block_h);
 		if (block_w > 1 || block_h > 1) {
@@ -2736,32 +2871,51 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(dst_texture_info->texture_view_desc.format);
 
+	bool src_still_mapped = src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write);
+	const uint8_t *src_data = src_still_mapped ? (const uint8_t *)src_buffer_info->mapped_data : nullptr;
+
+	if (!src_still_mapped && src_buffer_info->is_mapped) {
+		this->buffer_unmap(p_src_buffer);
+	}
+
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];
 
-		uint32_t block_copy_size = webgpu_texture_format_block_copy_size(dst_texture_info->texture_desc.format, dst_texture_info->texture_view_desc.aspect);
-
-		uint32_t block_width = block_dimensions.block_dim_x;
 		uint32_t block_height = block_dimensions.block_dim_y;
-		uint32_t bytes_per_block = block_copy_size;
-
-		uint32_t blocks_per_row =
-				(region.texture_region_size.x + block_width - 1) / block_width;
 
 		uint32_t blocks_per_column =
 				(region.texture_region_size.y + block_height - 1) / block_height;
 
+		uint32_t bytes_per_row = (uint32_t)region.row_pitch;
+		uint32_t layer_count = MAX((uint32_t)region.texture_region_size.z, (uint32_t)1);
+
+		WGPUBuffer intermediate_buffer = nullptr;
+		uint64_t src_offset = region.buffer_offset;
+		uint64_t region_byte_size = (uint64_t)bytes_per_row * blocks_per_column * layer_count;
+		if (src_still_mapped && region_byte_size > 0) {
+			WGPUBufferDescriptor intermediate_desc = (WGPUBufferDescriptor){
+				.usage = WGPUBufferUsage_CopySrc,
+				.size = region_byte_size,
+				.mappedAtCreation = true,
+			};
+			intermediate_buffer = wgpuDeviceCreateBuffer(device, &intermediate_desc);
+			void *intermediate_data = wgpuBufferGetMappedRange(intermediate_buffer, 0, region_byte_size);
+			memcpy(intermediate_data, src_data + region.buffer_offset, region_byte_size);
+			wgpuBufferUnmap(intermediate_buffer);
+
+			src_offset = 0;
+		}
+
 		WGPUTexelCopyBufferInfo cp_buffer = {
 			.layout = {
-					.offset = region.buffer_offset,
-					.bytesPerRow =
-							(blocks_per_row * bytes_per_block + 255) & ~255,
+					.offset = src_offset,
+					.bytesPerRow = bytes_per_row,
 					.rowsPerImage =
 							region.texture_region_size.z > 1
 							? blocks_per_column
 							: WGPU_COPY_STRIDE_UNDEFINED,
 			},
-			.buffer = src_buffer_info->buffer,
+			.buffer = intermediate_buffer != nullptr ? intermediate_buffer : src_buffer_info->buffer,
 		};
 
 		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
@@ -2780,8 +2934,6 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			.depthOrArrayLayers = (uint32_t)region.texture_region_size.z,
 		};
 
-		// WebGPU requires copy extents to be multiples of the compressed block size.
-		// For uncompressed formats, block_w/block_h are 1 so this is a no-op.
 		uint32_t block_w = 1, block_h = 1;
 		get_compressed_image_format_block_dimensions(dst_texture_info->rd_texture_format, block_w, block_h);
 		if (block_w > 1 || block_h > 1) {
@@ -2790,10 +2942,10 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 		}
 
 		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
-	}
 
-	if (src_buffer_info->is_mapped) {
-		this->buffer_unmap(p_src_buffer);
+		if (intermediate_buffer != nullptr) {
+			wgpuBufferRelease(intermediate_buffer);
+		}
 	}
 }
 
@@ -2807,10 +2959,12 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 
 	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(src_texture_info->texture_view_desc.format);
 
+	if (dst_buffer_info->is_mapped) {
+		this->buffer_unmap(p_dst_buffer);
+	}
+
 	for (uint32_t i = 0; i < p_regions.size(); i++) {
 		BufferTextureCopyRegion region = p_regions[i];
-
-		uint32_t block_copy_size = webgpu_texture_format_block_copy_size(src_texture_info->texture_desc.format, src_texture_info->texture_view_desc.aspect);
 
 		WGPUTexelCopyTextureInfo cp_texture = (WGPUTexelCopyTextureInfo){
 			.texture = src_texture_info->texture,
@@ -2826,7 +2980,7 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 		WGPUTexelCopyBufferInfo cp_buffer = (WGPUTexelCopyBufferInfo){
 			.layout = (WGPUTexelCopyBufferLayout){
 					.offset = region.buffer_offset,
-					.bytesPerRow = ((region.texture_region_size.x * block_copy_size) / block_dimensions.block_dim_x + 255) & ~255,
+					.bytesPerRow = (uint32_t)region.row_pitch,
 					.rowsPerImage = region.texture_region_size.z > 1 ? region.texture_region_size.y / block_dimensions.block_dim_y : WGPU_COPY_STRIDE_UNDEFINED,
 
 			},
@@ -2840,10 +2994,6 @@ void RenderingDeviceDriverWebGpu::command_copy_texture_to_buffer(CommandBufferID
 		};
 
 		wgpuCommandEncoderCopyTextureToBuffer(command_buffer_info->encoder, &cp_texture, &cp_buffer, &cp_size);
-	}
-
-	if (dst_buffer_info->is_mapped) {
-		this->buffer_unmap(p_dst_buffer);
 	}
 }
 
@@ -3873,7 +4023,9 @@ void RenderingDeviceDriverWebGpu::command_insert_breadcrumb(CommandBufferID p_cm
 /**** SUBMISSION ****/
 /********************/
 
-void RenderingDeviceDriverWebGpu::begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) {}
+void RenderingDeviceDriverWebGpu::begin_segment(uint32_t p_frame_index, uint32_t p_frames_drawn) {
+	wgpuInstanceProcessEvents(context_driver->instance_get());
+}
 void RenderingDeviceDriverWebGpu::end_segment() {}
 
 /**************/
