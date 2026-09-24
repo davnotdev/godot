@@ -1036,6 +1036,9 @@ public:
 		SUPPORTS_RAY_QUERY,
 		SUPPORTS_RAYTRACING_PIPELINE,
 		SUPPORTS_HDR_OUTPUT,
+		// If not supported, texture_get_data()/buffer_get_data() cannot return this frame's data
+		// and callers must keep their own CPU-side copy instead of reading back from the GPU.
+		SUPPORTS_SYNCHRONOUS_TEXTURE_DOWNLOAD,
 	};
 
 	enum SubgroupOperations {

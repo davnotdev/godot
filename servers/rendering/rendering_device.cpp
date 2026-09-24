@@ -9017,6 +9017,9 @@ bool RenderingDevice::has_feature(const Features p_feature) const {
 			const RDD::FragmentDensityMapCapabilities &fdm_capabilities = driver->get_fragment_density_map_capabilities();
 			return fsr_capabilities.attachment_supported || fdm_capabilities.attachment_supported;
 		}
+		case SUPPORTS_SYNCHRONOUS_TEXTURE_DOWNLOAD: {
+			return driver->api_trait_get(RDD::API_TRAIT_SYNCHRONOUS_TEXTURE_DOWNLOAD) != 0;
+		}
 		default:
 			return driver->has_feature(p_feature);
 	}
@@ -9743,6 +9746,7 @@ void RenderingDevice::_bind_methods() {
 	BIND_ENUM_CONSTANT(SUPPORTS_RAY_QUERY);
 	BIND_ENUM_CONSTANT(SUPPORTS_RAYTRACING_PIPELINE);
 	BIND_ENUM_CONSTANT(SUPPORTS_HDR_OUTPUT);
+	BIND_ENUM_CONSTANT(SUPPORTS_SYNCHRONOUS_TEXTURE_DOWNLOAD);
 
 	BIND_ENUM_CONSTANT(LIMIT_MAX_BOUND_UNIFORM_SETS);
 	BIND_ENUM_CONSTANT(LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS);

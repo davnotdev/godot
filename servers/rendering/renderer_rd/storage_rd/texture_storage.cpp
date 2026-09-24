@@ -964,6 +964,13 @@ void TextureStorage::texture_free(RID p_texture) {
 	texture_owner.free(p_texture);
 }
 
+// True when texture_2d_get() cannot obtain pixels by reading back from the GPU, so the source
+// image has to be kept on the CPU at upload time instead.
+bool TextureStorage::_texture_2d_needs_cpu_copy() {
+	static const bool needs_copy = !RD::get_singleton()->has_feature(RD::SUPPORTS_SYNCHRONOUS_TEXTURE_DOWNLOAD);
+	return needs_copy;
+}
+
 void TextureStorage::texture_2d_initialize(RID p_texture, const Ref<Image> &p_image) {
 	ERR_FAIL_COND(p_image.is_null());
 
@@ -1029,6 +1036,10 @@ void TextureStorage::texture_2d_initialize(RID p_texture, const Ref<Image> &p_im
 	texture.is_render_target = false;
 	texture.rd_view = rd_view;
 	texture.is_proxy = false;
+
+	if (_texture_2d_needs_cpu_copy()) {
+		texture.image_cache_2d = p_image;
+	}
 
 	texture_owner.initialize_rid(p_texture, texture);
 }
@@ -1600,9 +1611,13 @@ void TextureStorage::_texture_2d_update(RID p_texture, const Ref<Image> &p_image
 		ERR_FAIL_INDEX(p_layer, tex->layers);
 	}
 
+	if (_texture_2d_needs_cpu_copy()) {
+		tex->image_cache_2d = p_image;
+	} else {
 #ifdef TOOLS_ENABLED
-	tex->image_cache_2d.unref();
+		tex->image_cache_2d.unref();
 #endif
+	}
 	TextureToRDFormat f;
 	Ref<Image> validated = _validate_texture_format(p_image, f);
 
@@ -1857,11 +1872,9 @@ Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
 	Texture *tex = texture_owner.get_or_null(p_texture);
 	ERR_FAIL_NULL_V(tex, Ref<Image>());
 
-#ifdef TOOLS_ENABLED
 	if (tex->image_cache_2d.is_valid() && !tex->is_render_target) {
 		return tex->image_cache_2d;
 	}
-#endif
 	Vector<uint8_t> data = RD::get_singleton()->texture_get_data(tex->rd_texture, 0);
 	ERR_FAIL_COND_V(data.is_empty(), Ref<Image>());
 	Ref<Image> image;

@@ -291,6 +291,7 @@ void RenderingDeviceDriverWebGpu::_finish_buffer_download(BufferInfo *buffer_inf
 		memcpy(buffer_info->download_buffer, mapped, buffer_info->size);
 	}
 	wgpuBufferUnmap(buffer_info->buffer);
+	buffer_info->download_buffer_valid = true;
 }
 
 void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, WGPUStringView p_message, void *userdata1, void *userdata2) {
@@ -371,6 +372,10 @@ uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 				// the GPU-side map, so a new download can start on the next cycle.
 				buffer_info->download_map_requested = false;
 				buffer_info->download_map_completed = false;
+			}
+
+			if (!buffer_info->download_buffer_valid) {
+				ERR_PRINT_ONCE("WebGPU: a GPU readback was requested but buffer mapping data is available yet. The caller received zeroed data.");
 			}
 
 			buffer_info->is_mapped = true;
@@ -4107,6 +4112,12 @@ uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 			return 0;
 		case API_TRAIT_BUFFERS_REQUIRE_TRANSITIONS:
 			return 0;
+		case API_TRAIT_SYNCHRONOUS_TEXTURE_DOWNLOAD:
+			// #if defined(WEBGPU_BACKEND_EMDAWN)
+			return 0;
+			// #else
+			// 			return 1;
+			// #endif
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}

@@ -205,6 +205,8 @@ private:
 		void cleanup();
 	};
 
+	static bool _texture_2d_needs_cpu_copy();
+
 	// Textures can be created from threads, so this RID_Owner is thread safe.
 	mutable RID_Owner<Texture, true> texture_owner;
 	Texture *get_texture(RID p_rid) { return texture_owner.get_or_null(p_rid); }

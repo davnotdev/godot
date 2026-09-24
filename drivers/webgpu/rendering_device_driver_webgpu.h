@@ -67,6 +67,7 @@ private:
 
 		// Cached copy of a download buffer's last known contents.
 		uint8_t *download_buffer = nullptr;
+		bool download_buffer_valid = false;
 		bool freed = false;
 
 		uint32_t frame_idx = UINT32_MAX;
