@@ -310,7 +310,7 @@ void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, 
 		if (buffer_info->download_callbacks_pending > 0) {
 			return;
 		}
-		if (wgpuBufferGetMapState(buffer_info->buffer) != WGPUBufferMapState_Unmapped) {
+		if (status == WGPUMapAsyncStatus_Success) {
 			wgpuBufferUnmap(buffer_info->buffer);
 		}
 		wgpuBufferRelease(buffer_info->buffer);
@@ -442,9 +442,7 @@ void RenderingDeviceDriverWebGpu::_buffer_release_download_map(BufferInfo *buffe
 	buffer_info->download_generation++;
 	buffer_info->download_map_requested = false;
 	buffer_info->download_map_completed = false;
-	if (wgpuBufferGetMapState(buffer_info->buffer) != WGPUBufferMapState_Unmapped) {
-		wgpuBufferUnmap(buffer_info->buffer);
-	}
+	wgpuBufferUnmap(buffer_info->buffer);
 }
 
 void RenderingDeviceDriverWebGpu::buffer_prepare_download(BufferID p_buffer) {
@@ -468,9 +466,7 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	buffer_info->is_mapped = false;
 	buffer_info->mapped_data = nullptr;
 
-	if (wgpuBufferGetMapState(buffer_info->buffer) == WGPUBufferMapState_Mapped) {
-		wgpuBufferUnmap(buffer_info->buffer);
-	}
+	wgpuBufferUnmap(buffer_info->buffer);
 }
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_persistent_map_advance(BufferID p_buffer, uint64_t p_frames_drawn) {
