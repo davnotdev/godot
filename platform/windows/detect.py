@@ -471,6 +471,9 @@ def configure_msvc(env: "SConsEnvironment"):
     if env["sdl"]:
         env.Append(CPPDEFINES=["SDL_ENABLED"])
 
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+
     if env["d3d12"]:
         check_d3d12_installed(env, env["arch"] + "-msvc")
 

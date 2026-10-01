@@ -68,6 +68,9 @@
 
 #include <dxgi1_6.h>
 #endif
+#if defined(WEBGPU_ENABLED)
+#include "rendering_context_driver_webgpu_windows.h"
+#endif
 #if defined(GLES3_ENABLED)
 #include "drivers/gles3/rasterizer_gles3.h"
 #endif
@@ -7308,6 +7311,10 @@ Error DisplayServerWindows::_create_rendering_context_window(DisplayServerEnums:
 #ifdef D3D12_ENABLED
 		RenderingContextDriverD3D12::WindowPlatformData d3d12;
 #endif
+#ifdef WEBGPU_ENABLED
+				RenderingContextDriverWebGpuWindows::WindowPlatformData webgpu;
+#endif
+
 	} wpd;
 #ifdef VULKAN_ENABLED
 	if (p_rendering_driver == "vulkan") {
@@ -7320,6 +7327,13 @@ Error DisplayServerWindows::_create_rendering_context_window(DisplayServerEnums:
 		wpd.d3d12.window = wd.hWnd;
 	}
 #endif
+#ifdef WEBGPU_ENABLED
+			if (rendering_driver == "webgpu") {
+				wpd.webgpu.window = wd.hWnd;
+				wpd.webgpu.instance = hInstance;
+			}
+#endif
+
 
 	Error err = rendering_context->window_create(p_window_id, &wpd);
 	ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Failed to create %s window.", p_rendering_driver));
@@ -7890,6 +7904,12 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 			tested_drivers.set_flag(DRIVER_ID_RD_D3D12);
 		}
 #endif
+#if defined(WEBGPU_ENABLED)
+	if (rendering_driver == "webgpu") {
+		rendering_context = memnew(RenderingContextDriverWebGpuWindows);
+	}
+#endif
+
 		if (rendering_context != nullptr) {
 			if (rendering_context->initialize() == OK) {
 				// The window needs to be recreated when this value differs, because it cannot be added or removed after creation.
@@ -8220,6 +8240,9 @@ Vector<String> DisplayServerWindows::get_rendering_drivers_func() {
 #endif
 #ifdef D3D12_ENABLED
 	drivers.push_back("d3d12");
+#endif
+#ifdef WEBGPU_ENABLED
+	drivers.push_back("webgpu");
 #endif
 #ifdef GLES3_ENABLED
 	drivers.push_back("opengl3");

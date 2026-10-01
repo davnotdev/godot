@@ -47,6 +47,10 @@
 #include "servers/rendering/rendering_device.h"
 #endif
 
+#if defined(WEBGPU_ENABLED)
+#include "rendering_context_driver_webgpu_windows.h"
+#endif
+
 #if defined(GLES3_ENABLED)
 #if defined(ANGLE_ENABLED)
 #include "gl_manager_windows_angle.h"
