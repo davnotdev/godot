@@ -256,6 +256,7 @@ def get_flags():
         "d3d12": True,
         "webgpu": False,
         "supported": ["d3d12", "dcomp", "library", "mono", "xaudio2"],
+        "webgpu_backend": "wgpu-desktop",
     }
 
 
@@ -1009,6 +1010,18 @@ def configure(env: "SConsEnvironment"):
         configure_msvc(env)
     else:
         configure_mingw(env)
+
+    if env["webgpu"]:
+        env.Append(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
+    if env["webgpu_backend"] == "dawn-desktop":
+        env.Append(CPPDEFINES=["WEBGPU_BACKEND_DAWN_DESKTOP"])
+    elif env["webgpu_backend"] == "wgpu-desktop":
+        env.Append(CPPDEFINES=["WEBGPU_BACKEND_WGPU_DESKTOP"])
+    else:
+        print_error(
+            'Unsupported "webgpu_backend=%s" for platform "linuxbsd"' % env["webgpu_backend"]
+        )
+        sys.exit(255)
 
 
 def check_d3d12_installed(env, suffix):

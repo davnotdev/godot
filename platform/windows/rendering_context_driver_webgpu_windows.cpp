@@ -5,11 +5,11 @@
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpuWindows::surface_create(const void *p_platform_data) {
 	const WindowPlatformData *wpd = (const WindowPlatformData *)(p_platform_data);
 
-	const WGPUSurfaceDescriptorFromWindowsHWND winHWND_desc =
-			(const WGPUSurfaceDescriptorFromWindowsHWND){
+	const WGPUSurfaceSourceWindowsHWND winHWND_desc =
+			(const WGPUSurfaceSourceWindowsHWND){
 				.chain =
 						(const WGPUChainedStruct){
-								.sType = WGPUSType_SurfaceDescriptorFromWindowsHWND,
+								.sType = WGPUSType_SurfaceSourceWindowsHWND,
 						},
 				.hinstance = wpd->instance,
 				.hwnd = wpd->window,
@@ -18,7 +18,7 @@ RenderingContextDriver::SurfaceID RenderingContextDriverWebGpuWindows::surface_c
 	WGPUSurfaceDescriptor surface_desc =
 			(WGPUSurfaceDescriptor){
 				.nextInChain =
-						(const WGPUChainedStruct *)&winHWND_desc
+						(WGPUChainedStruct *)&winHWND_desc
 			};
 
 	WGPUSurface wgpu_surface = wgpuInstanceCreateSurface(
