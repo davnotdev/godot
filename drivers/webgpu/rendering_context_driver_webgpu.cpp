@@ -71,7 +71,9 @@ Error RenderingContextDriverWebGpu::initialize() {
 	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
 		.chain = (WGPUChainedStruct){
 				.sType = (WGPUSType)WGPUSType_InstanceExtras },
-		.backends = WGPUInstanceBackend_Vulkan
+		// .backends = WGPUInstanceBackend_Vulkan
+		// .backends = WGPUInstanceBackend_DX12
+		.backends = WGPUInstanceBackend_All
 	};
 #endif
 

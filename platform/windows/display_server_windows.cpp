@@ -7885,6 +7885,11 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 			rendering_drivers[rendering_driver_count++] = "d3d12";
 		}
 	}
+#ifdef WEBGPU_ENABLED
+	else if (rendering_driver == "webgpu") {
+		rendering_drivers[rendering_driver_count++] = rendering_driver;
+	}
+#endif
 
 	bool main_window_created = false;
 	bool cur_no_redirection_bitmap_value = false;
@@ -7904,10 +7909,10 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 			tested_drivers.set_flag(DRIVER_ID_RD_D3D12);
 		}
 #endif
-#if defined(WEBGPU_ENABLED)
-	if (rendering_driver == "webgpu") {
-		rendering_context = memnew(RenderingContextDriverWebGpuWindows);
-	}
+#ifdef WEBGPU_ENABLED
+		if (tested_rendering_driver == "webgpu") {
+			rendering_context = memnew(RenderingContextDriverWebGpuWindows);
+		}
 #endif
 
 		if (rendering_context != nullptr) {
