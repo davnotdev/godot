@@ -145,9 +145,6 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 		// HACK: There is no way to create a binding layout for the `depth_buffer` uniform using reflection data.
 		"ClusterDebugShaderRD:0",
 
-		"BokehDofRasterShaderRD:0",
-		"CubeToDpShaderRD:0",
-
 		// HACK: Requires vertex writable storage.
 		"VoxelGiDebugShaderRD",
 
