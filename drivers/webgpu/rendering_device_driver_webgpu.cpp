@@ -105,6 +105,12 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	required_limits.maxStorageBuffersPerShaderStage = 12;
 	required_limits.maxStorageTexturesPerShaderStage = 8;
 
+	// The default of value of 16 is too small.
+	WGPULimits adapter_limits = WGPU_LIMITS_INIT;
+	if (wgpuAdapterGetLimits(adapter, &adapter_limits) == WGPUStatus_Success) {
+		required_limits.maxInterStageShaderVariables = adapter_limits.maxInterStageShaderVariables;
+	}
+
 	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
 		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
 		.requiredFeatures = required_features,
