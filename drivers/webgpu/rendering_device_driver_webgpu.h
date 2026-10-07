@@ -126,6 +126,10 @@ private:
 		// Depth Stencil => DEPTH_ONLY, _ => DEFAULT
 		WGPUTextureView get_view_with_format() const;
 
+		// We convert `imageCube` to `image2DArray` via `spirv-webgpu-transform`.
+		// However, the engine commonly expects both a view of the cube and a storage view (in `image2DArray` form).
+		WGPUTextureView storage_cube_view = nullptr;
+
 		// TODO: nextInChain is not preserved.
 		WGPUTextureDescriptor texture_desc;
 		WGPUTextureViewDescriptor texture_view_desc;
@@ -139,6 +143,8 @@ private:
 	// For depth stencil formats, create one default texture view and one depth only texture view.
 	// For other formats, create one texture view.
 	Vector<WGPUTextureView> _texture_views_with_aspect_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor &p_texture_view_descriptor);
+	// Return a texture view where we expect a cube texture to be used as an `imageCube`.
+	WGPUTextureView _texture_storage_cube_view_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor &p_texture_view_descriptor, WGPUTextureUsage p_usage);
 
 public:
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;

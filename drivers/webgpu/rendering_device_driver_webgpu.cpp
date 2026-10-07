@@ -544,6 +544,15 @@ Vector<WGPUTextureView> RenderingDeviceDriverWebGpu::_texture_views_with_aspect_
 	}
 }
 
+WGPUTextureView RenderingDeviceDriverWebGpu::_texture_storage_cube_view_create(WGPUTexture p_texture, const WGPUTextureViewDescriptor &p_texture_view_descriptor, WGPUTextureUsage p_usage) {
+	if (p_texture_view_descriptor.dimension != WGPUTextureViewDimension_Cube || !(p_usage & WGPUTextureUsage_StorageBinding)) {
+		return nullptr;
+	}
+	WGPUTextureViewDescriptor storage_descriptor = p_texture_view_descriptor;
+	storage_descriptor.dimension = WGPUTextureViewDimension_2DArray;
+	return wgpuTextureCreateView(p_texture, &storage_descriptor);
+}
+
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
 	WGPUFlags usage_bits = WGPUTextureUsage_None;
 	if (p_format.usage_bits & TEXTURE_USAGE_SAMPLING_BIT) {
@@ -661,12 +670,6 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 #endif
 
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
-
-	// NOTE: `imageCube` => `image2DArray` after shader transforms.
-	if (view_dimension == WGPUTextureViewDimension_Cube && (p_format.usage_bits & TEXTURE_USAGE_STORAGE_BIT)) {
-		view_dimension = WGPUTextureViewDimension_2DArray;
-	}
-
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = view_format,
@@ -681,6 +684,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 	TextureInfo *texture_info = memnew(TextureInfo);
 	texture_info->texture = texture;
 	texture_info->views = views;
+	texture_info->storage_cube_view = _texture_storage_cube_view_create(texture, texture_view_desc, usage);
 	texture_info->rd_texture_format = p_format.format;
 	texture_info->texture_desc = texture_desc;
 	texture_info->texture_view_desc = texture_view_desc;
@@ -739,6 +743,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureViewDescriptor texture_view_desc = (WGPUTextureViewDescriptor){
 		.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras,
 		.format = webgpu_texture_format_from_rd(p_view.format),
+		.dimension = texture_info->texture_view_desc.dimension == WGPUTextureViewDimension_Cube ? WGPUTextureViewDimension_Cube : WGPUTextureViewDimension_Undefined,
 		.mipLevelCount = texture_info->texture_view_desc.mipLevelCount,
 		.arrayLayerCount = texture_info->texture_view_desc.arrayLayerCount,
 		.aspect = texture_info->texture_view_desc.aspect,
@@ -750,6 +755,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
 	new_texture_info->views = views;
+	new_texture_info->storage_cube_view = _texture_storage_cube_view_create(texture_info->texture, texture_view_desc, texture_view_usage);
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -823,6 +829,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	TextureInfo *new_texture_info = memnew(TextureInfo);
 	*new_texture_info = *texture_info;
 	new_texture_info->views = views;
+	new_texture_info->storage_cube_view = _texture_storage_cube_view_create(texture_info->texture, texture_view_desc, texture_info->texture_desc.usage);
 	new_texture_info->is_original_texture = false;
 	new_texture_info->texture_view_desc = texture_view_desc;
 
@@ -836,6 +843,9 @@ void RenderingDeviceDriverWebGpu::texture_free(TextureID p_texture) {
 	}
 	for (int i = 0; i < texture_info->views.size(); i++) {
 		wgpuTextureViewRelease(texture_info->views[i]);
+	}
+	if (texture_info->storage_cube_view) {
+		wgpuTextureViewRelease(texture_info->storage_cube_view);
 	}
 	memdelete(texture_info);
 }
@@ -2380,7 +2390,12 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				entry.binding = corrected_binding.corrected_binding_idx;
 
 				TextureInfo *texture_info = (TextureInfo *)uniform.ids[corrected_binding.binding_id_idx].id;
-				entry.textureView = texture_info->get_view_with_format();
+				if (uniform.type == RenderingDeviceCommons::UNIFORM_TYPE_IMAGE && texture_info->texture_view_desc.dimension == WGPUTextureViewDimension_Cube) {
+					ERR_FAIL_NULL_V_MSG(texture_info->storage_cube_view, nullptr, "Cube texture bound as a storage image has no storage view.");
+					entry.textureView = texture_info->storage_cube_view;
+				} else {
+					entry.textureView = texture_info->get_view_with_format();
+				}
 				entries.push_back(entry);
 			} break;
 			case RenderingDeviceCommons::UNIFORM_TYPE_TEXTURE_BUFFER:
