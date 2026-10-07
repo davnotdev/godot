@@ -4,6 +4,12 @@
 
 #VERSION_DEFINES
 
+// TODO(davnotdev): Implement stripping in spirv-webgpu-transform
+// WGSL does not support `writeonly`.
+#ifdef WEBGPU_USED
+#define writeonly
+#endif
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 1, std430) buffer restrict writeonly DstVertexData {

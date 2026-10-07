@@ -39,7 +39,15 @@ layout(push_constant, std430) uniform Params {
 params;
 
 #ifdef NO_IMAGE_ATOMICS
-layout(set = 1, binding = 1) volatile buffer emissive_only_map_buffer {
+// TODO(davnotdev): Implement stripping in spirv-webgpu-transform
+// WGSL does not support `volatile`.
+#ifdef WEBGPU_USED
+#define NO_IMAGE_ATOMICS_VOLATILE
+#else
+#define NO_IMAGE_ATOMICS_VOLATILE volatile
+#endif
+
+layout(set = 1, binding = 1) NO_IMAGE_ATOMICS_VOLATILE buffer emissive_only_map_buffer {
 	uint emissive_only_map[];
 };
 #else
@@ -69,10 +77,10 @@ layout(set = 1, binding = 2, std140) uniform SceneParams {
 scene_params;
 
 #ifdef NO_IMAGE_ATOMICS
-layout(set = 1, binding = 3) volatile buffer density_only_map_buffer {
+layout(set = 1, binding = 3) NO_IMAGE_ATOMICS_VOLATILE buffer density_only_map_buffer {
 	uint density_only_map[];
 };
-layout(set = 1, binding = 4) volatile buffer light_only_map_buffer {
+layout(set = 1, binding = 4) NO_IMAGE_ATOMICS_VOLATILE buffer light_only_map_buffer {
 	uint light_only_map[];
 };
 #else

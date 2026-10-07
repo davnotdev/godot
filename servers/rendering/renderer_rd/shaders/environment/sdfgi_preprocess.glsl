@@ -4,6 +4,8 @@
 
 #VERSION_DEFINES
 
+// TODO(davnotdev): Implement stripping in spirv-webgpu-transform
+// WGSL does not support `writeonly`.
 #ifdef WEBGPU_USED
 #define writeonly
 #endif
