@@ -4193,8 +4193,62 @@ String RenderingDeviceDriverWebGpu::get_api_name() const {
 }
 
 String RenderingDeviceDriverWebGpu::get_api_version() const {
-	// TODO: We should compile this in based on the wgpu / dawn version
-	return "v29.0.0 (wgpu)";
+	String native_backend;
+	WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
+	if (adapter && wgpuAdapterGetInfo(adapter, &info) == WGPUStatus_Success) {
+		switch (info.backendType) {
+			case WGPUBackendType_Null:
+				native_backend = "Null";
+				break;
+			case WGPUBackendType_WebGPU:
+				native_backend = "WebGPU";
+				break;
+			case WGPUBackendType_D3D11:
+				native_backend = "D3D11";
+				break;
+			case WGPUBackendType_D3D12:
+				native_backend = "D3D12";
+				break;
+			case WGPUBackendType_Metal:
+				native_backend = "Metal";
+				break;
+			case WGPUBackendType_Vulkan:
+				native_backend = "Vulkan";
+				break;
+			case WGPUBackendType_OpenGL:
+				native_backend = "OpenGL";
+				break;
+			case WGPUBackendType_OpenGLES:
+				native_backend = "OpenGLES";
+				break;
+			default:
+				break;
+		}
+		wgpuAdapterInfoFreeMembers(info);
+	}
+	const String native_suffix = native_backend.is_empty() ? String() : ", " + native_backend;
+
+#if defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	// See `wgpu-native` implementation for `wgpuGetVersion`.
+	// `wgpuGetVersion` packs up to 4 version parts into one byte each, most significant first.
+	const uint32_t version = wgpuGetVersion();
+	if (version == 0) {
+		return "unknown version (wgpu" + native_suffix + ")";
+	}
+	String version_string = vformat("v%d.%d.%d", (version >> 24) & 0xFF, (version >> 16) & 0xFF, (version >> 8) & 0xFF);
+	if (version & 0xFF) {
+		version_string += vformat(".%d", version & 0xFF);
+	}
+	return version_string + " (wgpu" + native_suffix + ")";
+#elif defined(WEBGPU_BACKEND_DAWN_DESKTOP)
+	// NOTE: Dawn does not expose a version.
+	return "(Dawn" + native_suffix + ")";
+#elif defined(WEBGPU_BACKEND_EMDAWN)
+	// NOTE: The browser's WebGPU implementation does not expose a version.
+	return "(emdawnwebgpu" + native_suffix + ")";
+#else
+	return "(unknown backend" + native_suffix + ")";
+#endif
 }
 
 String RenderingDeviceDriverWebGpu::get_pipeline_cache_uuid() const {
