@@ -255,6 +255,7 @@ private:
 		RID emission_storage_buffer;
 
 		RID unused_emission_storage_buffer;
+		RID unused_sub_emission_storage_buffer;
 		RID unused_trail_storage_buffer;
 
 		HashSet<RID> collisions;
@@ -275,6 +276,7 @@ private:
 	void _particles_process(Particles *p_particles, double p_delta);
 	void _particles_allocate_emission_buffer(Particles *particles);
 	void _particles_ensure_unused_emission_buffer(Particles *particles);
+	void _particles_ensure_unused_sub_emission_buffer(Particles *particles);
 	void _particles_ensure_unused_trail_buffer(Particles *particles);
 	void _particles_free_data(Particles *particles);
 	void _particles_update_buffers(Particles *particles);

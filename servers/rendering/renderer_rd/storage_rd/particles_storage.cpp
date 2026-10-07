@@ -318,6 +318,11 @@ void ParticlesStorage::_particles_free_data(Particles *particles) {
 		particles->unused_emission_storage_buffer = RID();
 	}
 
+	if (particles->unused_sub_emission_storage_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(particles->unused_sub_emission_storage_buffer);
+		particles->unused_sub_emission_storage_buffer = RID();
+	}
+
 	if (particles->unused_trail_storage_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(particles->unused_trail_storage_buffer);
 		particles->unused_trail_storage_buffer = RID();
@@ -582,6 +587,12 @@ void ParticlesStorage::_particles_ensure_unused_emission_buffer(Particles *parti
 	}
 }
 
+void ParticlesStorage::_particles_ensure_unused_sub_emission_buffer(Particles *particles) {
+	if (particles->unused_sub_emission_storage_buffer.is_null()) {
+		particles->unused_sub_emission_storage_buffer = RD::get_singleton()->storage_buffer_create(sizeof(ParticleEmissionBuffer));
+	}
+}
+
 void ParticlesStorage::_particles_ensure_unused_trail_buffer(Particles *particles) {
 	if (particles->unused_trail_storage_buffer.is_null()) {
 		particles->unused_trail_storage_buffer = RD::get_singleton()->storage_buffer_create(16 * sizeof(float)); // Size of mat4.
@@ -828,8 +839,8 @@ void ParticlesStorage::_particles_process(Particles *p_particles, double p_delta
 				}
 				u.append_id(sub_emitter->emission_storage_buffer);
 			} else {
-				_particles_ensure_unused_emission_buffer(p_particles);
-				u.append_id(p_particles->unused_emission_storage_buffer);
+				_particles_ensure_unused_sub_emission_buffer(p_particles);
+				u.append_id(p_particles->unused_sub_emission_storage_buffer);
 			}
 			uniforms.push_back(u);
 		}
