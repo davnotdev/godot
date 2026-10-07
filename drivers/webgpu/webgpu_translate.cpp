@@ -85,16 +85,16 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 	WebGpuTranslateFailureStage stage = WebGpuTranslateFailureStage::FRONT;
 
 	NagaCapabilitiesFlags caps =
-			NagaCapabilities::NagaCapabilities_MULTISAMPLED_SHADING |
-			NagaCapabilities::NagaCapabilities_CUBE_ARRAY_TEXTURES |
-			NagaCapabilities::NagaCapabilities_IMMEDIATES |
-			NagaCapabilities::NagaCapabilities_STORAGE_TEXTURE_16BIT_NORM_FORMATS |
-			NagaCapabilities::NagaCapabilities_SHADER_FLOAT16_IN_FLOAT32 |
-			NagaCapabilities::NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY |
-			NagaCapabilities::NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING |
-			NagaCapabilities::NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY |
-			NagaCapabilities::NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING |
-			NagaCapabilities::NagaCapabilities_SUBGROUP;
+			NagaCapabilities_MULTISAMPLED_SHADING |
+			NagaCapabilities_CUBE_ARRAY_TEXTURES |
+			NagaCapabilities_IMMEDIATES |
+			NagaCapabilities_STORAGE_TEXTURE_16BIT_NORM_FORMATS |
+			NagaCapabilities_SHADER_FLOAT16_IN_FLOAT32 |
+			NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY |
+			NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING |
+			NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY |
+			NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING |
+			NagaCapabilities_SUBGROUP;
 	NagaModuleFillFlags fill_flags = NAGA_FLAGS_ALL(NagaModuleFillFlags);
 
 	NagaSPVFrontOptions options = (NagaSPVFrontOptions){

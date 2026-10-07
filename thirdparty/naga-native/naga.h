@@ -660,44 +660,44 @@ typedef struct NagaValidator {
 } NagaValidator;
 
 typedef uint64_t NagaCapabilitiesFlags;
-typedef enum NagaCapabilities {
-	NagaCapabilities_IMMEDIATES = 0x1,
-	NagaCapabilities_FLOAT64 = 0x2,
-	NagaCapabilities_PRIMITIVE_INDEX = 0x4,
-	NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY = 0x8,
-	NagaCapabilities_BUFFER_BINDING_ARRAY = 0x10,
-	NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY = 0x20,
-	NagaCapabilities_STORAGE_BUFFER_BINDING_ARRAY = 0x40,
-	NagaCapabilities_CLIP_DISTANCE = 0x80,
-	NagaCapabilities_CULL_DISTANCE = 0x100,
-	NagaCapabilities_STORAGE_TEXTURE_16BIT_NORM_FORMATS = 0x200,
-	NagaCapabilities_MULTIVIEW = 0x400,
-	NagaCapabilities_EARLY_DEPTH_TEST = 0x800,
-	NagaCapabilities_MULTISAMPLED_SHADING = 0x1000,
-	NagaCapabilities_RAY_QUERY = 0x2000,
-	NagaCapabilities_DUAL_SOURCE_BLENDING = 0x4000,
-	NagaCapabilities_CUBE_ARRAY_TEXTURES = 0x8000,
-	NagaCapabilities_SHADER_INT64 = 0x10000,
-	NagaCapabilities_SUBGROUP = 0x20000,
-	NagaCapabilities_SUBGROUP_BARRIER = 0x40000,
-	NagaCapabilities_SUBGROUP_VERTEX_STAGE = 0x80000,
-	NagaCapabilities_SHADER_INT64_ATOMIC_MIN_MAX = 0x100000,
-	NagaCapabilities_SHADER_INT64_ATOMIC_ALL_OPS = 0x200000,
-	NagaCapabilities_SHADER_FLOAT32_ATOMIC = 0x400000,
-	NagaCapabilities_TEXTURE_ATOMIC = 0x800000,
-	NagaCapabilities_TEXTURE_INT64_ATOMIC = 0x1000000,
-	NagaCapabilities_RAY_HIT_VERTEX_POSITION = 0x2000000,
-	NagaCapabilities_SHADER_FLOAT16 = 0x4000000,
-	NagaCapabilities_TEXTURE_EXTERNAL = 0x8000000,
-	NagaCapabilities_SHADER_FLOAT16_IN_FLOAT32 = 0x10000000,
-	NagaCapabilities_SHADER_BARYCENTRICS = 0x20000000,
-	NagaCapabilities_MESH_SHADER = 0x40000000,
-	NagaCapabilities_MESH_SHADER_POINT_TOPOLOGY = 0x80000000,
-	NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 0x100000000,
-	NagaCapabilities_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 0x200000000,
-	NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING = 0x400000000,
-	NagaCapabilities_STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING = 0x800000000,
-} NagaCapabilities;
+// This should be an enum, but cannot compile on MSVC, treat an an enum.
+typedef NagaCapabilitiesFlags NagaCapabilities;
+#define NagaCapabilities_IMMEDIATES 0x1ULL
+#define NagaCapabilities_FLOAT64 0x2ULL
+#define NagaCapabilities_PRIMITIVE_INDEX 0x4ULL
+#define NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY 0x8ULL
+#define NagaCapabilities_BUFFER_BINDING_ARRAY 0x10ULL
+#define NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY 0x20ULL
+#define NagaCapabilities_STORAGE_BUFFER_BINDING_ARRAY 0x40ULL
+#define NagaCapabilities_CLIP_DISTANCE 0x80ULL
+#define NagaCapabilities_CULL_DISTANCE 0x100ULL
+#define NagaCapabilities_STORAGE_TEXTURE_16BIT_NORM_FORMATS 0x200ULL
+#define NagaCapabilities_MULTIVIEW 0x400ULL
+#define NagaCapabilities_EARLY_DEPTH_TEST 0x800ULL
+#define NagaCapabilities_MULTISAMPLED_SHADING 0x1000ULL
+#define NagaCapabilities_RAY_QUERY 0x2000ULL
+#define NagaCapabilities_DUAL_SOURCE_BLENDING 0x4000ULL
+#define NagaCapabilities_CUBE_ARRAY_TEXTURES 0x8000ULL
+#define NagaCapabilities_SHADER_INT64 0x10000ULL
+#define NagaCapabilities_SUBGROUP 0x20000ULL
+#define NagaCapabilities_SUBGROUP_BARRIER 0x40000ULL
+#define NagaCapabilities_SUBGROUP_VERTEX_STAGE 0x80000ULL
+#define NagaCapabilities_SHADER_INT64_ATOMIC_MIN_MAX 0x100000ULL
+#define NagaCapabilities_SHADER_INT64_ATOMIC_ALL_OPS 0x200000ULL
+#define NagaCapabilities_SHADER_FLOAT32_ATOMIC 0x400000ULL
+#define NagaCapabilities_TEXTURE_ATOMIC 0x800000ULL
+#define NagaCapabilities_TEXTURE_INT64_ATOMIC 0x1000000ULL
+#define NagaCapabilities_RAY_HIT_VERTEX_POSITION 0x2000000ULL
+#define NagaCapabilities_SHADER_FLOAT16 0x4000000ULL
+#define NagaCapabilities_TEXTURE_EXTERNAL 0x8000000ULL
+#define NagaCapabilities_SHADER_FLOAT16_IN_FLOAT32 0x10000000ULL
+#define NagaCapabilities_SHADER_BARYCENTRICS 0x20000000ULL
+#define NagaCapabilities_MESH_SHADER 0x40000000ULL
+#define NagaCapabilities_MESH_SHADER_POINT_TOPOLOGY 0x80000000ULL
+#define NagaCapabilities_TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING 0x100000000ULL
+#define NagaCapabilities_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING 0x200000000ULL
+#define NagaCapabilities_STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING 0x400000000ULL
+#define NagaCapabilities_STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING 0x800000000ULL
 
 // On the topic of `FlagsFlags1, I'd pick consistency over grammar any day.
 typedef uint8_t NagaValidationFlagsFlags;
