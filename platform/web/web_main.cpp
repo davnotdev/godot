@@ -47,8 +47,17 @@
 #endif
 
 #include <emscripten/emscripten.h>
+#include <emscripten/eventloop.h>
 
 #include <cstdlib>
+#include <cstring>
+
+// TODO(davnotdev)
+// If WebGPU is enabled, we need to obtain our instance and device as soon as possible to avoid aync code.
+#if defined(WEBGPU_ENABLED) && defined(WEBGPU_BACKEND_EMDAWN) && !defined(PROXY_TO_PTHREAD_ENABLED)
+#include "drivers/webgpu/webgpu_web_preinit.h"
+#define WEB_WEBGPU_PREINIT
+#endif
 
 static OS_Web *os = nullptr;
 #ifndef PROXY_TO_PTHREAD_ENABLED
@@ -129,12 +138,7 @@ void print_web_header() {
 	print_line(vformat("Build configuration: %s.", String(", ").join(build_configuration)));
 }
 
-/// When calling main, it is assumed FS is setup and synced.
-extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
-	godot_init_profiler();
-
-	os = new OS_Web();
-
+static int _godot_web_main_start(int argc, char *argv[]) {
 #ifdef TOOLS_ENABLED
 	WebToolsEditorPlugin::initialize();
 #endif
@@ -174,8 +178,40 @@ extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
 #endif
 	emscripten_set_main_loop(main_loop_callback, -1, false);
 	// Immediately run the first iteration.
-	// We are inside an animation frame, we want to immediately draw on the newly setup canvas.
+	// NOTE: With `WEB_WEBGPU_PREINIT`, this runs from the WebGPU device callback rather than inside an animation frame.
 	main_loop_callback();
 
 	return os->get_exit_code();
+}
+
+#ifdef WEB_WEBGPU_PREINIT
+static int web_main_argc = 0;
+static char **web_main_argv = nullptr;
+
+static void _webgpu_preinit_done(void *) {
+	_godot_web_main_start(web_main_argc, web_main_argv);
+	emscripten_runtime_keepalive_pop();
+}
+#endif
+
+/// When calling main, it is assumed FS is setup and synced.
+extern EMSCRIPTEN_KEEPALIVE int godot_web_main(int argc, char *argv[]) {
+	godot_init_profiler();
+
+	os = new OS_Web();
+
+#ifdef WEB_WEBGPU_PREINIT
+	web_main_argc = argc;
+	web_main_argv = (char **)malloc(sizeof(char *) * (argc + 1));
+	for (int i = 0; i < argc; i++) {
+		web_main_argv[i] = strdup(argv[i]);
+	}
+	web_main_argv[argc] = nullptr;
+
+	emscripten_runtime_keepalive_push();
+	webgpu_web_preinit_start(_webgpu_preinit_done, nullptr);
+	return EXIT_SUCCESS;
+#else
+	return _godot_web_main_start(argc, argv);
+#endif
 }

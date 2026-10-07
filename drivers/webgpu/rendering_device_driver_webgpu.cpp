@@ -4,6 +4,7 @@
 #include "rendering_shader_container_webgpu.h"
 #include "webgpu_conv.h"
 #include "webgpu_platform.h"
+#include "webgpu_web_preinit.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/memory.h"
@@ -20,6 +21,7 @@ static constexpr uint64_t VERTEX_DYN_MASK = (uint64_t(1) << VERTEX_DYN_BITS) - 1
 static constexpr uint32_t UNIFORM_DYN_BITS = 4;
 static constexpr uint32_t UNIFORM_DYN_MASK = (1u << UNIFORM_DYN_BITS) - 1u;
 
+#if !defined(WEBGPU_BACKEND_EMDAWN)
 static void handle_request_device(WGPURequestDeviceStatus p_status,
 		WGPUDevice p_device, WGPUStringView p_message,
 		void *userdata, void *_) {
@@ -28,6 +30,7 @@ static void handle_request_device(WGPURequestDeviceStatus p_status,
 	}
 	*(WGPUDevice *)userdata = p_device;
 }
+#endif
 
 static void handle_uncaptured_error(WGPUDevice const *_device, WGPUErrorType p_type,
 		WGPUStringView p_message, void *_userdata1, void *_userdata2) {
@@ -44,24 +47,8 @@ static void handle_device_lost(WGPUDevice const *_device, WGPUDeviceLostReason p
 	ERR_PRINT(vformat("[WEBGPU] Device lost: %s", message));
 }
 
-Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
-#ifdef WGPU_LOG_LEVEL
-#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
-		if (p_level <= WGPU_LOG_LEVEL) {
-			String message = String::utf8(p_message.data, p_message.length);
-			print_line("[WEBGPU]", message);
-		}
-	},
-			nullptr);
-#endif
-#endif
-
-	adapter = context_driver->adapter_get(p_device_index);
-	context_device = context_driver->device_get(p_device_index);
-	frame_count = MAX(p_frame_count, 1u);
-
-	WGPUFeatureName required_features[] = {
+void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter, DeviceRequirements &r_requirements) {
+	static const WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 		WGPUFeatureName_Float32Filterable,
 		WGPUFeatureName_TextureCompressionBC,
@@ -97,7 +84,13 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 		// (WGPUFeatureName)WGPUNativeFeature_MultiDrawIndirectCount,
 	};
 
-	WGPULimits required_limits = WGPU_LIMITS_INIT;
+	r_requirements.features.clear();
+	for (WGPUFeatureName feature : required_features) {
+		r_requirements.features.push_back(feature);
+	}
+
+	WGPULimits &required_limits = r_requirements.limits;
+	required_limits = WGPU_LIMITS_INIT;
 	required_limits.maxBindGroups = WEBGPU_MAX_BIND_GROUPS;
 	// required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
 	required_limits.maxImmediateSize = 64;
@@ -107,14 +100,14 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	// The default of value of 16 is too small.
 	WGPULimits adapter_limits = WGPU_LIMITS_INIT;
-	if (wgpuAdapterGetLimits(adapter, &adapter_limits) == WGPUStatus_Success) {
+	if (wgpuAdapterGetLimits(p_adapter, &adapter_limits) == WGPUStatus_Success) {
 		required_limits.maxInterStageShaderVariables = adapter_limits.maxInterStageShaderVariables;
 	}
 
-	WGPUDeviceDescriptor device_desc = (WGPUDeviceDescriptor){
-		.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUFeatureName),
-		.requiredFeatures = required_features,
-		.requiredLimits = &required_limits,
+	r_requirements.descriptor = (WGPUDeviceDescriptor){
+		.requiredFeatureCount = (size_t)r_requirements.features.size(),
+		.requiredFeatures = r_requirements.features.ptr(),
+		.requiredLimits = &r_requirements.limits,
 		.deviceLostCallbackInfo = (WGPUDeviceLostCallbackInfo){
 				.mode = WGPUCallbackMode_AllowSpontaneous,
 				.callback = handle_device_lost,
@@ -123,13 +116,41 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 				.callback = handle_uncaptured_error,
 		},
 	};
+}
+
+Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
+#ifdef WGPU_LOG_LEVEL
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	wgpuSetLogCallback([](WGPULogLevel p_level, WGPUStringView p_message, void *userdata) {
+		if (p_level <= WGPU_LOG_LEVEL) {
+			String message = String::utf8(p_message.data, p_message.length);
+			print_line("[WEBGPU]", message);
+		}
+	},
+			nullptr);
+#endif
+#endif
+
+	adapter = context_driver->adapter_get(p_device_index);
+	context_device = context_driver->device_get(p_device_index);
+	frame_count = MAX(p_frame_count, 1u);
+
+#if defined(WEBGPU_BACKEND_EMDAWN)
+	const WebGpuWebPreinit &preinit = webgpu_web_preinit_get();
+	ERR_FAIL_COND_V_MSG(!preinit.device || preinit.adapter != adapter, FAILED, "The WebGPU device was not created at startup.");
+	device = preinit.device;
+	wgpuDeviceAddRef(device);
+#else
+	DeviceRequirements requirements;
+	device_requirements_get(adapter, requirements);
+
 	WGPURequestDeviceCallbackInfo device_callback_info = (WGPURequestDeviceCallbackInfo){
 		.mode = WGPUCallbackMode_AllowProcessEvents,
 		.callback = handle_request_device,
 		.userdata1 = &this->device,
 	};
-	WGPUFuture device_future = wgpuAdapterRequestDevice(adapter, &device_desc, device_callback_info);
-#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	WGPUFuture device_future = wgpuAdapterRequestDevice(adapter, &requirements.descriptor, device_callback_info);
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
 	WGPUFutureWaitInfo wait_info = { .future = device_future, .completed = false };
 	WGPUWaitStatus wait_status = wgpuInstanceWaitAny(context_driver->instance_get(), 1, &wait_info, UINT64_MAX);
 	ERR_FAIL_COND_V_MSG(wait_status != WGPUWaitStatus_Success, FAILED,
@@ -137,6 +158,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 	(void)device_future;
 	wgpuInstanceProcessEvents(context_driver->instance_get());
+#endif
 #endif
 
 	ERR_FAIL_NULL_V_MSG(this->device, FAILED, "Failed to create wgpu device.");

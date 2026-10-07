@@ -2,6 +2,7 @@
 #define RENDERING_DEVICE_DRIVER_WEBGPU_H
 
 #include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 #include "drivers/webgpu/rendering_context_driver_webgpu.h"
 #include "drivers/webgpu/webgpu_common.h"
 #include "servers/rendering/rendering_context_driver.h"
@@ -35,6 +36,13 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 
 public:
 	Error initialize(uint32_t p_device_index, uint32_t p_frame_count) override final;
+
+	struct DeviceRequirements {
+		LocalVector<WGPUFeatureName> features;
+		WGPULimits limits = WGPU_LIMITS_INIT;
+		WGPUDeviceDescriptor descriptor = WGPU_DEVICE_DESCRIPTOR_INIT;
+	};
+	static void device_requirements_get(WGPUAdapter p_adapter, DeviceRequirements &r_requirements);
 
 private:
 	/*****************/

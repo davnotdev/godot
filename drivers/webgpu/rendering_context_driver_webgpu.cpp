@@ -5,6 +5,7 @@
 
 #include "rendering_device_driver_webgpu.h"
 #include "webgpu_platform.h"
+#include "webgpu_web_preinit.h"
 
 #include "core/error/error_macros.h"
 
@@ -47,7 +48,21 @@ RenderingContextDriverWebGpu::~RenderingContextDriverWebGpu() {
 }
 
 Error RenderingContextDriverWebGpu::initialize() {
-#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+#if defined(WEBGPU_BACKEND_EMDAWN)
+	const WebGpuWebPreinit &preinit = webgpu_web_preinit_get();
+	ERR_FAIL_COND_V_MSG(!preinit.instance || !preinit.adapter, ERR_CANT_CREATE, "WebGPU is not available, or no suitable adapter was found at startup.");
+
+	instance = preinit.instance;
+	wgpuInstanceAddRef(instance);
+
+	wgpuAdapterAddRef(preinit.adapter);
+	handle_request_adapter(WGPURequestAdapterStatus_Success, preinit.adapter, (WGPUStringView){ nullptr, 0 }, this, nullptr);
+
+	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
+	return OK;
+#else
+
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
 	static const WGPUInstanceFeatureName required_features[] = { WGPUInstanceFeatureName_TimedWaitAny };
 #endif
 
@@ -64,7 +79,7 @@ Error RenderingContextDriverWebGpu::initialize() {
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	instance_descriptor.nextInChain = &instance_extras.chain;
 #endif
-#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
 	instance_descriptor.requiredFeatureCount = sizeof(required_features) / sizeof(WGPUInstanceFeatureName);
 	instance_descriptor.requiredFeatures = required_features;
 #endif
@@ -91,7 +106,7 @@ Error RenderingContextDriverWebGpu::initialize() {
 			&adapter_options,
 			adapter_callback_info);
 
-#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
 	WGPUFutureWaitInfo wait_infos[] = {
 		{ .future = high_power_future, .completed = false },
 		{ .future = low_power_future, .completed = false },
@@ -110,6 +125,7 @@ Error RenderingContextDriverWebGpu::initialize() {
 	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
 
 	return OK;
+#endif
 }
 
 const RenderingContextDriver::Device &RenderingContextDriverWebGpu::device_get(uint32_t p_device_index) const {
