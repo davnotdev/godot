@@ -1918,6 +1918,11 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 							break;
 					}
 
+					// WebGPU does not allow writable storage textures in the vertex stage.
+					if (access != WGPUStorageTextureAccess_ReadOnly) {
+						layout_entry.visibility = (WGPUShaderStage)(layout_entry.visibility & ~WGPUShaderStage_Vertex);
+					}
+
 					// HACK: Replace cube storage texture to bypass a wgpu validation error.
 					WGPUTextureViewDimension viewDimension = webgpu_texture_view_dimension_from_rd(info.texture_image_type);
 					if (viewDimension == WGPUTextureViewDimension_Cube) {
