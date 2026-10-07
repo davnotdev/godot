@@ -3695,10 +3695,13 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 	size_t targets_count = 0;
 
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
-	uint32_t render_pass_attachments_offset = 0;
+	uint32_t unused_color_attachments = 0;
 
 	for (uint32_t i = 0; i < p_color_attachments.size(); i++) {
 		if (p_color_attachments[i] != ATTACHMENT_UNUSED) {
+			const int32_t attachment_index = p_color_attachments[i];
+			ERR_FAIL_INDEX_V_MSG(attachment_index, render_pass_info->attachments.size(), PipelineID(), "Color attachment index out of range of the render pass attachments.");
+
 			const PipelineColorBlendState::Attachment attachment = p_blend_state.attachments[i];
 			WGPUBlendState *blend_state = ALLOCA_SINGLE(WGPUBlendState);
 			*blend_state = (WGPUBlendState){
@@ -3731,14 +3734,13 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 			}
 
 			targets[targets_count] = (WGPUColorTargetState){
-				// TODO: We do not have info on color target format.
-				.format = render_pass_info->attachments[i + render_pass_attachments_offset].format,
+				.format = render_pass_info->attachments[attachment_index].format,
 				.blend = attachment.enable_blend ? blend_state : nullptr,
 				.writeMask = write_mask,
 			};
 			targets_count++;
 		} else {
-			render_pass_attachments_offset += 1;
+			unused_color_attachments += 1;
 		}
 	}
 
@@ -3748,7 +3750,7 @@ RenderingDeviceDriver::PipelineID RenderingDeviceDriverWebGpu::render_pipeline_c
 		.entryPoint = { "main", WGPU_STRLEN },
 		.constantCount = (size_t)fragment_overrides.size(),
 		.constants = fragment_overrides.ptr(),
-		.targetCount = p_color_attachments.size() - render_pass_attachments_offset,
+		.targetCount = p_color_attachments.size() - unused_color_attachments,
 		.targets = targets,
 	};
 	pipeline_descriptor.fragment = &fragment_state;
