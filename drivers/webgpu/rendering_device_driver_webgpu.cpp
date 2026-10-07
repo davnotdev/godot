@@ -1653,7 +1653,9 @@ void RenderingDeviceDriverWebGpu::swap_chain_free(SwapChainID p_swap_chain) {
 /**** FRAMEBUFFER ****/
 /*********************/
 
-RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t _p_width, uint32_t _p_height) {
+RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_create(RenderPassID p_render_pass, VectorView<TextureID> p_attachments, uint32_t p_width, uint32_t p_height) {
+	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
+
 	FramebufferInfo *framebuffer_info = memnew(FramebufferInfo);
 	framebuffer_info->maybe_swapchain = SwapChainID();
 
@@ -1661,12 +1663,37 @@ RenderingDeviceDriver::FramebufferID RenderingDeviceDriverWebGpu::framebuffer_cr
 	for (uint32_t i = 0; i < p_attachments.size(); i++) {
 		attachments.push_back(p_attachments[i]);
 	}
+
+	if (render_pass_info->is_empty && p_attachments.size() == 0) {
+		// WebGPU requires at least one attachment.
+		// When attachments is empty, our render pass holds one depth texture.
+		const RenderPassAttachmentInfo &attachment = render_pass_info->attachments[0];
+
+		TextureFormat format = {};
+		format.format = rd_texture_format_from_webgpu(attachment.format);
+		format.width = MAX(p_width, 1u);
+		format.height = MAX(p_height, 1u);
+		format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		// TODO: HELLO WHY IS THIS FOUR???
+		format.samples = TEXTURE_SAMPLES_4;
+		TextureView view = {};
+		view.format = format.format;
+		framebuffer_info->empty_depth_texture = texture_create(format, view);
+		attachments.push_back(framebuffer_info->empty_depth_texture);
+	}
+
 	framebuffer_info->attachments = attachments;
 
 	return FramebufferID(framebuffer_info);
 }
 
-void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {}
+void RenderingDeviceDriverWebGpu::framebuffer_free(FramebufferID p_framebuffer) {
+	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
+	if (framebuffer_info->empty_depth_texture) {
+		texture_free(framebuffer_info->empty_depth_texture);
+	}
+	memdelete(framebuffer_info);
+}
 
 /****************/
 /**** SHADER ****/
@@ -1999,7 +2026,8 @@ RenderingDeviceDriver::ShaderID RenderingDeviceDriverWebGpu::shader_create_from_
 			},
 		};
 
-		shader_info->shader_contents.push_back(String((const char *)decompressed_code.ptr()));
+		// NOTE: `decompressed_code` is not NUL-terminated.
+		shader_info->shader_contents.push_back(String::utf8((const char *)decompressed_code.ptr(), source_size));
 
 		WGPUShaderModuleDescriptor shader_module_desc = (WGPUShaderModuleDescriptor){
 			.nextInChain = &source.chain,
@@ -3147,21 +3175,9 @@ RenderingDeviceDriver::RenderPassID RenderingDeviceDriverWebGpu::render_pass_cre
 	}
 
 	if (p_attachments.size() == 0) {
-		RenderPassAttachmentInfo attachment = _empty_render_pass_attachment_create();
-		render_pass_info->attachments.push_back(attachment);
-
-		TextureFormat format = {};
-		format.format = rd_texture_format_from_webgpu(attachment.format);
-		format.width = 1;
-		format.height = 1;
-		format.usage_bits = TextureUsageBits::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-		// TODO: HELLO WHY IS THIS FOUR???
-		format.samples = TEXTURE_SAMPLES_4;
-		TextureView view = {};
-		view.format = format.format;
-		render_pass_info->emtpy_depth_texture = texture_create(format, view);
-		render_pass_info->empty_framebuffer = framebuffer_create(RenderPassID(render_pass_info), { render_pass_info->emtpy_depth_texture }, 1, 1);
+		render_pass_info->attachments.push_back(_empty_render_pass_attachment_create());
 		render_pass_info->depth_attachment_index = 0;
+		render_pass_info->is_empty = true;
 	}
 
 	render_pass_info->view_count = p_view_count;
@@ -3183,7 +3199,7 @@ void RenderingDeviceDriverWebGpu::command_begin_render_pass(CommandBufferID p_cm
 	Vector<WGPURenderPassColorAttachment> color_attachments;
 
 	RenderPassInfo *render_pass_info = (RenderPassInfo *)p_render_pass.id;
-	FramebufferInfo *framebuffer_info = render_pass_info->empty_framebuffer != FramebufferID() ? (FramebufferInfo *)render_pass_info->empty_framebuffer.id : (FramebufferInfo *)p_framebuffer.id;
+	FramebufferInfo *framebuffer_info = (FramebufferInfo *)p_framebuffer.id;
 
 	// DEV_ASSERT(render_pass_info->attachments.size() == framebuffer_info->attachments.size());
 

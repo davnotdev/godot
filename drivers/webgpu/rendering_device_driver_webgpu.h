@@ -459,6 +459,9 @@ private:
 		SwapChainID maybe_swapchain;
 
 		Vector<TextureID> attachments;
+
+		// Owned depth texture for render passes without attachments.
+		TextureID empty_depth_texture;
 	};
 
 public:
@@ -695,10 +698,9 @@ private:
 		uint32_t depth_attachment_index = UINT32_MAX;
 		uint32_t view_count;
 
-		// This data corresponds with a use of `_empty_render_pass_attachment_create`
-		// TODO: Free me!
-		FramebufferID empty_framebuffer;
-		TextureID emtpy_depth_texture;
+		// True when created without attachments.
+		// WebGPU requires at least one attachment, so `attachments` will contain one empty depth texture.
+		bool is_empty = false;
 
 		const RenderPassAttachmentInfo *get_depth_attachment() const {
 			return depth_attachment_index < attachments.size() ? attachments.ptr() + depth_attachment_index : nullptr;
