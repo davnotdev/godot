@@ -56,7 +56,7 @@ Error RenderingContextDriverWebGpu::initialize() {
 	wgpuInstanceAddRef(instance);
 
 	wgpuAdapterAddRef(preinit.adapter);
-	handle_request_adapter(WGPURequestAdapterStatus_Success, preinit.adapter, (WGPUStringView){ nullptr, 0 }, this, nullptr);
+	handle_request_adapter(WGPURequestAdapterStatus_Success, preinit.adapter, WGPUStringView{ nullptr, 0 }, this, nullptr);
 
 	ERR_FAIL_COND_V_MSG(adapters.is_empty(), ERR_CANT_CREATE, "No suitable WebGPU adapter found.");
 	return OK;
@@ -68,13 +68,11 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
 	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
-	WGPUInstanceExtras instance_extras = (WGPUInstanceExtras){
-		.chain = (WGPUChainedStruct){
-				.sType = (WGPUSType)WGPUSType_InstanceExtras },
-		// .backends = WGPUInstanceBackend_Vulkan
-		// .backends = WGPUInstanceBackend_DX12
-		.backends = WGPUInstanceBackend_All
-	};
+	WGPUInstanceExtras instance_extras = {};
+	instance_extras.chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
+	// .backends = WGPUInstanceBackend_Vulkan
+	// .backends = WGPUInstanceBackend_DX12
+	instance_extras.backends = WGPUInstanceBackend_All;
 #endif
 
 	WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
@@ -90,11 +88,10 @@ Error RenderingContextDriverWebGpu::initialize() {
 	ERR_FAIL_NULL_V_MSG(instance, ERR_CANT_CREATE, "Failed to create wgpu instance.");
 
 	WGPURequestAdapterOptions adapter_options = {};
-	WGPURequestAdapterCallbackInfo adapter_callback_info = {
-		.mode = WGPUCallbackMode_AllowProcessEvents,
-		.callback = handle_request_adapter,
-		.userdata1 = this,
-	};
+	WGPURequestAdapterCallbackInfo adapter_callback_info = {};
+	adapter_callback_info.mode = WGPUCallbackMode_AllowProcessEvents;
+	adapter_callback_info.callback = handle_request_adapter;
+	adapter_callback_info.userdata1 = this;
 
 	// There is no way to request all adapters, so we just get the high and low power ones.
 
@@ -110,8 +107,8 @@ Error RenderingContextDriverWebGpu::initialize() {
 
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP)
 	WGPUFutureWaitInfo wait_infos[] = {
-		{ .future = high_power_future, .completed = false },
-		{ .future = low_power_future, .completed = false },
+		{ high_power_future, false },
+		{ low_power_future, false },
 	};
 	for (WGPUFutureWaitInfo &wait_info : wait_infos) {
 		WGPUWaitStatus wait_status = wgpuInstanceWaitAny(instance, 1, &wait_info, UINT64_MAX);
@@ -295,13 +292,12 @@ void RenderingContextDriverWebGpu::Surface::configure(WGPUAdapter p_adapter, WGP
 	}
 
 	// TODO: Complete full surface config.
-	WGPUSurfaceConfiguration surface_config = (WGPUSurfaceConfiguration){
-		.device = p_device,
-		.format = this->format,
-		.usage = WGPUTextureUsage_RenderAttachment,
-		.width = this->width,
-		.height = this->height,
-	};
+	WGPUSurfaceConfiguration surface_config = {};
+	surface_config.device = p_device;
+	surface_config.format = this->format;
+	surface_config.usage = WGPUTextureUsage_RenderAttachment;
+	surface_config.width = this->width;
+	surface_config.height = this->height;
 
 	wgpuSurfaceConfigure(this->surface, &surface_config);
 }

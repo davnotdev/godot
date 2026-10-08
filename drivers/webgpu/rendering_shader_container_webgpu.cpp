@@ -183,12 +183,13 @@ bool RenderingShaderContainerWebGpu::_set_code_from_spirv(const ReflectShader &p
 
 		SpvTransformCorrectionMap map = (SpvTransformCorrectionMap)SPIRV_WEBGPU_TRANSFORM_CORRECTION_MAP_NULL;
 
+		SpvTransformOptionalU32 immediates_binding = {};
+		immediates_binding.some = true;
+		immediates_binding.value = WEBGPU_PUSH_CONSTANT_EMULATION_BINDING;
 		spirv_webgpu_transform_correction_write_immediates_binding(
 				&map,
 				SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_BINDING_MODE_ABSOLUTE,
-				(SpvTransformOptionalU32){
-						.some = true,
-						.value = WEBGPU_PUSH_CONSTANT_EMULATION_BINDING });
+				immediates_binding);
 		spirv_webgpu_transform_correction_write_immediates_set(&map, immediates_set, SPRIV_WEBGPU_TRANSFORM_IMMEDIATES_SET_MODE_ABSOLUTE);
 
 		// If we had all the bind groups in the world:

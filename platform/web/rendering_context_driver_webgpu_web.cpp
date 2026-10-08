@@ -5,22 +5,13 @@
 RenderingContextDriver::SurfaceID RenderingContextDriverWebGpuWeb::surface_create(const void *p_platform_data) {
 	const WindowPlatformData *wpd = (const WindowPlatformData *)(p_platform_data);
 
-	WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas_desc =
-			(const WGPUEmscriptenSurfaceSourceCanvasHTMLSelector){
-				.chain =
-						(const WGPUChainedStruct){
-								.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector,
-						},
-				.selector = (WGPUStringView){
-						.data = wpd->canvas_id,
-						.length = strlen(wpd->canvas_id),
-				},
-			};
+	WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas_desc = {};
+	canvas_desc.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
+	canvas_desc.selector.data = wpd->canvas_id;
+	canvas_desc.selector.length = strlen(wpd->canvas_id);
 
-	WGPUSurfaceDescriptor surface_desc =
-			(WGPUSurfaceDescriptor){
-				.nextInChain = &canvas_desc.chain
-			};
+	WGPUSurfaceDescriptor surface_desc = {};
+	surface_desc.nextInChain = &canvas_desc.chain;
 
 	WGPUSurface wgpu_surface = wgpuInstanceCreateSurface(
 			instance_get(),

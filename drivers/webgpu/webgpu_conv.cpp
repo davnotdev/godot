@@ -1453,7 +1453,7 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		// case WGPUTextureFormat_NV12:
 		case WGPUTextureFormat_Depth32Float:
 		case WGPUTextureFormat_Depth32FloatStencil8:
-			return (FormatBlockDimension){ 1, 1 };
+			return FormatBlockDimension{ 1, 1 };
 
 		case WGPUTextureFormat_BC1RGBAUnorm:
 		case WGPUTextureFormat_BC1RGBAUnormSrgb:
@@ -1479,51 +1479,51 @@ FormatBlockDimension webgpu_texture_format_block_dimensions(WGPUTextureFormat fo
 		case WGPUTextureFormat_EACR11Snorm:
 		case WGPUTextureFormat_EACRG11Unorm:
 		case WGPUTextureFormat_EACRG11Snorm:
-			return (FormatBlockDimension){ 4, 4 };
+			return FormatBlockDimension{ 4, 4 };
 
 		case WGPUTextureFormat_ASTC4x4Unorm:
 		case WGPUTextureFormat_ASTC4x4UnormSrgb:
-			return (FormatBlockDimension){ 4, 4 };
+			return FormatBlockDimension{ 4, 4 };
 		case WGPUTextureFormat_ASTC5x4Unorm:
 		case WGPUTextureFormat_ASTC5x4UnormSrgb:
-			return (FormatBlockDimension){ 5, 4 };
+			return FormatBlockDimension{ 5, 4 };
 		case WGPUTextureFormat_ASTC5x5Unorm:
 		case WGPUTextureFormat_ASTC5x5UnormSrgb:
-			return (FormatBlockDimension){ 5, 5 };
+			return FormatBlockDimension{ 5, 5 };
 		case WGPUTextureFormat_ASTC6x5Unorm:
 		case WGPUTextureFormat_ASTC6x5UnormSrgb:
-			return (FormatBlockDimension){ 6, 5 };
+			return FormatBlockDimension{ 6, 5 };
 		case WGPUTextureFormat_ASTC6x6Unorm:
 		case WGPUTextureFormat_ASTC6x6UnormSrgb:
-			return (FormatBlockDimension){ 6, 6 };
+			return FormatBlockDimension{ 6, 6 };
 		case WGPUTextureFormat_ASTC8x5Unorm:
 		case WGPUTextureFormat_ASTC8x5UnormSrgb:
-			return (FormatBlockDimension){ 8, 5 };
+			return FormatBlockDimension{ 8, 5 };
 		case WGPUTextureFormat_ASTC8x6Unorm:
 		case WGPUTextureFormat_ASTC8x6UnormSrgb:
-			return (FormatBlockDimension){ 8, 6 };
+			return FormatBlockDimension{ 8, 6 };
 		case WGPUTextureFormat_ASTC8x8Unorm:
 		case WGPUTextureFormat_ASTC8x8UnormSrgb:
-			return (FormatBlockDimension){ 8, 8 };
+			return FormatBlockDimension{ 8, 8 };
 		case WGPUTextureFormat_ASTC10x5Unorm:
 		case WGPUTextureFormat_ASTC10x5UnormSrgb:
-			return (FormatBlockDimension){ 10, 5 };
+			return FormatBlockDimension{ 10, 5 };
 		case WGPUTextureFormat_ASTC10x6Unorm:
 		case WGPUTextureFormat_ASTC10x6UnormSrgb:
-			return (FormatBlockDimension){ 10, 6 };
+			return FormatBlockDimension{ 10, 6 };
 		case WGPUTextureFormat_ASTC10x8Unorm:
 		case WGPUTextureFormat_ASTC10x8UnormSrgb:
-			return (FormatBlockDimension){ 10, 8 };
+			return FormatBlockDimension{ 10, 8 };
 		case WGPUTextureFormat_ASTC10x10Unorm:
 		case WGPUTextureFormat_ASTC10x10UnormSrgb:
-			return (FormatBlockDimension){ 10, 10 };
+			return FormatBlockDimension{ 10, 10 };
 		case WGPUTextureFormat_ASTC12x10Unorm:
 		case WGPUTextureFormat_ASTC12x10UnormSrgb:
-			return (FormatBlockDimension){ 12, 10 };
+			return FormatBlockDimension{ 12, 10 };
 		case WGPUTextureFormat_ASTC12x12Unorm:
 		case WGPUTextureFormat_ASTC12x12UnormSrgb:
-			return (FormatBlockDimension){ 12, 12 };
+			return FormatBlockDimension{ 12, 12 };
 		default:
-			return (FormatBlockDimension){ 1, 1 };
+			return FormatBlockDimension{ 1, 1 };
 	}
 }

@@ -12,14 +12,10 @@ inline WebGpuTranslateBindingLayout interpret_binding_type(const NagaType *types
 				sampler_type = WGPUSamplerBindingType_Filtering;
 			}
 
-			return (WebGpuTranslateBindingLayout){
-				.type = WebGpuTranslateBindingType::SAMPLER,
-				._data = {
-						.sampler = (WebGpuTranslateBindingSamplerLayout){
-								.sampler_type = sampler_type },
-
-				}
-			};
+			WebGpuTranslateBindingLayout layout = {};
+			layout.type = WebGpuTranslateBindingType::SAMPLER;
+			layout._data.sampler.sampler_type = sampler_type;
+			return layout;
 		} break;
 		case NagaTypeInnerTag_Image: {
 			NagaImageClass class_ = type.inner.data.image.class_;
@@ -41,30 +37,19 @@ inline WebGpuTranslateBindingLayout interpret_binding_type(const NagaType *types
 							sample_type = WGPUTextureSampleType_Sint;
 							break;
 					}
-					return (WebGpuTranslateBindingLayout){
-						.type = WebGpuTranslateBindingType::TEXTURE,
-						._data = {
-								.texture = (WebGpuTranslateBindingTextureLayout){
-										.sample_type =
-												sample_type,
-										.multisampled =
-												(bool)class_.data.sampled.multi },
-						}
-					};
+					WebGpuTranslateBindingLayout layout = {};
+					layout.type = WebGpuTranslateBindingType::TEXTURE;
+					layout._data.texture.sample_type = sample_type;
+					layout._data.texture.multisampled = (bool)class_.data.sampled.multi;
+					return layout;
 				} break;
-				case NagaImageClassTag_Depth:
-					return (WebGpuTranslateBindingLayout){
-						.type = WebGpuTranslateBindingType::TEXTURE,
-						._data = {
-								.texture = (WebGpuTranslateBindingTextureLayout){
-										.sample_type =
-												WGPUTextureSampleType_Depth,
-										.multisampled =
-												(bool)class_.data.depth.multi },
-
-						}
-					};
-					break;
+				case NagaImageClassTag_Depth: {
+					WebGpuTranslateBindingLayout layout = {};
+					layout.type = WebGpuTranslateBindingType::TEXTURE;
+					layout._data.texture.sample_type = WGPUTextureSampleType_Depth;
+					layout._data.texture.multisampled = (bool)class_.data.depth.multi;
+					return layout;
+				} break;
 				default:
 					break;
 			}
@@ -75,9 +60,9 @@ inline WebGpuTranslateBindingLayout interpret_binding_type(const NagaType *types
 		default:
 			break;
 	}
-	return (WebGpuTranslateBindingLayout){
-		.type = WebGpuTranslateBindingType::UNUSED
-	};
+	WebGpuTranslateBindingLayout layout = {};
+	layout.type = WebGpuTranslateBindingType::UNUSED;
+	return layout;
 }
 
 ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_count) {
@@ -97,19 +82,18 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 			NagaCapabilities_SUBGROUP;
 	NagaModuleFillFlags fill_flags = NAGA_FLAGS_ALL(NagaModuleFillFlags);
 
-	NagaSPVFrontOptions options = (NagaSPVFrontOptions){
-		.adjust_coordinate_space = true,
-		.strict_capabilities = true,
-		.block_ctx_dump_prefix = nullptr,
-	};
+	NagaSPVFrontOptions options = {};
+	options.adjust_coordinate_space = true;
+	options.strict_capabilities = true;
+	options.block_ctx_dump_prefix = nullptr;
 	NagaSPVFrontResult front_result;
 	front_result.flags = NagaFrontResultOption_FormattedErrorOnly;
 	success = naga_front_spv_parse(options, spv, spv_count, fill_flags, &front_result);
 	if (!success) {
-		return (ConvertResult){
-			.wgsl_string = nullptr,
-			.error_string = strdup(front_result.fmt_error),
-		};
+		ConvertResult result = {};
+		result.wgsl_string = nullptr;
+		result.error_string = strdup(front_result.fmt_error);
+		return result;
 	}
 
 	stage = WebGpuTranslateFailureStage::VALID;
@@ -118,10 +102,10 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 	valid_result.flags = NagaValidateResultOption_FormattedErrorOnly;
 	success = naga_valid_validator_validate(&validator, &front_result.module, &valid_result);
 	if (!success) {
-		return (ConvertResult){
-			.wgsl_string = nullptr,
-			.error_string = strdup(valid_result.fmt_error),
-		};
+		ConvertResult result = {};
+		result.wgsl_string = nullptr;
+		result.error_string = strdup(valid_result.fmt_error);
+		return result;
 	}
 
 	HashMap<uint32_t, HashMap<uint32_t, WebGpuTranslateBindingLayout>> binding_hints;
@@ -155,20 +139,20 @@ ConvertResult webgpu_translate_spirv_to_wgsl(const uint32_t *spv, uint32_t spv_c
 	back_result.flags = NagaWriteResultOption_FormattedErrorOnly;
 	success = naga_back_wgsl_write(&front_result.module, &valid_result.module_info, writer_flags, &back_result);
 	if (!success) {
-		return (ConvertResult){
-			.wgsl_string = nullptr,
-			.error_string = back_result.fmt_error,
-			.failure_stage = stage,
-		};
+		ConvertResult result = {};
+		result.wgsl_string = nullptr;
+		result.error_string = back_result.fmt_error;
+		result.failure_stage = stage;
+		return result;
 	}
 	// TODO: Free Memory
 
-	return (ConvertResult){
-		.wgsl_string = back_result.output,
-		.binding_hints = std::move(binding_hints),
-		.error_string = nullptr,
-		.failure_stage = WebGpuTranslateFailureStage::NONE
-	};
+	ConvertResult result = {};
+	result.wgsl_string = back_result.output;
+	result.binding_hints = std::move(binding_hints);
+	result.error_string = nullptr;
+	result.failure_stage = WebGpuTranslateFailureStage::NONE;
+	return result;
 }
 
 bool webgpu_translate_compare_binding_layout(const WebGpuTranslateBindingLayout &a, const WebGpuTranslateBindingLayout &b) {
