@@ -7,14 +7,15 @@ thirdparty_dirs = [
     "#thirdparty/naga-native",
     "#thirdparty/spirv-webgpu-transform"
 ]
+libs = ["naga_native", "spirv_webgpu_transform_ffi"]
 
 if env["webgpu_backend"] == "dawn-desktop":
-    env.Prepend(LIBS=["webgpu_dawn"])
+    libs.append("webgpu_dawn")
     thirdparty_dirs.append("#thirdparty/dawn/lib")
     thirdparty_dirs.append("#thirdparty/dawn/include")
     thirdparty_dirs.append("#thirdparty/dawn/include/webgpu/")
 elif env["webgpu_backend"] == "wgpu-desktop":
-    env.Prepend(LIBS=["wgpu_native"])
+    libs.append("wgpu_native")
     thirdparty_dirs.append("#thirdparty/wgpu")
 elif env["webgpu_backend"] == "emdawnwebgpu":
     # See platform/web/detect.py
@@ -36,5 +37,8 @@ env.drivers_sources += driver_obj
 # Needed to force rebuilding the driver files when the thirdparty code is updated.
 env.Depends(driver_obj, thirdparty_obj)
 
-env.Prepend(LIBS=["naga_native", "libspirv_webgpu_transform_ffi"])
+if env.msvc:
+    env.Append(LINKFLAGS=[lib + ".lib" for lib in libs])
+else:
+    env.Prepend(LIBS=libs)
 env.Prepend(LIBPATH=thirdparty_dirs)
