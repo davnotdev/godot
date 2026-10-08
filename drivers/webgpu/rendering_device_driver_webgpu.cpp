@@ -525,6 +525,7 @@ void RenderingDeviceDriverWebGpu::_flush_pending_dynamic_buffers() {
 uint64_t RenderingDeviceDriverWebGpu::buffer_get_device_address(BufferID p_buffer) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> buffer_get_device_address");
+	return 0;
 }
 
 /*****************/
@@ -696,6 +697,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil, uint32_t p_mipmaps) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> texture_create_from_extension");
+	return TextureID();
 }
 
 RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {
@@ -870,6 +872,7 @@ void RenderingDeviceDriverWebGpu::texture_get_copyable_layout(
 Vector<uint8_t> RenderingDeviceDriverWebGpu::texture_get_data(TextureID p_texture, uint32_t p_layer) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> texture_get_data");
+	return Vector<uint8_t>();
 }
 
 BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::texture_get_usages_supported_by_format(DataFormat p_format, bool p_cpu_readable) {
@@ -1544,6 +1547,7 @@ bool RenderingDeviceDriverWebGpu::command_buffer_begin(CommandBufferID p_cmd_buf
 bool RenderingDeviceDriverWebGpu::command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) {
 	// TODO: impl
 	CRASH_NOW_MSG("TODO --> command_buffer_begin_secondary");
+	return false;
 }
 
 void RenderingDeviceDriverWebGpu::command_buffer_end(CommandBufferID p_cmd_buffer) {
