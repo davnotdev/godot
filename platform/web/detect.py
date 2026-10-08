@@ -270,7 +270,7 @@ def configure(env: "SConsEnvironment"):
         env.AppendUnique(CPPDEFINES=["WEBGPU_ENABLED", "RD_ENABLED"])
 
         # Debug things
-        env.Append(CCFLAGS=["-g"])
+        # env.Append(CCFLAGS=["-g"])
         # Emscripten docs recommend using `use_closure_compiler=yes` too
         # env.Append(LINKFLAGS=["--closure=1"])
 
