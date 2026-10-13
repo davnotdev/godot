@@ -62,6 +62,16 @@ def get_opts():
             False,
         ),
         BoolVariable("wasm_simd", "Use WebAssembly SIMD to improve CPU performance", True),
+        # TODO(davnotdev): The default should be mobile with forward_plus as the top secret dev option.
+        # For now, rendering method is set to whatever the project is set to.
+        # However, web needs to know what limits to request ahead of time.
+        EnumVariable(
+            "webgpu_force_rendering_method",
+            "(Experimental) Force the rendering method for WebGPU rendering at startup (crucial for web builds).",
+            "none",
+            ["none", "mobile", "forward_plus"],
+            ignorecase=2,
+        ),
     ]
 
 
@@ -281,6 +291,11 @@ def configure(env: "SConsEnvironment"):
         else:
             print_error('Unsupported "webgpu_backend=%s" for platform "web"' % env["webgpu_backend"])
             sys.exit(255)
+
+        if env["webgpu_force_rendering_method"] == "mobile":
+            env.Append(CPPDEFINES=["WEBGPU_FORCE_RENDERING_METHOD_MOBILE"])
+        elif env["webgpu_force_rendering_method"] == "forward_plus":
+            env.Append(CPPDEFINES=["WEBGPU_FORCE_RENDERING_METHOD_FORWARD_PLUS"])
 
     if env["javascript_eval"]:
         env.Append(CPPDEFINES=["JAVASCRIPT_EVAL_ENABLED"])

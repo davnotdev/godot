@@ -2631,6 +2631,12 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		rendering_method_source = OS::RenderingSource::RENDERING_SOURCE_PROJECT_SETTING;
 	}
 
+#if defined(WEBGPU_FORCE_RENDERING_METHOD_MOBILE)
+	rendering_method = "mobile";
+#elif defined(WEBGPU_FORCE_RENDERING_METHOD_FORWARD_PLUS)
+	rendering_method = "forward_plus";
+#endif
+
 	if (rendering_driver.is_empty()) {
 		if (rendering_method == "dummy") {
 			rendering_driver = "dummy";

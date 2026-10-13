@@ -42,7 +42,7 @@ public:
 		WGPULimits limits = WGPU_LIMITS_INIT;
 		WGPUDeviceDescriptor descriptor = WGPU_DEVICE_DESCRIPTOR_INIT;
 	};
-	static void device_requirements_get(WGPUAdapter p_adapter, DeviceRequirements &r_requirements);
+	static void device_requirements_get(WGPUAdapter p_adapter, bool p_request_limits, DeviceRequirements &r_requirements);
 
 private:
 	/*****************/
