@@ -47,11 +47,11 @@ static void _preinit_handle_request_adapter(WGPURequestAdapterStatus p_status, W
 	preinit.adapter = p_adapter;
 
 #if defined(WEBGPU_FORCE_RENDERING_METHOD_MOBILE)
-	const bool request_limits = false;
+	const bool mobile = true;
 #else
-	const bool request_limits = true;
+	const bool mobile = false;
 #endif
-	RenderingDeviceDriverWebGpu::device_requirements_get(p_adapter, request_limits, request->requirements);
+	RenderingDeviceDriverWebGpu::device_requirements_get(p_adapter, mobile, request->requirements);
 	WGPURequestDeviceCallbackInfo device_callback_info = {};
 	device_callback_info.mode = WGPUCallbackMode_AllowSpontaneous;
 	device_callback_info.callback = _preinit_handle_request_device;

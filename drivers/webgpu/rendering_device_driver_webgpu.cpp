@@ -48,7 +48,7 @@ static void handle_device_lost(WGPUDevice const *_device, WGPUDeviceLostReason p
 	ERR_PRINT(vformat("[WEBGPU] Device lost: %s", message));
 }
 
-void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter, bool p_request_limits, DeviceRequirements &r_requirements) {
+void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter, bool p_mobile, DeviceRequirements &r_requirements) {
 	static const WGPUFeatureName required_features[] = {
 		WGPUFeatureName_Depth32FloatStencil8,
 		WGPUFeatureName_Float32Filterable,
@@ -92,7 +92,14 @@ void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter,
 
 	WGPULimits &required_limits = r_requirements.limits;
 	required_limits = WGPU_LIMITS_INIT;
-	if (p_request_limits) {
+	if (p_mobile) {
+		required_limits.maxSampledTexturesPerShaderStage = 48;
+		required_limits.maxStorageBuffersPerShaderStage = 10;
+		required_limits.maxStorageTexturesPerShaderStage = 6;
+
+		// TODO: I believe you can construct a scene with more samplers than the default?
+		// required_limits.maxSamplersPerShaderStage = 18;
+	} else {
 		required_limits.maxBindGroups = WEBGPU_MAX_BIND_GROUPS;
 		// required_limits.maxImmediateSize = WEBGPU_MAX_IMMEDIATE_SIZE;
 		required_limits.maxImmediateSize = 64;
@@ -110,7 +117,7 @@ void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter,
 	r_requirements.descriptor = {};
 	r_requirements.descriptor.requiredFeatureCount = (size_t)r_requirements.features.size();
 	r_requirements.descriptor.requiredFeatures = r_requirements.features.ptr();
-	r_requirements.descriptor.requiredLimits = p_request_limits ? &r_requirements.limits : nullptr;
+	r_requirements.descriptor.requiredLimits = &r_requirements.limits;
 	r_requirements.descriptor.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowSpontaneous;
 	r_requirements.descriptor.deviceLostCallbackInfo.callback = handle_device_lost;
 	r_requirements.descriptor.uncapturedErrorCallbackInfo.callback = handle_uncaptured_error;
@@ -140,7 +147,7 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 	wgpuDeviceAddRef(device);
 #else
 	DeviceRequirements requirements;
-	device_requirements_get(adapter, OS::get_singleton()->get_current_rendering_method() == "forward_plus", requirements);
+	device_requirements_get(adapter, OS::get_singleton()->get_current_rendering_method() == "mobile", requirements);
 
 	WGPURequestDeviceCallbackInfo device_callback_info = {};
 	device_callback_info.mode = WGPUCallbackMode_AllowProcessEvents;
