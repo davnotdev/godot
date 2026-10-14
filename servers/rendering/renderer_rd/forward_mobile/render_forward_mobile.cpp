@@ -900,6 +900,11 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		using_subpass_post_process = false;
 	}
 
+	// WebGPU has no subpasses (or input attachments).
+	if (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) {
+		using_subpass_post_process = false;
+	}
+
 	if (use_msaa && _compositor_effects_has_flag(p_render_data, RSE::COMPOSITOR_EFFECT_FLAG_ACCESS_RESOLVED_DEPTH, RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_ANY)) {
 		// We'll be able to do this when we finish PR #78598
 		WARN_PRINT_ONCE("Depth buffer resolve for rendering effect callback is not supported in the mobile renderer");

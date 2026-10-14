@@ -61,6 +61,14 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW, false);
 		}
 
+		if (RD::get_singleton()->get_device_capabilities().device_family == RDD::DEVICE_WEBGPU) {
+			// WebGPU has no subpasses.
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW, false);
+		}
+
 		tonemap_mobile.shader_version = tonemap_mobile.shader.version_create();
 
 		for (int i = 0; i < TONEMAP_MODE_MAX; i++) {
@@ -84,13 +92,6 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_1D_LUT\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n");
-
-		// HACK: WebGPU cannot compile subpasses
-#ifdef WEBGPU_ENABLED
-		for (String& mode: tonemap_modes) {
-			mode = mode.replace("\n#define SUBPASS", "");
-		}
-#endif
 
 		tonemap.shader.initialize(tonemap_modes);
 
