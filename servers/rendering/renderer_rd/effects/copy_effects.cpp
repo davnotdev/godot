@@ -1260,10 +1260,6 @@ void CopyEffects::octmap_filter(RID p_source_octmap, const Vector<RID> &p_dest_o
 		u.append_id(p_dest_octmap[i]);
 		uniforms.push_back(u);
 	}
-	if (RD::get_singleton()->uniform_set_is_valid(filter.image_uniform_set)) {
-		RD::get_singleton()->free_rid(filter.image_uniform_set);
-	}
-	filter.image_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, filter.compute_shader.version_get_shader(filter.shader_version, 0), 2);
 
 	// setup our uniforms
 	RID default_mipmap_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -1293,6 +1289,11 @@ void CopyEffects::octmap_filter(RID p_source_octmap, const Vector<RID> &p_dest_o
 
 	RID shader = filter.compute_shader.version_get_shader(filter.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
+
+	if (RD::get_singleton()->uniform_set_is_valid(filter.image_uniform_set)) {
+		RD::get_singleton()->free_rid(filter.image_uniform_set);
+	}
+	filter.image_uniform_set = RD::get_singleton()->uniform_set_create(uniforms, shader, 2);
 
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, filter.compute_pipelines[mode].get_rid());

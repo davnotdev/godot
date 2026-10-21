@@ -2656,6 +2656,7 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_texture_mock_binding_create(WGPUTex
 			break;
 		case WGPUTextureViewDimension_Cube:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+			format.array_layers = 6;
 			break;
 		case WGPUTextureViewDimension_CubeArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
@@ -2715,9 +2716,11 @@ RDD::TextureID RenderingDeviceDriverWebGpu::_storage_texture_mock_binding_create
 			break;
 		case WGPUTextureViewDimension_Cube:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE;
+			format.array_layers = 6;
 			break;
 		case WGPUTextureViewDimension_CubeArray:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_CUBE_ARRAY;
+			format.array_layers = 6;
 			break;
 		case WGPUTextureViewDimension_3D:
 			format.texture_type = RenderingDeviceCommons::TEXTURE_TYPE_3D;
