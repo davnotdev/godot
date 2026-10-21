@@ -586,9 +586,15 @@ private:
 	WGPUBindGroup _bind_group_create(
 			const VectorView<BoundUniform> &p_uniforms,
 			WGPUBindGroupLayout p_layout,
+			const WGPUBindGroupLayoutEntry *p_layout_entries,
+			size_t p_layout_entry_count,
 			const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections,
 			const HashSet<CorrectedBindingIndex> *p_binding_mask,
 			uint32_t p_push_constant_size);
+
+	// HACK: See `_texture_view_for_layout_entry`.
+	WGPUTextureView _texture_view_for_layout_entry(const TextureInfo *p_texture_info, const WGPUBindGroupLayoutEntry *p_layout_entry);
+	HashMap<uint32_t, TextureID> placeholder_textures;
 
 	// When comparison textures are unused, they are incorrectly translated as non-comparison textures.
 	// We prune these using SPIRV transformations, but still need to remove them from the bound uniform list.

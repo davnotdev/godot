@@ -1251,6 +1251,33 @@ bool webgpu_texture_format_has_stencil_aspect(WGPUTextureFormat p_format) {
 	}
 }
 
+bool webgpu_texture_format_is_integer(WGPUTextureFormat p_format) {
+	switch (p_format) {
+		case WGPUTextureFormat_R8Uint:
+		case WGPUTextureFormat_R8Sint:
+		case WGPUTextureFormat_R16Uint:
+		case WGPUTextureFormat_R16Sint:
+		case WGPUTextureFormat_RG8Uint:
+		case WGPUTextureFormat_RG8Sint:
+		case WGPUTextureFormat_R32Uint:
+		case WGPUTextureFormat_R32Sint:
+		case WGPUTextureFormat_RG16Uint:
+		case WGPUTextureFormat_RG16Sint:
+		case WGPUTextureFormat_RGBA8Uint:
+		case WGPUTextureFormat_RGBA8Sint:
+		case WGPUTextureFormat_RGB10A2Uint:
+		case WGPUTextureFormat_RG32Uint:
+		case WGPUTextureFormat_RG32Sint:
+		case WGPUTextureFormat_RGBA16Uint:
+		case WGPUTextureFormat_RGBA16Sint:
+		case WGPUTextureFormat_RGBA32Uint:
+		case WGPUTextureFormat_RGBA32Sint:
+			return true;
+		default:
+			return false;
+	}
+}
+
 WGPUTextureFormat webgpu_texture_format_downgrade_depth_only(WGPUTextureFormat p_format) {
 	switch (p_format) {
 		case WGPUTextureFormat_Depth24PlusStencil8:

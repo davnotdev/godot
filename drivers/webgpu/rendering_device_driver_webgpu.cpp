@@ -933,9 +933,20 @@ void RenderingDeviceDriverWebGpu::sampler_free(SamplerID p_sampler) {
 	wgpuSamplerRelease(sampler);
 }
 
-bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat _p_format, SamplerFilter p_filter) {
-	// "descriptor.magFilter, descriptor.minFilter, and descriptor.mipmapFilter must be "linear"."
-	return p_filter == SamplerFilter::SAMPLER_FILTER_LINEAR;
+bool RenderingDeviceDriverWebGpu::sampler_is_format_supported_for_filter(DataFormat p_format, SamplerFilter p_filter) {
+	switch (p_filter) {
+		case SAMPLER_FILTER_NEAREST: {
+			return true;
+		}
+		case SAMPLER_FILTER_LINEAR: {
+			const WGPUTextureFormat format = webgpu_texture_format_from_rd(p_format);
+			return format != WGPUTextureFormat_Undefined &&
+					!webgpu_texture_format_has_depth_aspect(format) &&
+					!webgpu_texture_format_has_stencil_aspect(format) &&
+					!webgpu_texture_format_is_integer(format);
+		}
+	}
+	return false;
 }
 
 /**********************/
@@ -2309,8 +2320,37 @@ Vector<RenderingDeviceDriverWebGpu::CorrectedBinding> RenderingDeviceDriverWebGp
 	return corrected_bindings;
 }
 
-WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<CorrectedBindingIndex> *p_binding_mask, uint32_t p_push_constant_size) {
+// HACK: Avoid validation errors by binding a placeholder filterable float texture for imcompatible bindings.
+// Once we deal with this properly, we can replace this with just `p_texture_info->get_view_with_format()`.
+WGPUTextureView RenderingDeviceDriverWebGpu::_texture_view_for_layout_entry(const TextureInfo *p_texture_info, const WGPUBindGroupLayoutEntry *p_layout_entry) {
+	const WGPUTextureFormat format = p_texture_info->texture_view_desc.format;
+	const bool is_depth_or_stencil = webgpu_texture_format_has_depth_aspect(format) || webgpu_texture_format_has_stencil_aspect(format);
+	if (p_layout_entry == nullptr || p_layout_entry->texture.sampleType != WGPUTextureSampleType_Float || !is_depth_or_stencil) {
+		return p_texture_info->get_view_with_format();
+	}
+
+	// A depth / stencil view can't be bound to a filterable float slot.
+	const WGPUTextureBindingLayout &layout = p_layout_entry->texture;
+	const uint32_t key = ((uint32_t)layout.viewDimension << 16) | ((uint32_t)layout.sampleType << 1) | (layout.multisampled ? 1u : 0u);
+	TextureID *placeholder = placeholder_textures.getptr(key);
+	if (placeholder == nullptr) {
+		placeholder = &placeholder_textures.insert(key, _texture_mock_binding_create(layout))->value;
+	}
+	return ((const TextureInfo *)placeholder->id)->get_default_view();
+}
+
+WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<BoundUniform> &p_uniforms, WGPUBindGroupLayout p_layout, const WGPUBindGroupLayoutEntry *p_layout_entries, size_t p_layout_entry_count, const HashMap<uint32_t, Vector<uint32_t>> &p_set_binding_corrections, const HashSet<CorrectedBindingIndex> *p_binding_mask, uint32_t p_push_constant_size) {
 	Vector<WGPUBindGroupEntry> entries;
+
+	// TODO
+	HashMap<uint32_t, const WGPUBindGroupLayoutEntry *> layout_entry_by_binding;
+	for (size_t i = 0; i < p_layout_entry_count; i++) {
+		layout_entry_by_binding.insert(p_layout_entries[i].binding, &p_layout_entries[i]);
+	}
+	auto layout_entry_get = [&](uint32_t p_binding) -> const WGPUBindGroupLayoutEntry * {
+		const WGPUBindGroupLayoutEntry *const *entry = layout_entry_by_binding.getptr(p_binding);
+		return entry ? *entry : nullptr;
+	};
 
 	Vector<Pair<uint32_t, UniformType>> index_bindings_input;
 	for (uint32_t uniform_idx = 0; uniform_idx < p_uniforms.size(); uniform_idx++) {
@@ -2338,7 +2378,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				texture_entry.binding = corrected_binding.corrected_binding_idx;
 
 				TextureInfo *texture_info = (TextureInfo *)uniform.ids[corrected_binding.binding_id_idx].id;
-				texture_entry.textureView = texture_info->get_view_with_format();
+				texture_entry.textureView = _texture_view_for_layout_entry(texture_info, layout_entry_get(texture_entry.binding));
 				entries.push_back(texture_entry);
 
 				WGPUBindGroupEntry sampler_entry = {};
@@ -2362,8 +2402,10 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_bind_group_create(const VectorView<B
 				if (uniform.type == RenderingDeviceCommons::UNIFORM_TYPE_IMAGE && texture_info->texture_view_desc.dimension == WGPUTextureViewDimension_Cube) {
 					ERR_FAIL_NULL_V_MSG(texture_info->storage_cube_view, nullptr, "Cube texture bound as a storage image has no storage view.");
 					entry.textureView = texture_info->storage_cube_view;
-				} else {
+				} else if (uniform.type == RenderingDeviceCommons::UNIFORM_TYPE_IMAGE) {
 					entry.textureView = texture_info->get_view_with_format();
+				} else {
+					entry.textureView = _texture_view_for_layout_entry(texture_info, layout_entry_get(entry.binding));
 				}
 				entries.push_back(entry);
 			} break;
@@ -2541,7 +2583,7 @@ WGPUBindGroup RenderingDeviceDriverWebGpu::_mock_bind_group_create(const WGPUBin
 		uniforms.push_back(bound_uniform);
 	}
 
-	WGPUBindGroup bind_group = _bind_group_create(uniforms, p_layout, p_set_binding_corrections, p_binding_mask, p_push_constant_size);
+	WGPUBindGroup bind_group = _bind_group_create(uniforms, p_layout, p_descriptor.entries, p_descriptor.entryCount, p_set_binding_corrections, p_binding_mask, p_push_constant_size);
 	return bind_group;
 }
 
@@ -2714,9 +2756,12 @@ RDD::BufferID RenderingDeviceDriverWebGpu::_buffer_mock_binding_create(WGPUBuffe
 RenderingDeviceDriver::UniformSetID RenderingDeviceDriverWebGpu::uniform_set_create(VectorView<BoundUniform> p_uniforms, ShaderID p_shader, uint32_t p_set_index, int p_linear_pool_index) {
 	ShaderInfo *shader_info = (ShaderInfo *)p_shader.id;
 
+	const bool has_layout_entries = p_set_index < (uint32_t)shader_info->bind_group_layout_entries.size();
 	WGPUBindGroup bind_group = _bind_group_create(
 			p_uniforms,
 			shader_info->bind_group_layouts[p_set_index],
+			has_layout_entries ? shader_info->bind_group_layout_entries[p_set_index].ptr() : nullptr,
+			has_layout_entries ? shader_info->bind_group_layout_entries[p_set_index].size() : 0,
 			shader_info->set_binding_corrections[p_set_index],
 			&shader_info->used_set_bindings[p_set_index],
 			shader_info->_set_index_has_push_constant_emulation(p_set_index) ? shader_info->push_constant_size : 0);
@@ -4173,6 +4218,10 @@ RenderingDeviceDriverWebGpu::RenderingDeviceDriverWebGpu(RenderingContextDriverW
 	context_driver = p_context_driver;
 }
 RenderingDeviceDriverWebGpu::~RenderingDeviceDriverWebGpu() {
+	for (const KeyValue<uint32_t, TextureID> &kv : placeholder_textures) {
+		texture_free(kv.value);
+	}
+
 	if (queue != nullptr) {
 		wgpuQueueRelease(queue);
 	}
