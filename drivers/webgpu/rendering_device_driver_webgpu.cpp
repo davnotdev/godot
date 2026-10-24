@@ -4162,11 +4162,21 @@ uint64_t RenderingDeviceDriverWebGpu::limit_get(Limit p_limit) {
 	WGPULimits limits = WGPULimits{};
 
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-	WGPUNativeLimits extras;
+	WGPUNativeLimits extras = {};
+	extras.chain.sType = (WGPUSType)WGPUSType_NativeLimits;
 	limits.nextInChain = &extras.chain;
 #endif
 
-	wgpuDeviceGetLimits(device, &limits);
+	WGPUStatus status = wgpuDeviceGetLimits(device, &limits);
+	ERR_FAIL_COND_V_MSG(status != WGPUStatus_Success, 0, "Failed to get WebGPU device limits.");
+
+#ifdef WEBGPU_BACKEND_WGPU_DESKTOP
+	// TODO: Update `wgpu-native` to expose `maxInterStageShaderVariables` limit.
+	if (limits.maxInterStageShaderVariables == 0) {
+		limits.maxInterStageShaderVariables = 16;
+	}
+#endif
+
 	return rd_limit_from_webgpu(p_limit, limits);
 }
 
