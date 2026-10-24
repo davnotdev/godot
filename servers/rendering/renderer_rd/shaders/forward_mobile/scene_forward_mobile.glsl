@@ -139,8 +139,8 @@ layout(location = 9) out float dp_clip;
 #endif
 
 #if defined(MODE_RENDER_MOTION_VECTORS)
-layout(location = 12) out highp vec4 screen_position;
-layout(location = 13) out highp vec4 prev_screen_position;
+layout(location = 10) out highp vec4 screen_position;
+layout(location = 11) out highp vec4 prev_screen_position;
 #endif
 
 #ifdef USE_MULTIVIEW
@@ -163,7 +163,7 @@ ivec2 multiview_uv(ivec2 uv) {
 #endif // !USE_MULTIVIEW
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) out vec2 point_coord_interp;
+layout(location = 12) out vec2 point_coord_interp;
 #endif
 
 invariant gl_Position;
@@ -886,8 +886,8 @@ layout(location = 9) in float dp_clip;
 #endif
 
 #if defined(MODE_RENDER_MOTION_VECTORS)
-layout(location = 12) in highp vec4 screen_position;
-layout(location = 13) in highp vec4 prev_screen_position;
+layout(location = 10) in highp vec4 screen_position;
+layout(location = 11) in highp vec4 prev_screen_position;
 #endif
 
 #ifdef USE_LIGHTMAP
@@ -1000,7 +1000,7 @@ ivec2 multiview_uv(ivec2 uv) {
 #endif // !USE_MULTIVIEW
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) in vec2 point_coord_interp;
+layout(location = 12) in vec2 point_coord_interp;
 #endif
 
 //defines to keep compatibility with vertex

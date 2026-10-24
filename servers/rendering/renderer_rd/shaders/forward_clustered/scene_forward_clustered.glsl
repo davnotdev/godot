@@ -131,11 +131,11 @@ float global_time;
 
 #ifdef MODE_DUAL_PARABOLOID
 
-layout(location = 9) out float dp_clip;
+layout(location = 11) out float dp_clip;
 
 #endif
 
-layout(location = 10) out flat uint instance_index_interp;
+layout(location = 9) out flat uint instance_index_interp;
 
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
@@ -147,7 +147,7 @@ vec3 multiview_uv(vec2 uv) {
 ivec3 multiview_uv(ivec2 uv) {
 	return ivec3(uv, int(ViewIndex));
 }
-layout(location = 11) out vec4 combined_projected;
+layout(location = 10) out vec4 combined_projected;
 #else // USE_MULTIVIEW
 #define ViewIndex 0
 vec2 multiview_uv(vec2 uv) {
@@ -159,8 +159,8 @@ ivec2 multiview_uv(ivec2 uv) {
 #endif //USE_MULTIVIEW
 
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
-layout(location = 12) out vec4 diffuse_light_interp;
-layout(location = 13) out vec4 specular_light_interp;
+layout(location = 11) out vec4 diffuse_light_interp;
+layout(location = 12) out vec4 specular_light_interp;
 
 #include "../scene_forward_vertex_lights_inc.glsl"
 
@@ -181,7 +181,7 @@ uint cluster_get_range_clip_mask(uint i, uint z_min, uint z_max) {
 #endif // !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) out vec2 point_coord_interp;
+layout(location = 13) out vec2 point_coord_interp;
 #endif
 
 invariant gl_Position;
@@ -916,11 +916,11 @@ layout(location = 8) in vec4 prev_screen_position;
 
 #ifdef MODE_DUAL_PARABOLOID
 
-layout(location = 9) in float dp_clip;
+layout(location = 11) in float dp_clip;
 
 #endif
 
-layout(location = 10) in flat uint instance_index_interp;
+layout(location = 9) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
 // w0, w1, w2, and w3 are the four cubic B-spline basis functions
@@ -1020,7 +1020,7 @@ vec3 multiview_uv(vec2 uv) {
 ivec3 multiview_uv(ivec2 uv) {
 	return ivec3(uv, int(ViewIndex));
 }
-layout(location = 11) in vec4 combined_projected;
+layout(location = 10) in vec4 combined_projected;
 #else // USE_MULTIVIEW
 #define ViewIndex 0
 vec2 multiview_uv(vec2 uv) {
@@ -1031,12 +1031,12 @@ ivec2 multiview_uv(ivec2 uv) {
 }
 #endif // !USE_MULTIVIEW
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED) && defined(USE_VERTEX_LIGHTING)
-layout(location = 12) in vec4 diffuse_light_interp;
-layout(location = 13) in vec4 specular_light_interp;
+layout(location = 11) in vec4 diffuse_light_interp;
+layout(location = 12) in vec4 specular_light_interp;
 #endif
 
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
-layout(location = 14) in vec2 point_coord_interp;
+layout(location = 13) in vec2 point_coord_interp;
 #endif
 
 //defines to keep compatibility with vertex
