@@ -37,4 +37,6 @@ struct WebGpuBindingHint {
 
 #define WEBGPU_PUSH_CONSTANT_EMULATION_BINDING 256
 
+#define WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE ((uint64_t)16 * 1024 * 1024)
+
 #endif

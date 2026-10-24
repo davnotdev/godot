@@ -244,6 +244,18 @@ RenderingDeviceDriverWebGpu::BufferID RenderingDeviceDriverWebGpu::buffer_create
 
 	const bool maps_at_creation = is_transfer_buffer && (map_mode & WGPUMapMode_Write);
 
+	// HACK: For the sake of performance, create upload staging buffers on the CPU.
+	// Mapping buffers without async is expensive and requires us to create another buffer anyway.
+	// Instead of doing that, just retain the data on the host and copy that directly later.
+	if (maps_at_creation && usage == (WGPUBufferUsage_MapWrite | WGPUBufferUsage_CopySrc)) {
+		BufferInfo *buffer_info = memnew(BufferInfo);
+		buffer_info->size = p_size;
+		buffer_info->usage = usage;
+		buffer_info->map_mode = WGPUMapMode_Write;
+		buffer_info->host_staging_data = (uint8_t *)memalloc(p_size);
+		return BufferID(buffer_info);
+	}
+
 	const uint64_t slice_size = is_dynamic ? STEPIFY(p_size, 256) : p_size;
 	const uint64_t alloc_size = is_dynamic ? slice_size * frame_count : slice_size;
 
@@ -291,7 +303,12 @@ void RenderingDeviceDriverWebGpu::buffer_free(BufferID p_buffer) {
 		buffer_info->freed = true;
 		return;
 	}
-	wgpuBufferRelease(buffer_info->buffer);
+	if (buffer_info->buffer != nullptr) {
+		wgpuBufferRelease(buffer_info->buffer);
+	}
+	if (buffer_info->host_staging_data != nullptr) {
+		memfree(buffer_info->host_staging_data);
+	}
 	if (buffer_info->download_buffer != nullptr) {
 		memfree(buffer_info->download_buffer);
 	}
@@ -366,6 +383,11 @@ void RenderingDeviceDriverWebGpu::_handle_buffer_map(WGPUMapAsyncStatus status, 
 
 uint8_t *RenderingDeviceDriverWebGpu::buffer_map(BufferID p_buffer) {
 	BufferInfo *buffer_info = (BufferInfo *)p_buffer.id;
+
+	if (buffer_info->host_staging_data != nullptr) {
+		buffer_info->is_mapped = true;
+		return buffer_info->host_staging_data;
+	}
 
 	uint64_t offset = 0;
 	uint64_t size = buffer_info->size;
@@ -492,6 +514,10 @@ void RenderingDeviceDriverWebGpu::buffer_unmap(BufferID p_buffer) {
 	buffer_info->is_transfer_first_map = false;
 	buffer_info->is_mapped = false;
 	buffer_info->mapped_data = nullptr;
+
+	if (buffer_info->host_staging_data != nullptr) {
+		return;
+	}
 
 	wgpuBufferUnmap(buffer_info->buffer);
 }
@@ -1096,6 +1122,16 @@ Error RenderingDeviceDriverWebGpu::command_queue_execute_and_present(CommandQueu
 	for (uint32_t i = 0; i < commands.size(); i++) {
 		WGPUCommandBuffer command_buffer = commands[i];
 		wgpuCommandBufferRelease(command_buffer);
+	}
+
+	// Flush upload staging buffers after they are used.
+	for (uint32_t i = 0; i < p_cmd_buffers.size(); i++) {
+		CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffers[i].id;
+		for (WGPUBuffer host_staging_buffer : command_buffer_info->host_staging_buffers) {
+			wgpuBufferDestroy(host_staging_buffer);
+			wgpuBufferRelease(host_staging_buffer);
+		}
+		command_buffer_info->host_staging_buffers.clear();
 	}
 
 	// TODO: IMPL
@@ -2847,6 +2883,28 @@ void RenderingDeviceDriverWebGpu::command_clear_buffer(CommandBufferID p_cmd_buf
 	wgpuCommandEncoderClearBuffer(command_buffer_info->encoder, buffer_info->buffer, p_offset, p_size);
 }
 
+WGPUBuffer RenderingDeviceDriverWebGpu::_host_staging_buffer_create(CommandBufferInfo *p_command_buffer_info, const uint8_t *p_data, uint64_t p_size) {
+	WGPUBufferDescriptor desc = {};
+	desc.usage = WGPUBufferUsage_CopySrc | WGPUBufferUsage_CopyDst;
+	desc.size = STEPIFY(p_size, 4);
+	WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &desc);
+	ERR_FAIL_NULL_V_MSG(buffer, nullptr, vformat("Failed to create host staging buffer of size %d.", desc.size));
+
+	// `wgpuQueueWriteBuffer` sizes must be a multiple of 4.
+	uint64_t aligned_size = STEPIFY(p_size, 4);
+	if (aligned_size > 0) {
+		wgpuQueueWriteBuffer(queue, buffer, 0, p_data, aligned_size);
+	}
+	if (aligned_size < p_size) {
+		uint8_t tail[4] = {};
+		memcpy(tail, p_data + aligned_size, p_size - aligned_size);
+		wgpuQueueWriteBuffer(queue, buffer, aligned_size, tail, 4);
+	}
+
+	p_command_buffer_info->host_staging_buffers.push_back(buffer);
+	return buffer;
+}
+
 void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buffer, BufferID p_src_buffer, BufferID p_dst_buffer, VectorView<BufferCopyRegion> p_regions) {
 	DEV_ASSERT(p_cmd_buffer.id != 0);
 	CommandBufferInfo *command_buffer_info = (CommandBufferInfo *)p_cmd_buffer.id;
@@ -2860,28 +2918,25 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer(CommandBufferID p_cmd_buff
 	}
 	_buffer_release_download_map(dst_buffer_info);
 
-	if (src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write)) {
-		const uint8_t *src_data = (const uint8_t *)src_buffer_info->mapped_data;
+	const uint8_t *src_data = nullptr;
+	if (src_buffer_info->host_staging_data != nullptr) {
+		src_data = src_buffer_info->host_staging_data;
+	} else if (src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write)) {
+		src_data = (const uint8_t *)src_buffer_info->mapped_data;
+	}
 
+	if (src_data != nullptr) {
 		for (uint32_t i = 0; i < p_regions.size(); i++) {
 			BufferCopyRegion region = p_regions[i];
-			if (region.size == 0) {
-				continue;
+			for (uint64_t offset = 0; offset < region.size; offset += WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE) {
+				uint64_t chunk_size = MIN(region.size - offset, WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE);
+				WGPUBuffer host_staging_buffer = _host_staging_buffer_create(command_buffer_info, src_data + region.src_offset + offset, chunk_size);
+				if (host_staging_buffer == nullptr) {
+					// TODO: throw?
+					break;
+				}
+				wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, host_staging_buffer, 0, dst_buffer_info->buffer, region.dst_offset + offset, STEPIFY(chunk_size, 4));
 			}
-			uint64_t copy_size = STEPIFY(region.size, 4);
-
-			WGPUBufferDescriptor intermediate_desc = {};
-			intermediate_desc.usage = WGPUBufferUsage_CopySrc;
-			intermediate_desc.size = copy_size;
-			intermediate_desc.mappedAtCreation = true;
-			WGPUBuffer intermediate_buffer = wgpuDeviceCreateBuffer(device, &intermediate_desc);
-			void *intermediate_data = wgpuBufferGetMappedRange(intermediate_buffer, 0, copy_size);
-			memcpy(intermediate_data, src_data + region.src_offset, region.size);
-			wgpuBufferUnmap(intermediate_buffer);
-
-			wgpuCommandEncoderCopyBufferToBuffer(command_buffer_info->encoder, intermediate_buffer, 0, dst_buffer_info->buffer, region.dst_offset, copy_size);
-
-			wgpuBufferRelease(intermediate_buffer);
 		}
 	} else {
 		if (src_buffer_info->is_mapped) {
@@ -2960,10 +3015,12 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 	FormatBlockDimension block_dimensions = webgpu_texture_format_block_dimensions(dst_texture_info->texture_view_desc.format);
 
-	bool src_still_mapped = src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write);
-	const uint8_t *src_data = src_still_mapped ? (const uint8_t *)src_buffer_info->mapped_data : nullptr;
-
-	if (!src_still_mapped && src_buffer_info->is_mapped) {
+	const uint8_t *src_data = nullptr;
+	if (src_buffer_info->host_staging_data != nullptr) {
+		src_data = src_buffer_info->host_staging_data;
+	} else if (src_buffer_info->is_mapped && src_buffer_info->mapped_data != nullptr && (src_buffer_info->map_mode & WGPUMapMode_Write)) {
+		src_data = (const uint8_t *)src_buffer_info->mapped_data;
+	} else if (src_buffer_info->is_mapped) {
 		this->buffer_unmap(p_src_buffer);
 	}
 
@@ -2977,30 +3034,6 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 
 		uint32_t bytes_per_row = (uint32_t)region.row_pitch;
 		uint32_t layer_count = MAX((uint32_t)region.texture_region_size.z, (uint32_t)1);
-
-		WGPUBuffer intermediate_buffer = nullptr;
-		uint64_t src_offset = region.buffer_offset;
-		uint64_t region_byte_size = (uint64_t)bytes_per_row * blocks_per_column * layer_count;
-		if (src_still_mapped && region_byte_size > 0) {
-			WGPUBufferDescriptor intermediate_desc = {};
-			intermediate_desc.usage = WGPUBufferUsage_CopySrc;
-			intermediate_desc.size = region_byte_size;
-			intermediate_desc.mappedAtCreation = true;
-			intermediate_buffer = wgpuDeviceCreateBuffer(device, &intermediate_desc);
-			void *intermediate_data = wgpuBufferGetMappedRange(intermediate_buffer, 0, region_byte_size);
-			memcpy(intermediate_data, src_data + region.buffer_offset, region_byte_size);
-			wgpuBufferUnmap(intermediate_buffer);
-
-			src_offset = 0;
-		}
-
-		WGPUTexelCopyBufferInfo cp_buffer = {};
-		cp_buffer.layout.offset = src_offset;
-		cp_buffer.layout.bytesPerRow = bytes_per_row;
-		cp_buffer.layout.rowsPerImage = region.texture_region_size.z > 1
-				? blocks_per_column
-				: WGPU_COPY_STRIDE_UNDEFINED;
-		cp_buffer.buffer = intermediate_buffer != nullptr ? intermediate_buffer : src_buffer_info->buffer;
 
 		WGPUTexelCopyTextureInfo cp_texture = {};
 		cp_texture.texture = dst_texture_info->texture;
@@ -3021,10 +3054,63 @@ void RenderingDeviceDriverWebGpu::command_copy_buffer_to_texture(CommandBufferID
 			cp_size.height = STEPIFY(cp_size.height, block_h);
 		}
 
-		wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
+		WGPUTexelCopyBufferInfo cp_buffer = {};
+		cp_buffer.layout.bytesPerRow = bytes_per_row;
 
-		if (intermediate_buffer != nullptr) {
-			wgpuBufferRelease(intermediate_buffer);
+		if (src_data == nullptr) {
+			cp_buffer.layout.offset = region.buffer_offset;
+			cp_buffer.layout.rowsPerImage = region.texture_region_size.z > 1
+					? blocks_per_column
+					: WGPU_COPY_STRIDE_UNDEFINED;
+			cp_buffer.buffer = src_buffer_info->buffer;
+			wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &cp_texture, &cp_size);
+			continue;
+		}
+
+		uint64_t slice_byte_size = (uint64_t)bytes_per_row * blocks_per_column;
+		if (slice_byte_size == 0) {
+			continue;
+		}
+		const uint8_t *region_data = src_data + region.buffer_offset;
+
+		if (slice_byte_size <= WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE) {
+			uint32_t slices_per_chunk = (uint32_t)(WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE / slice_byte_size);
+			for (uint32_t z = 0; z < layer_count; z += slices_per_chunk) {
+				uint32_t z_count = MIN(slices_per_chunk, layer_count - z);
+				cp_buffer.buffer = _host_staging_buffer_create(command_buffer_info, region_data + z * slice_byte_size, z_count * slice_byte_size);
+				if (cp_buffer.buffer == nullptr) {
+					// TODO: throw?
+					break;
+				}
+				cp_buffer.layout.rowsPerImage = blocks_per_column;
+
+				WGPUTexelCopyTextureInfo chunk_texture = cp_texture;
+				chunk_texture.origin.z += z;
+				WGPUExtent3D chunk_size = cp_size;
+				chunk_size.depthOrArrayLayers = z_count;
+				wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &chunk_texture, &chunk_size);
+			}
+		} else {
+			uint32_t rows_per_chunk = (uint32_t)MAX(WEBGPU_HOST_STAGING_BUFFER_CHUNK_SIZE / bytes_per_row, (uint64_t)1);
+			for (uint32_t z = 0; z < layer_count; z++) {
+				for (uint32_t row = 0; row < blocks_per_column; row += rows_per_chunk) {
+					uint32_t row_count = MIN(rows_per_chunk, blocks_per_column - row);
+					cp_buffer.buffer = _host_staging_buffer_create(command_buffer_info, region_data + z * slice_byte_size + (uint64_t)row * bytes_per_row, (uint64_t)row_count * bytes_per_row);
+					if (cp_buffer.buffer == nullptr) {
+						// TODO: throw?
+						break;
+					}
+					cp_buffer.layout.rowsPerImage = WGPU_COPY_STRIDE_UNDEFINED;
+
+					WGPUTexelCopyTextureInfo chunk_texture = cp_texture;
+					chunk_texture.origin.y += row * block_height;
+					chunk_texture.origin.z += z;
+					WGPUExtent3D chunk_size = cp_size;
+					chunk_size.height = MIN(row_count * block_height, cp_size.height - row * block_height);
+					chunk_size.depthOrArrayLayers = 1;
+					wgpuCommandEncoderCopyBufferToTexture(command_buffer_info->encoder, &cp_buffer, &chunk_texture, &chunk_size);
+				}
+			}
 		}
 	}
 }

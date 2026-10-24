@@ -63,6 +63,11 @@ private:
 		bool is_mapped = false;
 		// Cached result of the one `wgpuBufferGetMappedRange()`.
 		void *mapped_data = nullptr;
+		// HACK: For the sake of performance, create upload staging buffers on the CPU.
+		// Mapping buffers without async is expensive and requires us to create another buffer anyway.
+		// Instead of doing that, just retain the data on the host and copy that directly later.
+		// See `buffer_create`
+		uint8_t *host_staging_data = nullptr;
 
 		bool download_map_requested = false;
 		bool download_map_completed = false;
@@ -434,9 +439,12 @@ private:
 		bool has_compute_commands = false;
 		bool is_render_pass_active = false;
 		RenderPassEncoderInfo active_render_pass_info = RenderPassEncoderInfo();
+		LocalVector<WGPUBuffer> host_staging_buffers;
 	};
 
 	void _flush_active_command_pass(CommandBufferInfo &p_command_buffer_info);
+
+	WGPUBuffer _host_staging_buffer_create(CommandBufferInfo *p_command_buffer_info, const uint8_t *p_data, uint64_t p_size);
 
 public:
 	virtual CommandBufferID command_buffer_create(CommandPoolID p_cmd_pool) override final;
