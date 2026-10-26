@@ -75,24 +75,33 @@ static WebGpuBindingHint webgpu_binding_hint_from_trans(const WebGpuTranslateBin
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
 // Cater to Tint's stricter WGSL enforcement.
 static const char WEBGPU_WGSL_PRELUDE[] =
+		"diagnostic(off, derivative_uniformity);\n";
+
+// Cater to Dawn which requires `enable subgroup;`
+// Eventually, I would expect naga to support this as well.
+static const char WEBGPU_WGSL_SUBGROUPS_PRELUDE[] =
 		"enable subgroups;\n"
-		"diagnostic(off, derivative_uniformity);\n"
 		"diagnostic(off, subgroup_uniformity);\n";
 
 static CharString _prepend_wgsl_prelude(const CharString &p_wgsl) {
+	const bool uses_subgroups = p_wgsl.length() > 0 && strstr(p_wgsl.get_data(), "subgroup") != nullptr;
+	const int subgroups_prelude_length = uses_subgroups ? (int)sizeof(WEBGPU_WGSL_SUBGROUPS_PRELUDE) - 1 : 0;
 	const int prelude_length = (int)sizeof(WEBGPU_WGSL_PRELUDE) - 1;
 	const int body_length = p_wgsl.length();
 
 	CharString out;
-	Error err = out.resize_uninitialized(prelude_length + body_length + 1);
+	Error err = out.resize_uninitialized(subgroups_prelude_length + prelude_length + body_length + 1);
 	ERR_FAIL_COND_V_MSG(err != OK, p_wgsl, "Failed to allocate WGSL with prelude.");
 
 	char *dst = out.ptrw();
+	memcpy(dst, WEBGPU_WGSL_SUBGROUPS_PRELUDE, subgroups_prelude_length);
+	dst += subgroups_prelude_length;
 	memcpy(dst, WEBGPU_WGSL_PRELUDE, prelude_length);
+	dst += prelude_length;
 	if (body_length > 0) {
-		memcpy(dst + prelude_length, p_wgsl.ptr(), body_length);
+		memcpy(dst, p_wgsl.ptr(), body_length);
 	}
-	dst[prelude_length + body_length] = '\0';
+	dst[body_length] = '\0';
 
 	return out;
 }

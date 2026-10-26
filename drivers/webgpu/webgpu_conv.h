@@ -184,4 +184,25 @@ static const WGPUTextureFormat WEBGPU_CORE_SUPPORTED_FORMATS[] = {
 	// WGPUTextureFormat_ASTC12x12UnormSrgb,
 };
 
+// Formats we can use as STORAGE without "texture-formats-tier1" and friends.
+// https://www.w3.org/TR/webgpu/#plain-color-formats
+static const WGPUTextureFormat WEBGPU_CORE_STORAGE_FORMATS[] = {
+	WGPUTextureFormat_RGBA8Unorm,
+	WGPUTextureFormat_RGBA8Snorm,
+	WGPUTextureFormat_RGBA8Uint,
+	WGPUTextureFormat_RGBA8Sint,
+	WGPUTextureFormat_RGBA16Uint,
+	WGPUTextureFormat_RGBA16Sint,
+	WGPUTextureFormat_RGBA16Float,
+	WGPUTextureFormat_R32Uint,
+	WGPUTextureFormat_R32Sint,
+	WGPUTextureFormat_R32Float,
+	WGPUTextureFormat_RG32Uint,
+	WGPUTextureFormat_RG32Sint,
+	WGPUTextureFormat_RG32Float,
+	WGPUTextureFormat_RGBA32Uint,
+	WGPUTextureFormat_RGBA32Sint,
+	WGPUTextureFormat_RGBA32Float,
+};
+
 #endif // WEBGPU_CONV_H

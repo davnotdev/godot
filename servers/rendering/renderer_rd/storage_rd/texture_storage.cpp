@@ -601,7 +601,14 @@ TextureStorage::TextureStorage() {
 		sdf_modes.push_back("\n#define MODE_STORE\n");
 		sdf_modes.push_back("\n#define MODE_STORE_SHRINK\n");
 
-		rt_sdf.shader.initialize(sdf_modes);
+		RD *rd = RD::get_singleton();
+		// TODO(davnotdev): Ugly, fix me.
+		// These are the formats that may not support STORAGE on some platforms.
+		rt_sdf.use_fallback_formats = !rd->texture_is_format_supported_for_usage(RD::DATA_FORMAT_R8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT) ||
+				!rd->texture_is_format_supported_for_usage(RD::DATA_FORMAT_R16G16_SINT, RD::TEXTURE_USAGE_STORAGE_BIT) ||
+				!rd->texture_is_format_supported_for_usage(RD::DATA_FORMAT_R16_SNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT);
+
+		rt_sdf.shader.initialize(sdf_modes, rt_sdf.use_fallback_formats ? "\n#define USE_FALLBACK_FORMATS\n" : "");
 
 		rt_sdf.shader_version = rt_sdf.shader.version_create();
 
@@ -4884,11 +4891,17 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 
 	Size2i size = _render_target_get_sdf_rect(rt).size;
 
+	const bool use_fallback_formats = rt_sdf.use_fallback_formats;
+
 	RD::TextureFormat tformat;
 	tformat.format = RD::DATA_FORMAT_R8_UNORM;
 	tformat.width = size.width;
 	tformat.height = size.height;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
+	// HACK(davnotdev): This texture format cannot be used as storage on some platforms.
+	if (use_fallback_formats) {
+		tformat.usage_bits &= ~RD::TEXTURE_USAGE_STORAGE_BIT;
+	}
 	tformat.texture_type = RD::TEXTURE_TYPE_2D;
 
 	rt->sdf_buffer_write = RD::get_singleton()->texture_create(tformat, RD::TextureView());
@@ -4919,7 +4932,7 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	rt->process_size = size * scale / 100;
 	rt->process_size = rt->process_size.maxi(1);
 
-	tformat.format = RD::DATA_FORMAT_R16G16_SINT;
+	tformat.format = use_fallback_formats ? RD::DATA_FORMAT_R32G32_SINT : RD::DATA_FORMAT_R16G16_SINT;
 	tformat.width = rt->process_size.width;
 	tformat.height = rt->process_size.height;
 	tformat.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT;
@@ -4927,7 +4940,7 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 	rt->sdf_buffer_process[0] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 	rt->sdf_buffer_process[1] = RD::get_singleton()->texture_create(tformat, RD::TextureView());
 
-	tformat.format = RD::DATA_FORMAT_R16_SNORM;
+	tformat.format = use_fallback_formats ? RD::DATA_FORMAT_R32_SFLOAT : RD::DATA_FORMAT_R16_SNORM;
 	tformat.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
 	rt->sdf_buffer_read = RD::get_singleton()->texture_create(tformat, RD::TextureView());
@@ -4936,7 +4949,8 @@ void TextureStorage::_render_target_allocate_sdf(RenderTarget *rt) {
 		Vector<RD::Uniform> uniforms;
 		{
 			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+			// HACK(davnotdev): This texture format cannot be used as storage on some platforms.
+			u.uniform_type = use_fallback_formats ? RD::UNIFORM_TYPE_TEXTURE : RD::UNIFORM_TYPE_IMAGE;
 			u.binding = 1;
 			u.append_id(rt->sdf_buffer_write);
 			uniforms.push_back(u);

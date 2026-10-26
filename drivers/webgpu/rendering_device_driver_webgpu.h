@@ -26,6 +26,7 @@ class RenderingDeviceDriverWebGpu : public RenderingDeviceDriver {
 	WGPUDevice device = nullptr;
 	WGPUAdapter adapter = nullptr;
 	WGPUQueue queue = nullptr;
+	WebGpuFeatureSupport features;
 	RenderingContextDriverWebGpu *context_driver = nullptr;
 	RenderingContextDriver::Device context_device;
 

@@ -529,6 +529,8 @@ private:
 		CanvasSdfShaderRD shader;
 		RID shader_version;
 		RID pipelines[SHADER_MAX];
+		// Used for WebGPU platforms that don't support certain storage formats.
+		bool use_fallback_formats = false;
 	} rt_sdf;
 
 	struct TextureBlitShader {

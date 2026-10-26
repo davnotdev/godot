@@ -6,11 +6,26 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+// Some WebGPU platforms cannot use these formats as storage.
+#ifdef USE_FALLBACK_FORMATS
+#extension GL_EXT_samplerless_texture_functions : enable
+
+layout(set = 0, binding = 1) uniform texture2D src_pixels;
+layout(r32f, set = 0, binding = 2) uniform restrict writeonly image2D dst_sdf;
+
+layout(rg32i, set = 0, binding = 3) uniform restrict readonly iimage2D src_process;
+layout(rg32i, set = 0, binding = 4) uniform restrict writeonly iimage2D dst_process;
+
+#define LOAD_SRC_PIXEL(m_pos) texelFetch(src_pixels, m_pos, 0)
+#else
 layout(r8, set = 0, binding = 1) uniform restrict readonly image2D src_pixels;
 layout(r16_snorm, set = 0, binding = 2) uniform restrict writeonly image2D dst_sdf;
 
 layout(rg16i, set = 0, binding = 3) uniform restrict readonly iimage2D src_process;
 layout(rg16i, set = 0, binding = 4) uniform restrict writeonly iimage2D dst_process;
+
+#define LOAD_SRC_PIXEL(m_pos) imageLoad(src_pixels, m_pos)
+#endif
 
 layout(push_constant, std430) uniform Params {
 	ivec2 size;
@@ -31,7 +46,7 @@ void main() {
 
 #ifdef MODE_LOAD
 
-	bool solid = imageLoad(src_pixels, pos).r > 0.5;
+	bool solid = LOAD_SRC_PIXEL(pos).r > 0.5;
 	imageStore(dst_process, pos, solid ? ivec4(ivec2(-32767), 0, 0) : ivec4(ivec2(32767), 0, 0));
 #endif
 
@@ -51,7 +66,7 @@ void main() {
 			if (any(greaterThanEqual(src_pos, params.base_size))) {
 				continue;
 			}
-			bool solid = imageLoad(src_pixels, src_pos).r > 0.5;
+			bool solid = LOAD_SRC_PIXEL(src_pos).r > 0.5;
 			if (solid) {
 				float dist = length(vec2(src_pos - center));
 				if (dist < d) {

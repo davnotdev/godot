@@ -55,10 +55,7 @@ void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter,
 		WGPUFeatureName_TextureCompressionBC,
 
 #if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
-		WGPUFeatureName_TextureFormatsTier1,
-		WGPUFeatureName_TextureFormatsTier2,
-		WGPUFeatureName_Subgroups,
-		WGPUFeatureName_TextureComponentSwizzle,
+		// See `mobile_optional_features` below.
 #elif defined(WEBGPU_BACKEND_WGPU_DESKTOP)
 		// `wgpu` needs to add support for "texture-formats-tier1", "texture-formats-tier2", and "subgroups", see:
 		// - https://github.com/gfx-rs/wgpu/issues/5555
@@ -89,6 +86,24 @@ void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter,
 	for (WGPUFeatureName feature : required_features) {
 		r_requirements.features.push_back(feature);
 	}
+
+#if defined(WEBGPU_BACKEND_DAWN_DESKTOP) || defined(WEBGPU_BACKEND_EMDAWN)
+	static const WGPUFeatureName mobile_optional_features[] = {
+		WGPUFeatureName_TextureFormatsTier1,
+		WGPUFeatureName_TextureFormatsTier2,
+		WGPUFeatureName_Subgroups,
+		WGPUFeatureName_TextureComponentSwizzle,
+	};
+	for (WGPUFeatureName feature : mobile_optional_features) {
+		// We want to include these features since they exist in the spec but some platforms (ahem firefox) may not
+		// support them yet.
+		// In that case, try to skip them for now.
+		if (p_mobile && !wgpuAdapterHasFeature(p_adapter, feature)) {
+			continue;
+		}
+		r_requirements.features.push_back(feature);
+	}
+#endif
 
 	WGPULimits &required_limits = r_requirements.limits;
 	required_limits = WGPU_LIMITS_INIT;
@@ -182,6 +197,15 @@ Error RenderingDeviceDriverWebGpu::initialize(uint32_t p_device_index, uint32_t 
 
 	queue = wgpuDeviceGetQueue(device);
 	ERR_FAIL_COND_V(!this->queue, FAILED);
+
+#if defined(WEBGPU_BACKEND_WGPU_DESKTOP)
+	// `wgpu-native` doesn't map the standard feature names yet, so use the native equivalents.
+	features.texture_component_swizzle = true;
+	features.texture_formats_tier1 = wgpuDeviceHasFeature(device, (WGPUFeatureName)WGPUNativeFeature_TextureAdapterSpecificFormatFeatures);
+#else
+	features.texture_component_swizzle = wgpuDeviceHasFeature(device, WGPUFeatureName_TextureComponentSwizzle);
+	features.texture_formats_tier1 = wgpuDeviceHasFeature(device, WGPUFeatureName_TextureFormatsTier1);
+#endif
 
 	capabilties = {};
 	// TODO: This information is not accurate, see modules/glslang/register_types.cpp:78.
@@ -708,7 +732,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create(con
 
 	WGPUTextureViewDimension view_dimension = webgpu_texture_view_dimension_from_rd(p_format.texture_type);
 	WGPUTextureViewDescriptor texture_view_desc = {};
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = features.texture_component_swizzle ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = view_format;
 	texture_view_desc.dimension = view_dimension;
 	texture_view_desc.mipLevelCount = texture_desc.mipLevelCount;
@@ -768,7 +792,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 #endif
 
 	WGPUTextureViewDescriptor texture_view_desc = {};
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = features.texture_component_swizzle ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = webgpu_texture_format_from_rd(p_view.format);
 	texture_view_desc.dimension = texture_info->texture_view_desc.dimension == WGPUTextureViewDimension_Cube ? WGPUTextureViewDimension_Cube : WGPUTextureViewDimension_Undefined;
 	texture_view_desc.mipLevelCount = texture_info->texture_view_desc.mipLevelCount;
@@ -812,7 +836,7 @@ RenderingDeviceDriver::TextureID RenderingDeviceDriverWebGpu::texture_create_sha
 	WGPUTextureFormat view_format = webgpu_texture_format_from_rd(p_view.format);
 	WGPUTextureAspect aspect = webgpu_texture_aspect_from_rd_format(p_view.format);
 	WGPUTextureViewDescriptor texture_view_desc = {};
-	texture_view_desc.nextInChain = (WGPUChainedStruct *)&texture_view_desc_extras;
+	texture_view_desc.nextInChain = features.texture_component_swizzle ? (WGPUChainedStruct *)&texture_view_desc_extras : nullptr;
 	texture_view_desc.format = view_format;
 	texture_view_desc.dimension = texture_info->texture_view_desc.dimension;
 	texture_view_desc.baseMipLevel = p_mipmap;
@@ -916,6 +940,19 @@ BitField<RenderingDeviceDriver::TextureUsageBits> RenderingDeviceDriverWebGpu::t
 		if (webgpu_texture_format_from_rd(p_format) == format) {
 			// TODO: Read this https://www.w3.org/TR/webgpu/#texture-format-caps
 			BitField<RDD::TextureUsageBits> supported = INT64_MAX;
+			if (!features.texture_formats_tier1) {
+				bool is_core_storage_format = false;
+				for (WGPUTextureFormat storage_format : WEBGPU_CORE_STORAGE_FORMATS) {
+					if (format == storage_format) {
+						is_core_storage_format = true;
+						break;
+					}
+				}
+				if (!is_core_storage_format) {
+					supported.clear_flag(TEXTURE_USAGE_STORAGE_BIT);
+					supported.clear_flag(TEXTURE_USAGE_STORAGE_ATOMIC_BIT);
+				}
+			}
 			return supported;
 		}
 	}

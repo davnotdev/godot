@@ -29,6 +29,11 @@ struct WebGpuBindingHint {
 	WebGpuBindingHint() {}
 };
 
+struct WebGpuFeatureSupport {
+	bool texture_component_swizzle = true;
+	bool texture_formats_tier1 = true;
+};
+
 #define WEBGPU_MAX_BIND_GROUPS 4
 // This should just be 128 up to minUniformBufferOffsetAlignment.
 #define WEBGPU_MAX_IMMEDIATE_SIZE 256
