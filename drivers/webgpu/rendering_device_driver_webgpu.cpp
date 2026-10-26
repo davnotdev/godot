@@ -92,6 +92,7 @@ void RenderingDeviceDriverWebGpu::device_requirements_get(WGPUAdapter p_adapter,
 		WGPUFeatureName_TextureFormatsTier1,
 		WGPUFeatureName_TextureFormatsTier2,
 		WGPUFeatureName_Subgroups,
+		// TODO: Q: Do we even want native swizzle if we can bake it?
 		WGPUFeatureName_TextureComponentSwizzle,
 	};
 	for (WGPUFeatureName feature : mobile_optional_features) {
@@ -4239,6 +4240,8 @@ uint64_t RenderingDeviceDriverWebGpu::api_trait_get(ApiTrait p_trait) {
 			// #else
 			// 			return 1;
 			// #endif
+		case API_TRAIT_TEXTURE_SWIZZLE:
+			return features.texture_component_swizzle;
 		default:
 			return RenderingDeviceDriver::api_trait_get(p_trait);
 	}

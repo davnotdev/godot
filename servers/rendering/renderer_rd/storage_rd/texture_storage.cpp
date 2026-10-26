@@ -2265,8 +2265,18 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 	Image::Format original_format = p_image->get_format();
 	Ref<Image> image = p_image->duplicate();
 
+	// Without swizzle support, formats that rely on it are converted so the swizzle is baked into the data.
+	const bool swizzle_supported = RD::get_singleton()->get_device_driver()->api_trait_get(RDD::API_TRAIT_TEXTURE_SWIZZLE);
+	bool is_swizzle_baked = false;
+
 	switch (p_image->get_format()) {
 		case Image::FORMAT_L8: {
+			if (!swizzle_supported) {
+				r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+				image->convert(Image::FORMAT_RGBA8);
+				is_swizzle_baked = true;
+				break;
+			}
 			r_format.format = RD::DATA_FORMAT_R8_UNORM;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
 			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_R;
@@ -2274,6 +2284,12 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		} break; //luminance
 		case Image::FORMAT_LA8: {
+			if (!swizzle_supported) {
+				r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+				image->convert(Image::FORMAT_RGBA8);
+				is_swizzle_baked = true;
+				break;
+			}
 			r_format.format = RD::DATA_FORMAT_R8G8_UNORM;
 			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
 			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_R;
@@ -2651,6 +2667,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
 		case Image::FORMAT_ETC2_RA_AS_RG: {
+			if (!swizzle_supported) {
+				r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+				image->decompress();
+				image->convert(Image::FORMAT_RGBA8);
+				image->convert_ra_rgba8_to_rg();
+				is_swizzle_baked = true;
+				break;
+			}
 			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
 				r_format.format = RD::DATA_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
@@ -2667,6 +2691,14 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
 		} break;
 		case Image::FORMAT_DXT5_RA_AS_RG: {
+			if (!swizzle_supported) {
+				r_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+				image->decompress();
+				image->convert(Image::FORMAT_RGBA8);
+				image->convert_ra_rgba8_to_rg();
+				is_swizzle_baked = true;
+				break;
+			}
 			if (RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_BC3_UNORM_BLOCK, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT)) {
 				r_format.format = RD::DATA_FORMAT_BC3_UNORM_BLOCK;
 				r_format.format_srgb = RD::DATA_FORMAT_BC3_SRGB_BLOCK;
@@ -2845,7 +2877,7 @@ Ref<Image> TextureStorage::_validate_texture_format(const Ref<Image> &p_image, T
 
 	// RGB formats are often not supported, only print warnings about them when launched with the --verbose flag.
 	const bool is_rgb_format = original_format == Image::FORMAT_RGB8 || original_format == Image::FORMAT_RGBH || original_format == Image::FORMAT_RGBF;
-	if ((is_print_verbose_enabled() || !is_rgb_format) && original_format != image->get_format()) {
+	if ((is_print_verbose_enabled() || (!is_rgb_format && !is_swizzle_baked)) && original_format != image->get_format()) {
 		WARN_PRINT(vformat("Image format %s not supported by hardware, converting to %s.", Image::get_format_name(original_format), Image::get_format_name(image->get_format())));
 	}
 
