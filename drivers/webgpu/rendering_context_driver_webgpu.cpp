@@ -67,12 +67,15 @@ Error RenderingContextDriverWebGpu::initialize() {
 #endif
 
 #ifdef WEBGPU_BACKEND_WGPU_DESKTOP
-	// HACK: Forcing Vulkan works nicely if you need to use lavapipe (CPU vulkan implementation) for debugging
 	WGPUInstanceExtras instance_extras = {};
 	instance_extras.chain.sType = (WGPUSType)WGPUSType_InstanceExtras;
-	// .backends = WGPUInstanceBackend_Vulkan
-	// .backends = WGPUInstanceBackend_DX12
+	// On Windows, wgpu has trouble picking the correct adapter.
+	// We use desktop builds to test for browsers, and on wgpu backends, we can expect DX12 to be used anyways.
+#ifdef WINDOWS_ENABLED
+	instance_extras.backends = WGPUInstanceBackend_DX12;
+#else
 	instance_extras.backends = WGPUInstanceBackend_All;
+#endif
 #endif
 
 	WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
